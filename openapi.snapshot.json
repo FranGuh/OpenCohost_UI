@@ -1,0 +1,294 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/status": {
+      "get": {
+        "summary": "Get Status",
+        "operationId": "get_status_api_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/perfiles": {
+      "get": {
+        "summary": "List Perfiles",
+        "operationId": "list_perfiles_api_perfiles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilesListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/perfiles/switch": {
+      "post": {
+        "summary": "Switch Profile",
+        "operationId": "switch_profile_api_perfiles_switch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthState": {
+        "properties": {
+          "vram_status": {
+            "type": "string",
+            "title": "Vram Status"
+          },
+          "rtf_status": {
+            "type": "string",
+            "title": "Rtf Status"
+          },
+          "ollama_status": {
+            "type": "string",
+            "title": "Ollama Status"
+          },
+          "qwen_status": {
+            "type": "string",
+            "title": "Qwen Status"
+          },
+          "overall_status": {
+            "type": "string",
+            "title": "Overall Status"
+          },
+          "ollama_lifecycle": {
+            "type": "string",
+            "title": "Ollama Lifecycle"
+          },
+          "qwen_lifecycle": {
+            "type": "string",
+            "title": "Qwen Lifecycle"
+          },
+          "free_vram_mb": {
+            "type": "number",
+            "title": "Free Vram Mb"
+          },
+          "rtf_rolling_avg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtf Rolling Avg"
+          },
+          "last_updated": {
+            "type": "number",
+            "title": "Last Updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "vram_status",
+          "rtf_status",
+          "ollama_status",
+          "qwen_status",
+          "overall_status",
+          "ollama_lifecycle",
+          "qwen_lifecycle",
+          "free_vram_mb",
+          "rtf_rolling_avg",
+          "last_updated"
+        ],
+        "title": "HealthState",
+        "description": "Mirrors `opencohost.core.health_monitor.MonitorState`."
+      },
+      "ProfilesListResponse": {
+        "properties": {
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Profiles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles"
+        ],
+        "title": "ProfilesListResponse",
+        "description": "Profile NAMES only \u2014 never persona text, prompts, or other fields."
+      },
+      "StatusResponse": {
+        "properties": {
+          "is_ready": {
+            "type": "boolean",
+            "title": "Is Ready"
+          },
+          "current_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Model"
+          },
+          "is_speaking": {
+            "type": "boolean",
+            "title": "Is Speaking"
+          },
+          "is_processing": {
+            "type": "boolean",
+            "title": "Is Processing"
+          },
+          "active_profile": {
+            "type": "string",
+            "title": "Active Profile"
+          },
+          "health": {
+            "$ref": "#/components/schemas/HealthState"
+          },
+          "state_version": {
+            "type": "integer",
+            "title": "State Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_ready",
+          "current_model",
+          "is_speaking",
+          "is_processing",
+          "active_profile",
+          "health",
+          "state_version"
+        ],
+        "title": "StatusResponse"
+      },
+      "SwitchProfileRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SwitchProfileRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
