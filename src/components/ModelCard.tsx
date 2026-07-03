@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useStatusQuery } from "../api/status.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
+import { Select } from "./ui/Select.js";
 import { cn } from "../lib/cn.js";
 
 // P2: wire to backend model registry — no /api/models endpoint exists yet.
@@ -29,6 +30,12 @@ type TierId = (typeof TIERS)[number]["id"];
  * treatment ported from scratchpad/kira-redesign.html's `.tiers`/`.tier`
  * pattern. Only `current_model` is live (useStatusQuery); the select and
  * tier control are local UI state, P2: wire to backend.
+ *
+ * Tier control a11y (B2 judgment-day fix): uses the toggle-button pattern
+ * (`role="group"` + `aria-pressed`, same contract as `ui/Segmented.tsx`) —
+ * NOT `role="radiogroup"`/`role="radio"`, which implies a roving-tabindex +
+ * arrow-key contract this control never implemented. Semantics now match
+ * behavior.
  */
 export function ModelCard() {
   const { data } = useStatusQuery();
@@ -52,9 +59,9 @@ export function ModelCard() {
         <label htmlFor="model-select" className="label text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
           Modelo Activo
         </label>
-        <select
+        <Select
           id="model-select"
-          className="mono h-11 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground"
+          className="mono"
           value={selectedModel}
           onChange={(event) => setSelectedModel(event.target.value as ModelId)}
         >
@@ -63,7 +70,7 @@ export function ModelCard() {
               {option.label}
             </option>
           ))}
-        </select>
+        </Select>
         <p className="text-xs leading-relaxed text-muted-foreground">
           {model.vendor} <span className="mono font-semibold text-foreground">{model.size}</span>
         </p>
@@ -71,15 +78,14 @@ export function ModelCard() {
 
       <div className="mt-2">
         <div className="mb-[6px] text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Tier LLM manual</div>
-        <div role="radiogroup" aria-label="Tier LLM manual" className="grid gap-[6px]">
+        <div role="group" aria-label="Tier LLM manual" className="grid gap-[6px]">
           {TIERS.map((tier) => {
             const isActive = tier.id === activeTier;
             return (
               <button
                 key={tier.id}
                 type="button"
-                role="radio"
-                aria-checked={isActive}
+                aria-pressed={isActive}
                 onClick={() => setActiveTier(tier.id)}
                 className={cn(
                   "flex h-[42px] items-center justify-between gap-[10px] rounded-md border border-border-soft bg-card px-[14px] text-[13.5px] font-semibold text-muted-foreground transition-colors",

@@ -4,6 +4,7 @@ import { usePollUntilApplied } from "../api/status.js";
 import { useSwitchStore } from "../store/switchStore.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
+import { Select } from "./ui/Select.js";
 
 /**
  * Native <select> profile control (design D9 — no shadcn/radix combobox
@@ -50,9 +51,8 @@ export function ProfileSwitcher() {
         {!pendingSwitch && <Badge tone="ok">activo</Badge>}
       </div>
 
-      <select
+      <Select
         aria-label="Perfil activo"
-        className="h-11 rounded-md border border-border bg-background px-3 text-sm text-foreground"
         value={selectValue}
         disabled={isApplying || profilesQuery.isLoading}
         onChange={handleChange}
@@ -63,7 +63,7 @@ export function ProfileSwitcher() {
             {name}
           </option>
         ))}
-      </select>
+      </Select>
 
       {switchMutation.isError && (
         <p role="alert" className="text-xs text-danger">

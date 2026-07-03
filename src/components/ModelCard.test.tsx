@@ -18,15 +18,15 @@ describe("ModelCard", () => {
 
   it("defaults the tier control to Fast and switches active tier locally on click", () => {
     renderCard();
-    const fastTier = screen.getByRole("radio", { name: /Fast · Qwen 3/ });
-    const qualityTier = screen.getByRole("radio", { name: /Quality · Gemma 4/ });
-    expect(fastTier).toHaveAttribute("aria-checked", "true");
-    expect(qualityTier).toHaveAttribute("aria-checked", "false");
+    const fastTier = screen.getByRole("button", { name: /Fast · Qwen 3/ });
+    const qualityTier = screen.getByRole("button", { name: /Quality · Gemma 4/ });
+    expect(fastTier).toHaveAttribute("aria-pressed", "true");
+    expect(qualityTier).toHaveAttribute("aria-pressed", "false");
 
     fireEvent.click(qualityTier);
 
-    expect(qualityTier).toHaveAttribute("aria-checked", "true");
-    expect(fastTier).toHaveAttribute("aria-checked", "false");
+    expect(qualityTier).toHaveAttribute("aria-pressed", "true");
+    expect(fastTier).toHaveAttribute("aria-pressed", "false");
   });
 
   it("updates the meta description when a different model is selected", () => {

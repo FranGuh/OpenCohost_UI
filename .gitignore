@@ -6,3 +6,7 @@ src-tauri/gen/
 *.log
 **/types.gen.ts
 openapi.snapshot.check.json
+
+# Kira avatar art — owner keeps this uncommitted (copied from the Python
+# repo's assets/avatar/kira/ at apply-time, not checked into OpenCohost_UI).
+public/avatar/
