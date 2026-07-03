@@ -7,18 +7,80 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
+  defaultStatus,
   switchConflictHandler,
   switchNotFoundHandler,
-  switchQueueFullHandler,
-  switchReplayHandler
+  switchQueueFullHandler
 } from "../test/handlers.js";
 import { useSwitchStore } from "../store/switchStore.js";
 import { useProfilesQuery, useSwitchProfileMutation } from "./profiles.js";
+import { STATUS_QUERY_KEY, usePollUntilApplied } from "./status.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: ReactNode }) =>
     React.createElement(QueryClientProvider, { client: queryClient }, children);
+}
+
+/** Mirrors the real usage pattern (Slice B): target is derived reactively
+ * from the store, so it naturally becomes `null` once a switch converges. */
+function useSwitchAndReconcile() {
+  const mutation = useSwitchProfileMutation();
+  const pendingSwitch = useSwitchStore((state) => state.pendingSwitch);
+  const statusQuery = usePollUntilApplied(pendingSwitch?.name ?? null);
+  return { mutation, statusQuery };
+}
+
+/**
+ * Simulates backend idempotency dedupe (obs #2811): a NEW Idempotency-Key
+ * enqueues + applies a fresh command; a REPLAYED key returns the same
+ * command_id and does NOT re-apply.
+ */
+function keyRotationScenarioHandlers() {
+  const headersSeen: string[] = [];
+  const commandsByKey = new Map<string, string>();
+  let activeProfile = "default";
+  let counter = 0;
+
+  const switchHandler = http.post(`${API_BASE_URL}/api/perfiles/switch`, async ({ request }) => {
+    const key = request.headers.get("Idempotency-Key") ?? "";
+    headersSeen.push(key);
+    const { name } = (await request.json()) as { name: string };
+
+    let commandId = commandsByKey.get(key);
+    if (!commandId) {
+      counter += 1;
+      commandId = `cmd-${counter}`;
+      commandsByKey.set(key, commandId);
+      activeProfile = name;
+    }
+    return HttpResponse.json({ accepted: true, command_id: commandId, status: "queued" });
+  });
+
+  const statusHandler = http.get(`${API_BASE_URL}/api/status`, () =>
+    HttpResponse.json({
+      is_ready: true,
+      current_model: "qwen3-tts",
+      is_speaking: false,
+      is_processing: false,
+      active_profile: activeProfile,
+      health: {
+        vram_status: "ok",
+        rtf_status: "ok",
+        ollama_status: "ok",
+        qwen_status: "ok",
+        overall_status: "ok",
+        ollama_lifecycle: "running",
+        qwen_lifecycle: "running",
+        free_vram_mb: 4096,
+        rtf_rolling_avg: 0.3,
+        last_updated: 0
+      },
+      state_version: counter
+    })
+  );
+
+  return { switchHandler, statusHandler, headersSeen };
 }
 
 beforeEach(() => {
@@ -96,24 +158,102 @@ describe("useSwitchProfileMutation (spec R5, R6, R7)", () => {
     expect(pending).toEqual({ name: "Akira", commandId: "cmd-2", status: "applying" });
   });
 
-  it("idempotent replay: same command_id does not trigger a second applying transition", async () => {
-    server.use(switchReplayHandler("cmd-replay"));
+  it("F1 regression: re-switching to a previously-converged profile rotates the Idempotency-Key and re-enqueues (does not get stuck applying)", async () => {
+    const { switchHandler, statusHandler, headersSeen } = keyRotationScenarioHandlers();
+    server.use(switchHandler, statusHandler);
+
+    const { result } = renderHook(() => useSwitchAndReconcile(), { wrapper: createWrapper() });
+
+    // 1. switch to Akira, converge.
+    await act(async () => {
+      await result.current.mutation.mutateAsync({ name: "Akira" });
+    });
+    await waitFor(() => expect(useSwitchStore.getState().pendingSwitch).toBeNull());
+
+    // 2. switch to default, converge.
+    await act(async () => {
+      await result.current.mutation.mutateAsync({ name: "default" });
+    });
+    await waitFor(() => expect(useSwitchStore.getState().pendingSwitch).toBeNull());
+
+    // 3. switch BACK to Akira — must be a fresh key (re-enqueue), not a replay
+    // of the first Akira command, and must converge (not get stuck applying).
+    await act(async () => {
+      await result.current.mutation.mutateAsync({ name: "Akira" });
+    });
+
+    expect(headersSeen).toHaveLength(3);
+    expect(headersSeen[2]).not.toBe(headersSeen[0]);
+
+    await waitFor(() => expect(useSwitchStore.getState().pendingSwitch).toBeNull());
+  });
+
+  it("R6 guard: idempotent replay of an already-registered pending intent does not re-trigger a redundant applying transition", async () => {
+    let calls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, () => {
+        calls += 1;
+        return HttpResponse.json({ accepted: true, command_id: "cmd-replay", status: "queued" });
+      })
+    );
 
     const { result } = renderHook(() => useSwitchProfileMutation(), { wrapper: createWrapper() });
 
     await act(async () => {
       await result.current.mutateAsync({ name: "Akira" });
     });
-    const firstPending = useSwitchStore.getState().pendingSwitch;
+
+    const setPendingSpy = vi.spyOn(useSwitchStore.getState(), "setPending");
 
     await act(async () => {
       await result.current.mutateAsync({ name: "Akira" });
     });
-    const secondPending = useSwitchStore.getState().pendingSwitch;
 
-    expect(firstPending?.commandId).toBe("cmd-replay");
-    expect(secondPending?.commandId).toBe("cmd-replay");
-    expect(secondPending).toEqual(firstPending);
+    expect(calls).toBe(2);
+    expect(setPendingSpy).not.toHaveBeenCalled();
+    expect(useSwitchStore.getState().pendingSwitch).toEqual({
+      name: "Akira",
+      commandId: "cmd-replay",
+      status: "applying"
+    });
+  });
+
+  it("switching to the already-active profile resolves pending cleanly without a spurious applying transition", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(STATUS_QUERY_KEY, { ...defaultStatus, active_profile: "default" });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-noop", status: "queued" })
+      )
+    );
+
+    const { result } = renderHook(() => useSwitchProfileMutation(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "default" });
+    });
+
+    expect(useSwitchStore.getState().pendingSwitch).toBeNull();
+  });
+
+  it("429 arriving while a prior pendingSwitch exists leaves it untouched", async () => {
+    useSwitchStore.getState().setPending({ name: "Akira", commandId: "cmd-existing", status: "applying" });
+    server.use(switchQueueFullHandler());
+
+    const { result } = renderHook(() => useSwitchProfileMutation(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "Bianca" }).catch(() => undefined);
+    });
+
+    expect(useSwitchStore.getState().pendingSwitch).toEqual({
+      name: "Akira",
+      commandId: "cmd-existing",
+      status: "applying"
+    });
   });
 
   it("429 does not flip to applying and does not touch active_profile", async () => {
@@ -126,6 +266,23 @@ describe("useSwitchProfileMutation (spec R5, R6, R7)", () => {
     });
 
     expect(useSwitchStore.getState().pendingSwitch).toBeNull();
+  });
+
+  it("409 arriving while a prior pendingSwitch exists does not flip it to applying (left untouched)", async () => {
+    useSwitchStore.getState().setPending({ name: "Akira", commandId: "cmd-existing", status: "applying" });
+    server.use(switchConflictHandler());
+
+    const { result } = renderHook(() => useSwitchProfileMutation(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "Bianca" }).catch(() => undefined);
+    });
+
+    expect(useSwitchStore.getState().pendingSwitch).toEqual({
+      name: "Akira",
+      commandId: "cmd-existing",
+      status: "applying"
+    });
   });
 
   it("409 does not flip to applying, previous active_profile stays displayed", async () => {

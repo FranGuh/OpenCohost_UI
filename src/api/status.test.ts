@@ -24,6 +24,14 @@ function countingStatusHandler(onCall: (calls: number) => void) {
   });
 }
 
+/** Mirrors the real usage pattern (Slice B): target is re-derived from the
+ * store on every render, so it naturally becomes `null` once convergence
+ * clears `pendingSwitch` — which should cancel any pending soft timeout. */
+function useDerivedPoll() {
+  const pendingSwitch = useSwitchStore((state) => state.pendingSwitch);
+  return usePollUntilApplied(pendingSwitch?.name ?? null);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   useSwitchStore.setState({ pendingSwitch: null });
@@ -89,6 +97,43 @@ describe("usePollUntilApplied (spec R5 poll-transition)", () => {
       await result.current.refetch(); // poll 3: flips to target
       await vi.advanceTimersByTimeAsync(0);
     });
+    expect(useSwitchStore.getState().pendingSwitch).toBeNull();
+  });
+});
+
+describe("usePollUntilApplied soft timeout (F2 / design D6)", () => {
+  it("transitions pendingSwitch to a terminal 'timeout' state after ~15s without convergence", async () => {
+    // Default GET /api/status handler always reports active_profile:"default"
+    // — target "Akira" never converges.
+    useSwitchStore.getState().setPending({ name: "Akira", commandId: "cmd-1", status: "applying" });
+
+    renderHook(() => useDerivedPoll(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+
+    expect(useSwitchStore.getState().pendingSwitch).toEqual({
+      name: "Akira",
+      commandId: "cmd-1",
+      status: "timeout"
+    });
+  });
+
+  it("does not transition to timeout when convergence happens before the soft timeout", async () => {
+    server.use(evolvingStatusHandler("default", "Akira", 1));
+    useSwitchStore.getState().setPending({ name: "Akira", commandId: "cmd-1", status: "applying" });
+
+    const { result } = renderHook(() => useDerivedPoll(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(0)); // poll 1: old
+    await act(async () => {
+      await result.current.refetch(); // poll 2: flips to target
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(useSwitchStore.getState().pendingSwitch).toBeNull();
+
+    // Well past the soft timeout — must stay converged/null, not resurrect
+    // into a "timeout" state.
+    await act(() => vi.advanceTimersByTimeAsync(15000));
     expect(useSwitchStore.getState().pendingSwitch).toBeNull();
   });
 });

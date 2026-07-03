@@ -47,6 +47,30 @@ export class NotFoundError extends ApiError {
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+/**
+ * Design D5: Idempotency-Key is stable per switch INTENT (per target),
+ * reused across retries of that intent. Module-scope singleton — shared by
+ * the mutation hook (src/api/profiles.ts) and the convergence poll
+ * (src/api/status.ts) so a key can be rotated on CONVERGENCE, not just on
+ * hook mount lifetime. Without rotation, a later re-switch to an
+ * already-converged target would replay the completed backend command
+ * (same key -> same command_id, no re-enqueue) and get stuck "applying".
+ */
+const idempotencyKeys = new Map<string, string>();
+
+export function getIdempotencyKey(target: string): string {
+  let key = idempotencyKeys.get(target);
+  if (!key) {
+    key = crypto.randomUUID();
+    idempotencyKeys.set(target, key);
+  }
+  return key;
+}
+
+export function rotateIdempotencyKey(target: string): void {
+  idempotencyKeys.delete(target);
+}
+
 export async function getStatus(): Promise<StatusResponse> {
   const res = await fetch(`${BASE_URL}/api/status`);
   if (!res.ok) {
@@ -80,11 +104,22 @@ export async function switchProfile(name: string, idempotencyKey: string): Promi
     throw new QueueFullError();
   }
   if (res.status === 404) {
-    const body = (await res.json()) as { detail: string };
-    throw new NotFoundError(body.detail);
+    let detail = "profile not found";
+    try {
+      const body = (await res.json()) as { detail?: string };
+      detail = body.detail ?? detail;
+    } catch {
+      // non-JSON 404 body — fall back to a generic message instead of
+      // letting res.json() throw an opaque SyntaxError.
+    }
+    throw new NotFoundError(detail);
   }
   if (!res.ok) {
     throw new ApiError(`POST /api/perfiles/switch failed with ${res.status}`, res.status);
   }
-  return (await res.json()) as SwitchAccepted;
+  const body = (await res.json()) as SwitchAccepted;
+  if (!body.accepted) {
+    throw new ApiError("POST /api/perfiles/switch returned 200 with accepted:false", res.status);
+  }
+  return body;
 }
