@@ -2,6 +2,9 @@ import type { paths } from "./types.gen.js";
 
 export type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"];
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
+export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
+export type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
+export type MemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
 
 /**
  * `POST /api/perfiles/switch` has no `response_model` on the backend route
@@ -15,6 +18,28 @@ export interface SwitchAccepted {
   status: string;
 }
 
+/**
+ * `POST /api/commands` also has no `response_model` (main.py returns a raw
+ * dict) — same hand-typed pattern as SwitchAccepted, from the literal
+ * `post_command` return shape. ponytail: keep in sync manually.
+ */
+export interface CommandAccepted {
+  accepted: true;
+  command_id: string;
+  status: string;
+  state_version: number;
+}
+
+/** Server-side whitelist mirrored from opencohost/api/main.py::_COMMAND_WHITELIST. */
+export type EngineCommand =
+  | "clear_history"
+  | "set_tts_local_only"
+  | "set_tts_speed"
+  | "set_piper_voice"
+  | "set_motor_tts"
+  | "switch_model"
+  | "switch_llm_tier";
+
 export class ApiError extends Error {
   readonly status: number;
   constructor(message: string, status: number) {
@@ -25,15 +50,15 @@ export class ApiError extends Error {
 }
 
 export class ConflictError extends ApiError {
-  constructor() {
-    super("profile switch conflict", 409);
+  constructor(message = "profile switch conflict") {
+    super(message, 409);
     this.name = "ConflictError";
   }
 }
 
 export class QueueFullError extends ApiError {
-  constructor() {
-    super("command queue full", 429);
+  constructor(message = "command queue full") {
+    super(message, 429);
     this.name = "QueueFullError";
   }
 }
@@ -42,6 +67,13 @@ export class NotFoundError extends ApiError {
   constructor(detail: string) {
     super(detail, 404);
     this.name = "NotFoundError";
+  }
+}
+
+export class ValidationError extends ApiError {
+  constructor(detail: string) {
+    super(detail, 422);
+    this.name = "ValidationError";
   }
 }
 
@@ -120,6 +152,76 @@ export async function switchProfile(name: string, idempotencyKey: string): Promi
   const body = (await res.json()) as SwitchAccepted;
   if (!body.accepted) {
     throw new ApiError("POST /api/perfiles/switch returned 200 with accepted:false", res.status);
+  }
+  return body;
+}
+
+export async function getModels(): Promise<ModelsResponse> {
+  const res = await fetch(`${BASE_URL}/api/models`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/models failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ModelsResponse;
+}
+
+export async function getTtsConfig(): Promise<TtsConfigResponse> {
+  const res = await fetch(`${BASE_URL}/api/tts/config`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/tts/config failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as TtsConfigResponse;
+}
+
+export async function getMemoriaStats(): Promise<MemoriaStatsResponse> {
+  const res = await fetch(`${BASE_URL}/api/memoria/stats`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/memoria/stats failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaStatsResponse;
+}
+
+/**
+ * POST /api/commands (spec B2). `value` lands under `payload.value` for
+ * every verb except `clear_history`, which takes no value at all —
+ * mirrors `_engine_command_payload` (opencohost/api/main.py).
+ */
+export async function postCommand(
+  command: EngineCommand,
+  value: unknown,
+  idempotencyKey: string
+): Promise<CommandAccepted> {
+  const payload = command === "clear_history" ? {} : { value };
+  const res = await fetch(`${BASE_URL}/api/commands`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey
+    },
+    body: JSON.stringify({ command, payload })
+  });
+
+  if (res.status === 409) {
+    throw new ConflictError("engine command conflict");
+  }
+  if (res.status === 429) {
+    throw new QueueFullError("engine command queue full");
+  }
+  if (res.status === 422) {
+    let detail = "invalid command";
+    try {
+      const body = (await res.json()) as { detail?: string };
+      detail = body.detail ?? detail;
+    } catch {
+      // non-JSON 422 body — fall back to a generic message.
+    }
+    throw new ValidationError(detail);
+  }
+  if (!res.ok) {
+    throw new ApiError(`POST /api/commands failed with ${res.status}`, res.status);
+  }
+  const body = (await res.json()) as CommandAccepted;
+  if (!body.accepted) {
+    throw new ApiError("POST /api/commands returned 200 with accepted:false", res.status);
   }
   return body;
 }

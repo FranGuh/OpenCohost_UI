@@ -3,8 +3,14 @@ import { describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
+  commandConflictHandler,
+  commandQueueFullHandler,
+  commandValidationHandler,
+  defaultMemoriaStats,
+  defaultModels,
   defaultProfiles,
   defaultStatus,
+  defaultTtsConfig,
   switchConflictHandler,
   switchNotFoundHandler,
   switchQueueFullHandler
@@ -14,8 +20,13 @@ import {
   ConflictError,
   NotFoundError,
   QueueFullError,
+  ValidationError,
+  getMemoriaStats,
+  getModels,
   getPerfiles,
   getStatus,
+  getTtsConfig,
+  postCommand,
   switchProfile
 } from "./client.js";
 
@@ -85,5 +96,88 @@ describe("client/switchProfile", () => {
       )
     );
     await expect(switchProfile("Akira", "key-rejected")).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("client/getModels", () => {
+  it("parses catalog/discovered/current_model/tiers/active_tier from the generated types", async () => {
+    const models = await getModels();
+    expect(models).toEqual(defaultModels);
+  });
+});
+
+describe("client/getTtsConfig", () => {
+  it("parses piper_voice/local_only/speed/engine/heavy_available", async () => {
+    const config = await getTtsConfig();
+    expect(config).toEqual(defaultTtsConfig);
+  });
+});
+
+describe("client/getMemoriaStats", () => {
+  it("parses counts-only fields, no chat content", async () => {
+    const stats = await getMemoriaStats();
+    expect(stats).toEqual(defaultMemoriaStats);
+  });
+});
+
+describe("client/postCommand", () => {
+  it("sends Idempotency-Key header + {command, payload:{value}} body, parses {accepted,command_id,status,state_version}", async () => {
+    let capturedHeader: string | null = null;
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
+        capturedHeader = request.headers.get("Idempotency-Key");
+        capturedBody = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "cmd-abc", status: "queued", state_version: 5 });
+      })
+    );
+
+    const result = await postCommand("switch_model", "gemma4:e4b", "key-123");
+
+    expect(capturedHeader).toBe("key-123");
+    expect(capturedBody).toEqual({ command: "switch_model", payload: { value: "gemma4:e4b" } });
+    expect(result).toEqual({ accepted: true, command_id: "cmd-abc", status: "queued", state_version: 5 });
+  });
+
+  it("sends clear_history with an empty payload (no value key)", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "cmd-clear", status: "queued", state_version: 6 });
+      })
+    );
+
+    await postCommand("clear_history", undefined, "key-clear");
+
+    expect(capturedBody).toEqual({ command: "clear_history", payload: {} });
+  });
+
+  it("maps 409 to ConflictError", async () => {
+    server.use(commandConflictHandler());
+    await expect(postCommand("switch_model", "x", "key-409")).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("maps 429 to QueueFullError", async () => {
+    server.use(commandQueueFullHandler());
+    await expect(postCommand("switch_model", "x", "key-429")).rejects.toBeInstanceOf(QueueFullError);
+  });
+
+  it("maps 422 to ValidationError carrying the backend detail", async () => {
+    server.use(commandValidationHandler("set_tts_speed requires a numeric value"));
+    await expect(postCommand("set_tts_speed", null, "key-422")).rejects.toBeInstanceOf(ValidationError);
+    server.use(commandValidationHandler("set_tts_speed requires a numeric value"));
+    await expect(postCommand("set_tts_speed", null, "key-422b")).rejects.toThrow(
+      "set_tts_speed requires a numeric value"
+    );
+  });
+
+  it("treats a 200 with accepted:false as an error, not a successful command", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, () =>
+        HttpResponse.json({ accepted: false, command_id: "cmd-rejected", status: "rejected" })
+      )
+    );
+    await expect(postCommand("switch_model", "x", "key-rejected")).rejects.toBeInstanceOf(ApiError);
   });
 });

@@ -1,63 +1,71 @@
-import { useState } from "react";
-import { useStatusQuery } from "../api/status.js";
+import { useEffect, useState } from "react";
+import { useModelsQuery } from "../api/models.js";
+import { useEngineCommand } from "../api/engineCommand.js";
 import { useMockCommand } from "../api/mock/useMockCommand.js";
-import { MODEL_CATALOG } from "../api/mock/fixtures.js";
+import type { StatusResponse } from "../api/client.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Select } from "./ui/Select.js";
 import { Button } from "./ui/Button.js";
 import { cn } from "../lib/cn.js";
 
-type ModelId = (typeof MODEL_CATALOG)[number]["id"];
+const TIER_LABELS: Record<string, string> = {
+  quality: "Quality",
+  balanced: "Balanced",
+  fast: "Fast ⚡"
+};
 
-// P2: wire to backend model registry — no /api/models endpoint exists yet.
-// Tier list is local UI state only; current_model below is the one live
-// field (useStatusQuery).
-const TIERS = [
-  { id: "quality", label: "Quality · Gemma 4 (E4B)", tag: "pesado" },
-  { id: "balanced", label: "Balanced · LLaMA 3 (8B)", tag: null },
-  { id: "fast", label: "Fast · Qwen 3 (1.7B) ⚡", tag: null }
-] as const;
-
-type TierId = (typeof TIERS)[number]["id"];
+function matchesCurrentModel(status: StatusResponse, target: string): boolean {
+  return status.current_model === target;
+}
 
 /**
- * Modelo card — model select + manual Tier LLM control, both mocked (no
- * /api/models or tier endpoint yet). `current_model` stays live
- * (useStatusQuery). Model select and tier each own their own useMockCommand
- * instance — same accepted != applied contract as useProfileSwitch (queued
- * -> applying -> applied), just local — so exactly one control disables at a
- * time, mirroring two independent real per-endpoint mutations. Local state
- * updates immediately (so the UI always shows the intended target, mirroring
- * ProfileSwitcher's `selectValue = pendingSwitch?.name ?? activeProfile`);
- * the commands only drive the pending/disable/Badge affordance. A persistent
- * role="status" note discloses selection/tier are local previews only.
+ * Modelo card — model select + manual Tier LLM control, both wired to the
+ * real backend (GET /api/models; POST /api/commands switch_model /
+ * switch_llm_tier via useEngineCommand). Model select and tier each own
+ * their own useEngineCommand instance so exactly one control disables at a
+ * time, mirroring two independent real per-endpoint mutations.
  *
- * Download is a separate mock command — a real download needs the backend,
- * so it only ever shows a simulated progress bar + role="status" note.
+ * Select/tier value = optimistic local pick while its command is pending,
+ * falling back to the live server value once it clears — same
+ * `pending ?? serverValue` pattern as ProfileSwitcher's
+ * `selectValue = pendingSwitch?.name ?? activeProfile`.
  *
- * Tier control a11y: toggle-button pattern (`role="group"` + `aria-pressed`,
- * same contract as `ui/Segmented.tsx`), not `role="radiogroup"`.
+ * Download stays mock (no backend download endpoint exists) — the last
+ * useMockCommand user in this card.
  */
 export function ModelCard() {
-  const { data } = useStatusQuery();
-  const [selectedModel, setSelectedModel] = useState<ModelId>(MODEL_CATALOG[0].id);
-  const [activeTier, setActiveTier] = useState<TierId>("fast");
-  const modelCommand = useMockCommand<ModelId>();
-  const tierCommand = useMockCommand<TierId>();
+  const { data, isError: modelsError } = useModelsQuery();
+  const modelCommand = useEngineCommand<string>(matchesCurrentModel);
+  const tierCommand = useEngineCommand<string>();
   const downloadCommand = useMockCommand(600);
 
-  const model = MODEL_CATALOG.find((m) => m.id === selectedModel) ?? MODEL_CATALOG[0];
-  const pending = modelCommand.pending || tierCommand.pending;
+  const [optimisticModel, setOptimisticModel] = useState<string | null>(null);
+  const [optimisticTier, setOptimisticTier] = useState<string | null>(null);
 
-  function handleModelChange(id: ModelId) {
-    setSelectedModel(id);
-    void modelCommand.run(id);
+  useEffect(() => {
+    if (!modelCommand.pending) setOptimisticModel(null);
+  }, [modelCommand.pending]);
+
+  useEffect(() => {
+    if (!tierCommand.pending) setOptimisticTier(null);
+  }, [tierCommand.pending]);
+
+  const catalogEntries = Object.entries(data?.catalog ?? {});
+  const selectedModelId = optimisticModel ?? data?.current_model ?? catalogEntries[0]?.[0] ?? "";
+  const selectedEntry = data?.catalog[selectedModelId];
+  const activeTierId = optimisticTier ?? data?.active_tier ?? "";
+  const pending = modelCommand.pending || tierCommand.pending;
+  const errorMessage = modelCommand.error?.message ?? tierCommand.error?.message;
+
+  function handleModelChange(id: string) {
+    setOptimisticModel(id);
+    void modelCommand.run("switch_model", id);
   }
 
-  function handleTierChange(id: TierId) {
-    setActiveTier(id);
-    void tierCommand.run(id);
+  function handleTierChange(id: string) {
+    setOptimisticTier(id);
+    void tierCommand.run("switch_llm_tier", id);
   }
 
   return (
@@ -68,10 +76,11 @@ export function ModelCard() {
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Selección de modelo y tier son vistas previas locales — no hay endpoint de backend todavía, así que
-          "instalado"/"activo" no reflejan un cambio persistido.
-        </p>
+        {(errorMessage || modelsError) && (
+          <p role="alert" className="text-xs leading-relaxed text-danger">
+            {errorMessage ?? "No se pudo leer el estado del modelo."}
+          </p>
+        )}
 
         <section aria-labelledby="model-select-label" className="space-y-2">
           <p className="text-xs text-muted-foreground">
@@ -83,19 +92,21 @@ export function ModelCard() {
           <Select
             aria-labelledby="model-select-label"
             className="mono"
-            value={selectedModel}
+            value={selectedModelId}
             disabled={modelCommand.pending}
-            onChange={(event) => handleModelChange(event.target.value as ModelId)}
+            onChange={(event) => handleModelChange(event.target.value)}
           >
-            {MODEL_CATALOG.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
+            {catalogEntries.map(([id, entry]) => (
+              <option key={id} value={id}>
+                {entry.display}
               </option>
             ))}
           </Select>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {model.vendor} <span className="mono font-semibold text-foreground">{model.size}</span>
-          </p>
+          {selectedEntry && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {selectedEntry.desc} <span className="mono font-semibold text-foreground">{selectedEntry.size_gb} GB</span>
+            </p>
+          )}
         </section>
 
         <section aria-labelledby="tier-label" className="space-y-2">
@@ -103,15 +114,16 @@ export function ModelCard() {
             Tier LLM manual
           </span>
           <div role="group" aria-labelledby="tier-label" className="grid gap-[6px]">
-            {TIERS.map((tier) => {
-              const isActive = tier.id === activeTier;
+            {Object.entries(data?.tiers ?? {}).map(([tierId, modelId]) => {
+              const isActive = tierId === activeTierId;
+              const tierModelLabel = data?.catalog[modelId]?.display ?? modelId;
               return (
                 <button
-                  key={tier.id}
+                  key={tierId}
                   type="button"
                   aria-pressed={isActive}
                   disabled={tierCommand.pending}
-                  onClick={() => handleTierChange(tier.id)}
+                  onClick={() => handleTierChange(tierId)}
                   className={cn(
                     "flex h-[42px] items-center justify-between gap-[10px] rounded-md border border-border-soft bg-card px-[14px] text-[13.5px] font-semibold text-muted-foreground transition-colors",
                     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
@@ -119,8 +131,9 @@ export function ModelCard() {
                     isActive && "border-l-[3px] border-l-primary bg-[var(--accent-soft)] text-foreground"
                   )}
                 >
-                  <span>{tier.label}</span>
-                  {tier.tag && <span className="text-[11px] text-dim">{tier.tag}</span>}
+                  <span>
+                    {TIER_LABELS[tierId] ?? tierId} · {tierModelLabel}
+                  </span>
                   {isActive && <span className="text-[12px] font-semibold text-info">activo</span>}
                 </button>
               );
@@ -136,7 +149,7 @@ export function ModelCard() {
             Descargar modelo
           </span>
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">{model.name}</span>
+            <span className="text-[13px] text-foreground">{selectedEntry?.display ?? selectedModelId ?? "—"}</span>
             <Button
               type="button"
               variant="outline"
