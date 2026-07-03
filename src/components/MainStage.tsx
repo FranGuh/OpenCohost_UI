@@ -6,6 +6,7 @@ import { ModelCard } from "./ModelCard.js";
 import { VoiceCard } from "./VoiceCard.js";
 import { PTTCard } from "./PTTCard.js";
 import { MemoryCard } from "./MemoryCard.js";
+import { AgendaPanel } from "./AgendaPanel.js";
 import { DEFAULT_TRANSCRIPT } from "./kiraState.js";
 import type { Section } from "./Sidebar.js";
 
@@ -36,6 +37,17 @@ export function MainStage({ activeSection }: MainStageProps) {
         <VoiceCard />
         <PTTCard />
         <MemoryCard />
+      </main>
+    );
+  }
+
+  if (activeSection === "agenda") {
+    return (
+      <main
+        className="flex min-h-0 flex-col gap-3.5 overflow-auto p-4"
+        style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
+      >
+        <AgendaPanel />
       </main>
     );
   }

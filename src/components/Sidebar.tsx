@@ -1,21 +1,23 @@
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
 import { cn } from "../lib/cn.js";
 
-export type Section = "experiencia" | "controles";
+export type Section = "experiencia" | "controles" | "agenda";
 
 interface NavItem {
-  id: Section | "inicio" | "buscar" | "biblioteca" | "ajustes";
+  id: Section | "inicio" | "buscar" | "ajustes";
   icon: string;
   label: string;
   wired: boolean;
 }
 
+// "Biblioteca" (formerly inert) is repurposed as the Agenda nav entry —
+// Inicio/Buscar/Ajustes stay inert placeholders for later waves.
 const NAV_ITEMS: readonly NavItem[] = [
   { id: "inicio", icon: "⌂", label: "Inicio", wired: false },
   { id: "buscar", icon: "⌕", label: "Buscar", wired: false },
   { id: "experiencia", icon: "◈", label: "Experiencia", wired: true },
   { id: "controles", icon: "⚙", label: "Controles", wired: true },
-  { id: "biblioteca", icon: "▤", label: "Biblioteca", wired: false },
+  { id: "agenda", icon: "▤", label: "Agenda", wired: true },
   { id: "ajustes", icon: "☰", label: "Ajustes", wired: false }
 ];
 

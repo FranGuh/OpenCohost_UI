@@ -47,6 +47,18 @@ describe("AppLayout", () => {
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
   });
 
+  it("switches to Agenda on nav click, marks aria-current, and renders AgendaPanel", () => {
+    renderApp();
+    const agendaBtn = screen.getByRole("button", { name: /Agenda/ });
+    expect(agendaBtn).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(agendaBtn);
+
+    expect(agendaBtn).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByRole("heading", { name: "Kira" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Perfil Co-host" })).toBeInTheDocument();
+  });
+
   it("shares one ProfileSwitchProvider owner across ProfilePlaylist and ProfileSwitcher (no double-poll)", async () => {
     renderApp();
 

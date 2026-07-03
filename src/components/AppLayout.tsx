@@ -20,8 +20,8 @@ const GRID_STYLE = {
 
 /**
  * Theme-independent player grid shell (top/side/main/queue/player). Owns
- * the one working nav switch (Experiencia <-> Controles) and hands it down
- * to Sidebar + MainStage. Also mounts the single ProfileSwitchProvider
+ * the working nav switch (Experiencia / Controles / Agenda) and hands it
+ * down to Sidebar + MainStage. Also mounts the single ProfileSwitchProvider
  * above both ProfilePlaylist (Sidebar) and ProfileSwitcher (MainStage) so
  * they share one poll/reconcile owner instead of double-polling.
  */
