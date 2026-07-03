@@ -109,6 +109,65 @@ export interface AgendaFixtureShape {
   session_state: AgendaSessionState;
 }
 
+/**
+ * Mock backend data for the Avatar domain. No /api/avatar/* endpoint exists
+ * yet — the real thing lives in opencohost/ui/avatar_panel.py +
+ * opencohost/avatar/obs_client.py, persisted to AVATAR_CONFIG_FILE yaml.
+ * Proposed endpoints: GET/PUT /api/avatar/config, POST /api/avatar/upload.
+ * State labels/images are kept local here (not imported from
+ * components/kiraState.ts) to avoid an api -> components dependency; the
+ * "listening" row has no /api/status signal yet (see kiraState.ts P2 note)
+ * but the CTK panel configures an image for it regardless.
+ */
+export type AvatarMode = "por_estado" | "estatico";
+
+export interface AvatarStateImage {
+  state: string;
+  label: string;
+  image: string;
+}
+
+export interface AvatarFixtureShape {
+  mode: AvatarMode;
+  images: AvatarStateImage[];
+}
+
+export const AVATAR_FIXTURE: AvatarFixtureShape = {
+  mode: "por_estado",
+  images: [
+    { state: "idle", label: "en vivo", image: "/avatar/idle.png" },
+    { state: "listening", label: "escuchando", image: "/avatar/listening.png" },
+    { state: "thinking", label: "pensando", image: "/avatar/thinking.png" },
+    { state: "speaking", label: "hablando", image: "/avatar/speaking.png" },
+    { state: "sleeping", label: "en espera", image: "/avatar/sleeping.png" },
+    { state: "error", label: "error", image: "/avatar/error.png" }
+  ]
+};
+
+/**
+ * Mock backend data for the OBS domain. No /api/obs/* endpoint exists yet —
+ * the real thing lives in opencohost/avatar/obs_client.py +
+ * opencohost/ui/obs_lifecycle.py. Proposed endpoints: GET/PUT
+ * /api/obs/config, POST /api/obs/test. host/port/password/source are
+ * owner-supplied creds (USER-ASSIST) — password_set is a flag only, the
+ * fixture never carries an actual password value.
+ */
+export interface ObsFixtureShape {
+  enabled: boolean;
+  host: string;
+  port: number;
+  source: string;
+  password_set: boolean;
+}
+
+export const OBS_FIXTURE: ObsFixtureShape = {
+  enabled: false,
+  host: "localhost",
+  port: 4455,
+  source: "Kira Avatar",
+  password_set: true
+};
+
 export const AGENDA_FIXTURE: AgendaFixtureShape = {
   profile: {
     name: "Natural",

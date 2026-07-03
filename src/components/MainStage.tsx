@@ -6,6 +6,8 @@ import { ModelCard } from "./ModelCard.js";
 import { VoiceCard } from "./VoiceCard.js";
 import { PTTCard } from "./PTTCard.js";
 import { MemoryCard } from "./MemoryCard.js";
+import { AvatarCard } from "./AvatarCard.js";
+import { ObsCard } from "./ObsCard.js";
 import { AgendaPanel } from "./AgendaPanel.js";
 import { DEFAULT_TRANSCRIPT } from "./kiraState.js";
 import type { Section } from "./Sidebar.js";
@@ -37,6 +39,8 @@ export function MainStage({ activeSection }: MainStageProps) {
         <VoiceCard />
         <PTTCard />
         <MemoryCard />
+        <AvatarCard />
+        <ObsCard />
       </main>
     );
   }
