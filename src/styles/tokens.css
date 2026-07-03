@@ -131,20 +131,28 @@
   --dim: #8a97a9;
   --accent: #0fb5be;
   --accent-2: #5566e6;
-  --accent-grad: linear-gradient(135deg, #0fb5be, #5566e6);
+  /* F3 (a11y): first stop darkened #0fb5be -> #0b8188 so the Button's white
+     label meets AA (4.5:1) at every point of the gradient, not just the
+     #5566e6 end. --accent/--ring/--app-bg-glow stay untouched (not text,
+     not required for this fix). */
+  --accent-grad: linear-gradient(135deg, #0b8188, #5566e6);
   --accent-contrast: #ffffff;
   --accent-soft: rgba(15, 181, 190, 0.1);
 
-  --ok: #12a05f;
+  /* F3 (a11y): darkened from the mockup's originals to clear WCAG AA
+     (>=4.5:1 for small text) on #ffffff — verified: ok 4.74:1, warn 4.66:1,
+     danger 4.60:1, info 4.65:1. Originals (ok #12a05f 3.38:1, warn #b3791a
+     3.71:1, danger #d64550 4.35:1, info #2b83d6 3.95:1) all failed AA. */
+  --ok: #0f844f;
   --ok-bg: rgba(18, 160, 95, 0.1);
   --ok-bd: rgba(18, 160, 95, 0.24);
-  --warn: #b3791a;
+  --warn: #9d6a17;
   --warn-bg: rgba(179, 121, 26, 0.1);
   --warn-bd: rgba(179, 121, 26, 0.24);
-  --danger: #d64550;
+  --danger: #d43d48;
   --danger-bg: rgba(214, 69, 80, 0.1);
   --danger-bd: rgba(214, 69, 80, 0.26);
-  --info: #2b83d6;
+  --info: #2677c4;
   --info-bg: rgba(43, 131, 214, 0.1);
   --info-bd: rgba(43, 131, 214, 0.24);
 
