@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenCohost</title>
+    <script>
+      // Blocking pre-paint theme apply — avoids a flash of the :root
+      // (cockpit/dark) default on reload for studio/aurora users, since
+      // useTheme.ts only sets data-theme in a post-paint useEffect.
+      // Keep this key/set/default in sync with src/theme/useTheme.ts.
+      (function () {
+        var STORAGE_KEY = "oc-theme";
+        var THEME_NAMES = ["cockpit", "aurora", "studio"];
+        var DEFAULT_THEME = "cockpit";
+        var stored = null;
+        try {
+          stored = window.localStorage.getItem(STORAGE_KEY);
+        } catch (e) {
+          stored = null;
+        }
+        var theme = THEME_NAMES.indexOf(stored) !== -1 ? stored : DEFAULT_THEME;
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
