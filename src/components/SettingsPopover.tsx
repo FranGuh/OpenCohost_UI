@@ -1,14 +1,42 @@
 import { useEffect, useRef, useState } from "react";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.js";
+import { useDensity } from "../theme/useDensity.js";
+import { Switch } from "./ui/Switch.js";
+
+const HELP_TOPICS: ReadonlyArray<{ title: string; body: string }> = [
+  {
+    title: "Experiencia",
+    body: "Chateá con Kira en texto o por voz (Push-to-Talk). El avatar refleja su estado — idle, escuchando, pensando, hablando."
+  },
+  {
+    title: "Controles",
+    body: "Elegí el modelo LLM y el tier de calidad, la voz y el motor TTS, y revisá los conteos de memoria de la sesión."
+  },
+  {
+    title: "Agenda",
+    body: "Armá una agenda de temas aprobados para que Kira los desarrolle en vivo — priorizá, encolá y controlá la sesión (activar, pausa suave, emergencia)."
+  },
+  {
+    title: "Stream",
+    body: "Conectá tu cuenta de streaming, gestioná metadata del stream (título, categoría, tags) y monitoreá el chat en vivo."
+  },
+  {
+    title: "Música",
+    body: "Importá loops de audio agrupados por mood y dejá que Kira haga fade y ducking automático mientras habla."
+  }
+];
 
 /**
- * TopBar gear popover — relocates ThemeSwitcher off the top-level right
- * cluster into a minimal token-styled panel. Wave 1 extends this panel with
- * logs/compacto/help; keep the shell (open/close, aria-expanded,
- * click-outside/Esc) real now so those additions slot in without rework.
+ * TopBar gear popover — Tema (ThemeSwitcher) + Wave 1b additions: a real
+ * "Compacto" density preference (useDensity, persisted to localStorage), a
+ * "Mostrar logs" client-pref stub (no live log data — that needs the
+ * backend), and a static Ayuda section (5 CTK help topics ported as
+ * <details>/<summary> collapsibles).
  */
 export function SettingsPopover() {
   const [open, setOpen] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const { compact, setCompact } = useDensity();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,9 +77,48 @@ export function SettingsPopover() {
       </button>
 
       {open && (
-        <div id="settings-popover-panel" className="absolute right-0 top-11 z-10 flex flex-col gap-2 rounded-md border border-border-soft bg-card p-4 shadow-panel">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Tema</span>
-          <ThemeSwitcher />
+        <div
+          id="settings-popover-panel"
+          className="absolute right-0 top-11 z-10 flex w-72 flex-col gap-3.5 rounded-md border border-border-soft bg-card p-4 shadow-panel"
+        >
+          <section aria-labelledby="settings-theme-label" className="space-y-2">
+            <span id="settings-theme-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Tema
+            </span>
+            <ThemeSwitcher />
+          </section>
+
+          <section aria-labelledby="settings-view-label" className="space-y-2 border-t border-border-soft pt-3.5">
+            <span id="settings-view-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Vista
+            </span>
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <span className="text-[13px] text-foreground">Compacto</span>
+              <Switch checked={compact} onChange={setCompact} aria-label="Compacto" />
+            </div>
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <span className="text-[13px] text-foreground">Mostrar logs</span>
+              <Switch checked={showLogs} onChange={setShowLogs} aria-label="Mostrar logs" />
+            </div>
+            <p role="status" className="text-xs leading-relaxed text-muted-foreground">
+              Mostrar logs necesita streaming en vivo desde el backend — todavía no existe ese endpoint, así que el
+              toggle no trae datos reales.
+            </p>
+          </section>
+
+          <details className="border-t border-border-soft pt-3.5">
+            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Ayuda
+            </summary>
+            <div className="flex flex-col gap-2 pt-2">
+              {HELP_TOPICS.map((topic) => (
+                <details key={topic.title} className="rounded-md border border-border-soft bg-background px-3 py-2">
+                  <summary className="cursor-pointer text-[13px] font-semibold text-foreground">{topic.title}</summary>
+                  <p className="pt-2 text-xs leading-relaxed text-muted-foreground">{topic.body}</p>
+                </details>
+              ))}
+            </div>
+          </details>
         </div>
       )}
     </div>

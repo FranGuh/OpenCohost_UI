@@ -1,8 +1,11 @@
+import { useState } from "react";
 import type { ChangeEvent } from "react";
 import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Select } from "./ui/Select.js";
+import { Button } from "./ui/Button.js";
+import { ProfileEditor } from "./ProfileEditor.js";
 
 /**
  * Native <select> profile control (design D9 — no shadcn/radix combobox
@@ -13,6 +16,7 @@ import { Select } from "./ui/Select.js";
 export function ProfileSwitcher() {
   const { profiles, activeProfile, pendingSwitch, profilesLoading, switchError, switchTo } =
     useProfileSwitchContext();
+  const [editorOpen, setEditorOpen] = useState(false);
   const selectValue = pendingSwitch?.name ?? activeProfile ?? "";
   const isApplying = pendingSwitch?.status === "applying";
 
@@ -23,7 +27,12 @@ export function ProfileSwitcher() {
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-bold text-foreground">Perfil</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold text-foreground">Perfil</h2>
+          <Button type="button" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditorOpen(true)}>
+            Editar
+          </Button>
+        </div>
         {isApplying && (
           <span className="inline-flex items-center gap-[7px] text-xs font-semibold text-info">
             <span
@@ -36,6 +45,8 @@ export function ProfileSwitcher() {
         {pendingSwitch?.status === "timeout" && <Badge tone="warn">tardando más de lo esperado</Badge>}
         {!pendingSwitch && <Badge tone="ok">activo</Badge>}
       </div>
+
+      <ProfileEditor open={editorOpen} mode="edit" initialName={activeProfile ?? ""} onClose={() => setEditorOpen(false)} />
 
       <Select
         aria-label="Perfil activo"

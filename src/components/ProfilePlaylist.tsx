@@ -1,20 +1,29 @@
+import { useState } from "react";
 import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
 import { cn } from "../lib/cn.js";
+import { ProfileEditor } from "./ProfileEditor.js";
 
 /** Profiles-as-playlists row list — reads the shared ProfileSwitchProvider
  * context so this and ProfileSwitcher have exactly one poll/reconcile
  * owner. */
 export function ProfilePlaylist() {
   const { profiles, activeProfile, pendingSwitch, switchTo } = useProfileSwitchContext();
+  const [editorOpen, setEditorOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-2 px-2 pb-3">
       <div className="flex items-center justify-between px-2">
         <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Perfiles</span>
-        <button type="button" disabled title="Próximamente" className="text-xs font-semibold text-dim">
+        <button
+          type="button"
+          onClick={() => setEditorOpen(true)}
+          className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+        >
           ＋ Nuevo
         </button>
       </div>
+
+      <ProfileEditor open={editorOpen} mode="create" onClose={() => setEditorOpen(false)} />
 
       <ul className="flex flex-col gap-1">
         {profiles.map((name) => {

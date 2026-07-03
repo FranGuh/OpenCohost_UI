@@ -47,3 +47,14 @@ select:focus-visible,
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* Compacto density preference (gear popover "Compacto" switch, see
+   src/theme/useDensity.ts) — data-density="compact" on <html> tightens the
+   p-4 panel padding / gap-3.5 card-row ladder app-wide. */
+[data-density="compact"] .p-4 {
+  padding: 0.625rem !important;
+}
+
+[data-density="compact"] .gap-3\.5 {
+  gap: 0.5rem !important;
+}
