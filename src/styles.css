@@ -3,10 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #070b11;
 }
 
 * {
@@ -24,4 +22,18 @@ button {
 
 button:hover {
   filter: brightness(1.08);
+}
+
+/* app root background — composite of the theme's glow image + solid base,
+   ported from the mockup's #app background rule */
+.app-shell {
+  background: var(--app-bg-glow), var(--background);
+  background-attachment: fixed;
+}
+
+/* technical/numeric values (model names, versions, profile ids) render in
+   mono with tabular figures — cockpit character, per design decision #2827 */
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }

@@ -1,0 +1,156 @@
+/* ============================================================
+   DESIGN TOKENS — semantic roles. Components read ONLY these.
+   Ported from scratchpad/kira-redesign.html (owner-approved
+   mockup). Each [data-theme] block below re-skins the whole app
+   by swapping token values — components never hardcode color.
+
+   Canonical names (--background/--foreground/--card/--border/
+   --ring/--primary/--muted-foreground/--radius) keep the
+   shadcn/Tailwind contract working. The semantic extras
+   (--ok/--warn/--danger/--info + soft -bg/-bd variants,
+   --surface-2, --accent-grad, --surface-blur, --app-bg-glow)
+   carry the info-design system the mockup defines: soft tinted
+   status, one accent used sparingly, technical values in mono.
+   ============================================================ */
+
+:root,
+[data-theme="cockpit"] {
+  color-scheme: dark;
+
+  /* canonical (shadcn/Tailwind contract) */
+  --background: #0a0d15;
+  --foreground: #e9eef8;
+  --card: #111725;
+  --card-foreground: #e9eef8;
+  --border: rgba(255, 255, 255, 0.07);
+  --ring: rgba(63, 208, 216, 0.55);
+  --primary: #3fd0d8;
+  --primary-foreground: #04121a;
+  --muted-foreground: #9aa8be;
+
+  /* semantic extras */
+  --surface-2: #172033;
+  --surface-blur: none;
+  --border-soft: rgba(255, 255, 255, 0.045);
+  --dim: #667488;
+  --accent: #3fd0d8;
+  --accent-2: #7d8cff;
+  --accent-grad: linear-gradient(135deg, #3fd0d8, #5aa9ff);
+  --accent-contrast: #04121a;
+  --accent-soft: rgba(63, 208, 216, 0.12);
+
+  --ok: #55cf92;
+  --ok-bg: rgba(85, 207, 146, 0.12);
+  --ok-bd: rgba(85, 207, 146, 0.28);
+  --warn: #e6b45f;
+  --warn-bg: rgba(230, 180, 95, 0.12);
+  --warn-bd: rgba(230, 180, 95, 0.28);
+  --danger: #f0616b;
+  --danger-bg: rgba(240, 97, 107, 0.13);
+  --danger-bd: rgba(240, 97, 107, 0.3);
+  --info: #5fb2f0;
+  --info-bg: rgba(95, 178, 240, 0.12);
+  --info-bd: rgba(95, 178, 240, 0.26);
+
+  --app-bg-glow: radial-gradient(1200px 420px at 78% -10%, rgba(63, 208, 216, 0.1), transparent 70%);
+
+  --sh-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
+  --sh-2: 0 20px 60px rgba(0, 0, 0, 0.38);
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* scale — shared across themes, not re-declared below */
+  --radius: 16px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+}
+
+[data-theme="aurora"] {
+  color-scheme: dark;
+
+  --background: #090711;
+  --foreground: #fbf6ff;
+  --card: rgba(25, 18, 43, 0.72);
+  --card-foreground: #fbf6ff;
+  --border: rgba(255, 255, 255, 0.11);
+  --ring: rgba(123, 244, 255, 0.6);
+  --primary: #7bf4ff;
+  --primary-foreground: #0a0714;
+  --muted-foreground: #bcb1cd;
+
+  --surface-2: rgba(38, 28, 60, 0.78);
+  --surface-blur: blur(16px) saturate(1.1);
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --dim: #82768f;
+  --accent: #7bf4ff;
+  --accent-2: #b48cff;
+  --accent-grad: linear-gradient(135deg, #7bf4ff, #b48cff);
+  --accent-contrast: #0a0714;
+  --accent-soft: rgba(155, 124, 255, 0.16);
+
+  --ok: #5fe0ac;
+  --ok-bg: rgba(95, 224, 172, 0.13);
+  --ok-bd: rgba(95, 224, 172, 0.3);
+  --warn: #f6c768;
+  --warn-bg: rgba(246, 199, 104, 0.13);
+  --warn-bd: rgba(246, 199, 104, 0.3);
+  --danger: #ff6f88;
+  --danger-bg: rgba(255, 111, 136, 0.15);
+  --danger-bd: rgba(255, 111, 136, 0.34);
+  --info: #86c8ff;
+  --info-bg: rgba(134, 200, 255, 0.13);
+  --info-bd: rgba(134, 200, 255, 0.3);
+
+  --app-bg-glow:
+    radial-gradient(circle at 16% 12%, rgba(255, 122, 200, 0.2), transparent 26rem),
+    radial-gradient(circle at 78% 6%, rgba(123, 244, 255, 0.16), transparent 24rem),
+    radial-gradient(circle at 82% 84%, rgba(155, 124, 255, 0.18), transparent 30rem);
+
+  --sh-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
+  --sh-2: 0 28px 70px rgba(0, 0, 0, 0.42);
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+}
+
+[data-theme="studio"] {
+  color-scheme: light;
+
+  --background: #eef1f7;
+  --foreground: #17233a;
+  --card: #ffffff;
+  --card-foreground: #17233a;
+  --border: rgba(23, 37, 63, 0.11);
+  --ring: rgba(15, 181, 190, 0.5);
+  --primary: #0fb5be;
+  --primary-foreground: #ffffff;
+  --muted-foreground: #55647d;
+
+  --surface-2: #f7f9fd;
+  --surface-blur: none;
+  --border-soft: rgba(23, 37, 63, 0.07);
+  --dim: #8a97a9;
+  --accent: #0fb5be;
+  --accent-2: #5566e6;
+  --accent-grad: linear-gradient(135deg, #0fb5be, #5566e6);
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(15, 181, 190, 0.1);
+
+  --ok: #12a05f;
+  --ok-bg: rgba(18, 160, 95, 0.1);
+  --ok-bd: rgba(18, 160, 95, 0.24);
+  --warn: #b3791a;
+  --warn-bg: rgba(179, 121, 26, 0.1);
+  --warn-bd: rgba(179, 121, 26, 0.24);
+  --danger: #d64550;
+  --danger-bg: rgba(214, 69, 80, 0.1);
+  --danger-bd: rgba(214, 69, 80, 0.26);
+  --info: #2b83d6;
+  --info-bg: rgba(43, 131, 214, 0.1);
+  --info-bd: rgba(43, 131, 214, 0.24);
+
+  --app-bg-glow: radial-gradient(1100px 460px at 80% -12%, rgba(15, 181, 190, 0.1), transparent 68%);
+
+  --sh-1: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 6px 18px rgba(23, 37, 63, 0.08);
+  --sh-2: 0 24px 60px rgba(23, 37, 63, 0.14);
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+}
