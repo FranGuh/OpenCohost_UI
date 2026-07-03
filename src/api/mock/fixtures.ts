@@ -168,6 +168,53 @@ export const OBS_FIXTURE: ObsFixtureShape = {
   password_set: true
 };
 
+/**
+ * Mock backend data for the Stream domain (RF3 "Chat en vivo" only — RF4's
+ * OAuth/metadata/moderación panels stay unbuilt, see StreamPanel's deferred
+ * note). No /api/stream/* endpoint exists yet — the real thing lives in
+ * opencohost/ui/stream_admin_ui.py's 'acciones' subtab, wired to
+ * smart_agg.set_activity_limits (reaction threshold + cooldown),
+ * set_spam_limits (max msgs/user/30s), set_filter_policy, and
+ * sanitize_live_url for the connect URL. Proposed endpoints: GET
+ * /api/stream/chat-live, POST /api/stream/chat-live/connect, PUT
+ * /api/stream/chat-live/limits. reaction_threshold/cooldown/spam_limit and
+ * their preset values mirror the CTK panel's real defaults and preset
+ * buttons (0.5/1/3 msg/s, 30/60/120s, input_contract off by default per
+ * chat_input_contract.USE_INPUT_CONTRACT_PROMPT) — spam_limit simplifies the
+ * CTK's two spam params (max_messages_per_user, user_window_seconds) to a
+ * single count since the window is fixed at 30s in the current UI.
+ */
+export type StreamPresetLevel = "bajo" | "medio" | "alto";
+
+export interface StreamPresetOption {
+  level: StreamPresetLevel;
+  label: string;
+}
+
+export interface StreamFixtureShape {
+  connected: boolean;
+  url: string;
+  reaction_threshold: string;
+  cooldown: string;
+  spam_limit: string;
+  input_contract: boolean;
+  presets: StreamPresetOption[];
+}
+
+export const STREAM_FIXTURE: StreamFixtureShape = {
+  connected: false,
+  url: "",
+  reaction_threshold: "1",
+  cooldown: "45",
+  spam_limit: "10",
+  input_contract: false,
+  presets: [
+    { level: "bajo", label: "Bajo" },
+    { level: "medio", label: "Medio" },
+    { level: "alto", label: "Alto" }
+  ]
+};
+
 export const AGENDA_FIXTURE: AgendaFixtureShape = {
   profile: {
     name: "Natural",

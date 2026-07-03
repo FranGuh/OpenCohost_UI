@@ -1,23 +1,25 @@
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
 import { cn } from "../lib/cn.js";
 
-export type Section = "experiencia" | "controles" | "agenda";
+export type Section = "experiencia" | "controles" | "agenda" | "stream";
 
 interface NavItem {
-  id: Section | "inicio" | "buscar" | "ajustes";
+  id: Section | "buscar" | "ajustes";
   icon: string;
   label: string;
   wired: boolean;
 }
 
-// "Biblioteca" (formerly inert) is repurposed as the Agenda nav entry —
-// Inicio/Buscar/Ajustes stay inert placeholders for later waves.
+// "Biblioteca" (formerly inert) is repurposed as the Agenda nav entry, and
+// "Inicio" (formerly inert) as the Stream nav entry — Buscar/Ajustes stay
+// inert placeholders for later waves. Order reads as the coherent wired
+// product flow: Experiencia -> Agenda -> Stream -> Controles.
 const NAV_ITEMS: readonly NavItem[] = [
-  { id: "inicio", icon: "⌂", label: "Inicio", wired: false },
-  { id: "buscar", icon: "⌕", label: "Buscar", wired: false },
   { id: "experiencia", icon: "◈", label: "Experiencia", wired: true },
-  { id: "controles", icon: "⚙", label: "Controles", wired: true },
   { id: "agenda", icon: "▤", label: "Agenda", wired: true },
+  { id: "stream", icon: "◉", label: "Stream", wired: true },
+  { id: "controles", icon: "⚙", label: "Controles", wired: true },
+  { id: "buscar", icon: "⌕", label: "Buscar", wired: false },
   { id: "ajustes", icon: "☰", label: "Ajustes", wired: false }
 ];
 

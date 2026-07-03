@@ -9,6 +9,7 @@ import { MemoryCard } from "./MemoryCard.js";
 import { AvatarCard } from "./AvatarCard.js";
 import { ObsCard } from "./ObsCard.js";
 import { AgendaPanel } from "./AgendaPanel.js";
+import { StreamPanel } from "./StreamPanel.js";
 import { DEFAULT_TRANSCRIPT } from "./kiraState.js";
 import type { Section } from "./Sidebar.js";
 
@@ -52,6 +53,17 @@ export function MainStage({ activeSection }: MainStageProps) {
         style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
       >
         <AgendaPanel />
+      </main>
+    );
+  }
+
+  if (activeSection === "stream") {
+    return (
+      <main
+        className="flex min-h-0 flex-col gap-3.5 overflow-auto p-4"
+        style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
+      >
+        <StreamPanel />
       </main>
     );
   }

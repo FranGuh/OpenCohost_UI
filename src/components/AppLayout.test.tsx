@@ -43,7 +43,7 @@ describe("AppLayout", () => {
 
   it("does not switch when an inert nav item is clicked", () => {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: /Inicio/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Buscar/ }));
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
   });
 
@@ -57,6 +57,18 @@ describe("AppLayout", () => {
     expect(agendaBtn).toHaveAttribute("aria-current", "true");
     expect(screen.queryByRole("heading", { name: "Kira" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Perfil Co-host" })).toBeInTheDocument();
+  });
+
+  it("switches to Stream on nav click, marks aria-current, and renders StreamPanel", () => {
+    renderApp();
+    const streamBtn = screen.getByRole("button", { name: /Stream/ });
+    expect(streamBtn).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(streamBtn);
+
+    expect(streamBtn).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByRole("heading", { name: "Kira" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Chat en vivo" })).toBeInTheDocument();
   });
 
   it("shares one ProfileSwitchProvider owner across ProfilePlaylist and ProfileSwitcher (no double-poll)", async () => {
