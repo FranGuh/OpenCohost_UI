@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenCohost Aurora UI Preview</title>
+    <style>
+      :root {
+        --bg: #090711;
+        --shell: rgba(20, 14, 34, 0.9);
+        --panel: rgba(25, 18, 43, 0.86);
+        --panel-2: rgba(34, 25, 56, 0.88);
+        --panel-3: rgba(13, 11, 23, 0.86);
+        --line: rgba(255, 255, 255, 0.11);
+        --line-soft: rgba(255, 255, 255, 0.07);
+        --text: #fff8ff;
+        --muted: #b9aeca;
+        --dim: #81758f;
+        --pink: #ff7ac8;
+        --violet: #9b7cff;
+        --cyan: #7bf4ff;
+        --green: #50d49b;
+        --amber: #f6c768;
+        --danger: #ff5d73;
+        --danger-bg: rgba(255, 93, 115, 0.18);
+        --radius-xl: 30px;
+        --radius-lg: 22px;
+        --radius-md: 15px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1360px;
+        min-height: 100vh;
+        color: var(--text);
+        font-family:
+          Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        background:
+          radial-gradient(circle at 18% 14%, rgba(255, 122, 200, 0.2), transparent 28rem),
+          radial-gradient(circle at 76% 8%, rgba(123, 244, 255, 0.16), transparent 26rem),
+          radial-gradient(circle at 80% 82%, rgba(155, 124, 255, 0.18), transparent 32rem),
+          linear-gradient(135deg, #090711 0%, #0b0d18 48%, #100919 100%);
+      }
+
+      .app {
+        min-height: 100vh;
+        padding: 16px;
+      }
+
+      .topbar {
+        height: 66px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 18px;
+        border: 1px solid var(--line-soft);
+        border-radius: 22px;
+        background: rgba(13, 11, 23, 0.82);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+        backdrop-filter: blur(18px);
+      }
+
+      .mode {
+        margin-right: 6px;
+        color: var(--danger);
+        font-size: 20px;
+        font-weight: 850;
+        letter-spacing: -0.02em;
+      }
+
+      .pill {
+        padding: 10px 15px;
+        border-radius: 999px;
+        border: 1px solid var(--line-soft);
+        background: rgba(255, 255, 255, 0.055);
+        color: #e9def2;
+        font-size: 15px;
+        white-space: nowrap;
+      }
+
+      .pill.danger {
+        color: #ffd8df;
+        border-color: rgba(255, 93, 115, 0.36);
+        background: var(--danger-bg);
+      }
+
+      .pill.good {
+        color: #d7fff0;
+        border-color: rgba(80, 212, 155, 0.28);
+        background: rgba(80, 212, 155, 0.12);
+      }
+
+      .gear {
+        margin-left: auto;
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        border-radius: 15px;
+        background: rgba(155, 124, 255, 0.16);
+        border: 1px solid rgba(155, 124, 255, 0.2);
+        color: #e5dfff;
+        font-size: 20px;
+      }
+
+      .layout {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: minmax(430px, 36%) 1fr;
+        gap: 18px;
+        min-height: calc(100vh - 96px);
+      }
+
+      .left,
+      .right {
+        border: 1px solid var(--line-soft);
+        border-radius: var(--radius-xl);
+        background: var(--shell);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(18px);
+      }
+
+      .left {
+        padding: 28px;
+        display: grid;
+        grid-template-rows: auto auto auto 1fr auto auto;
+        gap: 14px;
+      }
+
+      .left-head,
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 34px;
+        letter-spacing: -0.04em;
+      }
+
+      h2 {
+        font-size: 18px;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .badge {
+        padding: 7px 12px;
+        border-radius: 999px;
+        color: var(--cyan);
+        background: rgba(123, 244, 255, 0.1);
+        border: 1px solid rgba(123, 244, 255, 0.18);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .avatar-card {
+        position: relative;
+        height: 245px;
+        overflow: hidden;
+        border-radius: 24px;
+        background:
+          radial-gradient(circle at 50% 20%, rgba(255, 122, 200, 0.2), transparent 15rem),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+        border: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+      }
+
+      .avatar-card::after {
+        content: "";
+        position: absolute;
+        inset: auto 28px 18px;
+        height: 28px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.26);
+        filter: blur(12px);
+      }
+
+      .avatar-card img {
+        position: relative;
+        z-index: 1;
+        max-height: 250px;
+        width: auto;
+        object-fit: contain;
+      }
+
+      .primary-action {
+        height: 76px;
+        border-radius: 22px;
+        background: linear-gradient(135deg, #45d698, #36bdf2);
+        color: #061019;
+        display: grid;
+        place-items: center;
+        font-size: 27px;
+        font-weight: 900;
+        box-shadow: 0 18px 40px rgba(54, 189, 242, 0.2);
+      }
+
+      .card {
+        padding: 18px;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--line-soft);
+        background: var(--panel-3);
+      }
+
+      .response {
+        margin-top: 12px;
+        min-height: 128px;
+        border-radius: 16px;
+        border: 1px solid rgba(123, 244, 255, 0.18);
+        background: rgba(5, 8, 15, 0.62);
+        color: #fff;
+        padding: 16px;
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0 10px;
+      }
+
+      .chip {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(155, 124, 255, 0.13);
+        color: #efeaff;
+        border: 1px solid rgba(155, 124, 255, 0.14);
+        font-size: 14px;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: 1fr 130px;
+        gap: 10px;
+      }
+
+      .input,
+      .send {
+        height: 42px;
+        border-radius: 15px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+      }
+
+      .send {
+        justify-content: center;
+        background: rgba(255, 122, 200, 0.18);
+        color: #ffdff1;
+        font-weight: 800;
+      }
+
+      .right {
+        padding: 14px 18px 24px;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 9px;
+      }
+
+      .tab {
+        height: 50px;
+        display: grid;
+        place-items: center;
+        border-radius: 17px;
+        color: #968ba8;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid rgba(255, 255, 255, 0.045);
+        font-weight: 800;
+      }
+
+      .tab.active {
+        color: #071018;
+        background: linear-gradient(135deg, var(--cyan), var(--violet));
+      }
+
+      .subtabs {
+        margin: 15px 3px 18px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 9px;
+      }
+
+      .subtab {
+        height: 36px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        color: #8f83a2;
+        font-weight: 800;
+      }
+
+      .subtab.active {
+        color: #ffe9f6;
+        background: rgba(255, 122, 200, 0.16);
+        border: 1px solid rgba(255, 122, 200, 0.18);
+      }
+
+      .settings {
+        display: grid;
+        gap: 18px;
+      }
+
+      .settings-card {
+        padding: 20px;
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid var(--line-soft);
+      }
+
+      .liveaudio {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .wide-button {
+        height: 44px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        color: #071018;
+        font-weight: 900;
+        background: linear-gradient(135deg, var(--cyan), var(--violet));
+      }
+
+      .voice-grid {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .option {
+        padding: 16px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid var(--line-soft);
+      }
+
+      .option.selected {
+        border-color: rgba(123, 244, 255, 0.34);
+        background: rgba(123, 244, 255, 0.09);
+      }
+
+      .toggle-row {
+        margin-top: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .switch {
+        width: 58px;
+        height: 30px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--pink), var(--violet));
+        position: relative;
+        flex: none;
+      }
+
+      .switch::after {
+        content: "";
+        position: absolute;
+        right: 4px;
+        top: 4px;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: #fff;
+      }
+
+      .speed {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+      }
+
+      .speed span {
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border-radius: 14px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.045);
+      }
+
+      .speed .active {
+        color: #071018;
+        font-weight: 900;
+        background: var(--green);
+      }
+
+      .memory-card {
+        display: grid;
+        grid-template-columns: 1fr 230px;
+        align-items: center;
+        gap: 18px;
+      }
+
+      .clear {
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #e9def2;
+        border: 1px solid var(--line-soft);
+        font-weight: 800;
+      }
+
+      .concept {
+        margin-top: 14px;
+        color: var(--dim);
+        font-size: 12px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <section class="topbar">
+        <div class="mode">Modelo requiere atención</div>
+        <div class="pill danger">Sistema: error</div>
+        <div class="pill danger">Ollama: revisar</div>
+        <div class="pill good">Mic: conectado</div>
+        <div class="pill">TTS: inactivo</div>
+        <div class="pill">Chat: desconectado</div>
+        <div class="pill danger">Health: acción requerida</div>
+        <div class="pill">Voz: —</div>
+        <div class="gear">⚙</div>
+      </section>
+
+      <section class="layout">
+        <aside class="left">
+          <div class="left-head">
+            <div>
+              <h1>Kira</h1>
+              <p class="subtitle">Experiencia principal</p>
+            </div>
+            <span class="badge">Local cohost</span>
+          </div>
+
+          <div class="avatar-card">
+            <img src="./public/kira-error.png" alt="Kira avatar" />
+          </div>
+
+          <div class="primary-action">Hablar</div>
+
+          <section class="card">
+            <div class="section-head">
+              <h2>Respuesta de Kira</h2>
+              <span class="badge">preparando</span>
+            </div>
+            <div class="response">Iniciando Kira... esperá unos segundos mientras se prepara.</div>
+          </section>
+
+          <section class="card">
+            <h2>Entrada de voz / PTT</h2>
+            <div class="chips">
+              <span class="chip">Voz/PTT: listo</span>
+              <span class="chip">TTS: idle</span>
+              <span class="chip">Memoria: disponible</span>
+              <span class="chip">Chat: desconectado</span>
+            </div>
+            <p class="hint">Conecta el reconocimiento de voz en tiempo real. PTT requiere LiveAudio activo.</p>
+          </section>
+
+          <section class="composer">
+            <div class="input">Escribe un mensaje para Kira...</div>
+            <div class="send">Enviar</div>
+          </section>
+        </aside>
+
+        <section class="right">
+          <nav class="tabs">
+            <div class="tab active">Configuración</div>
+            <div class="tab">Stream</div>
+            <div class="tab">Co-host</div>
+            <div class="tab">Música</div>
+            <div class="tab">Avatar / OBS</div>
+          </nav>
+
+          <div class="subtabs">
+            <div class="subtab">M/Perfil</div>
+            <div class="subtab active">Audio/TTS</div>
+            <div class="subtab">Ayuda</div>
+          </div>
+
+          <div class="settings">
+            <section class="settings-card liveaudio">
+              <div>
+                <h2>LiveAudio</h2>
+                <p class="hint" style="margin-top: 8px">
+                  Motor para que Kira escuche tu voz en tiempo real.
+                </p>
+              </div>
+              <div class="wide-button">Conectar LiveAudio</div>
+            </section>
+
+            <section class="settings-card">
+              <div class="section-head">
+                <div>
+                  <h2>Voz de Kira</h2>
+                  <p class="hint" style="margin-top: 8px">Selecciona voz, privacidad y velocidad.</p>
+                </div>
+                <span class="badge">Piper offline</span>
+              </div>
+
+              <div class="voice-grid">
+                <div class="option">
+                  <h3>AR Argentina</h3>
+                  <p class="hint" style="margin-top: 7px">Más personalidad local.</p>
+                </div>
+                <div class="option selected">
+                  <h3>Neutral</h3>
+                  <p class="hint" style="margin-top: 7px">Más clara para demo y tutorial.</p>
+                </div>
+              </div>
+
+              <div class="toggle-row">
+                <div>
+                  <h3>Solo TTS local</h3>
+                  <p class="hint" style="margin-top: 6px">OFF usa Edge-TTS para voz más natural.</p>
+                </div>
+                <div class="switch"></div>
+              </div>
+
+              <div class="speed">
+                <span class="active">Rápida</span>
+                <span>Media</span>
+                <span>Calma</span>
+                <span>Lenta</span>
+              </div>
+            </section>
+
+            <section class="settings-card memory-card">
+              <div>
+                <h2>Memoria</h2>
+                <p class="hint" style="margin-top: 8px">Kira olvidará el contexto previo de la conversación.</p>
+              </div>
+              <div class="clear">🧹 Limpiar memoria</div>
+            </section>
+          </div>
+
+          <div class="concept">Aurora color proposal — same app shape, stronger identity.</div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

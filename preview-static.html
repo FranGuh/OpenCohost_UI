@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenCohost Faithful UI Preview</title>
+    <style>
+      :root {
+        --bg: #080d14;
+        --surface: #0f1722;
+        --surface-2: #111c29;
+        --surface-3: #0a1119;
+        --chip: #172438;
+        --line: rgba(148, 163, 184, 0.14);
+        --line-strong: rgba(148, 163, 184, 0.24);
+        --text: #f5f7fb;
+        --muted: #9fb3cb;
+        --subtle: #6f849c;
+        --blue: #2f6ca3;
+        --blue-2: #214e78;
+        --green: #21845f;
+        --red: #d93b3f;
+        --red-soft: #7d2931;
+        --gray-btn: #5d5c59;
+        --radius-lg: 24px;
+        --radius-md: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1360px;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+
+      .window {
+        min-height: 100vh;
+        padding: 14px;
+        background:
+          radial-gradient(circle at 20% 0%, rgba(47, 108, 163, 0.08), transparent 30rem),
+          linear-gradient(180deg, #09111a, var(--bg));
+      }
+
+      .statusbar {
+        height: 60px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 18px;
+        border-radius: 18px;
+        background: var(--surface);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .state-title {
+        color: #ff565b;
+        font-size: 20px;
+        font-weight: 800;
+        margin-right: 4px;
+      }
+
+      .pill {
+        border: 0;
+        border-radius: 14px;
+        padding: 10px 17px;
+        background: var(--chip);
+        color: var(--text);
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .pill.red {
+        background: var(--red);
+      }
+
+      .pill.soft-red {
+        background: var(--red-soft);
+        color: #ffd5d7;
+      }
+
+      .gear {
+        margin-left: auto;
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #172942;
+        color: #d6eaff;
+        font-size: 22px;
+      }
+
+      .layout {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: 37.5% 1fr;
+        gap: 22px;
+        min-height: calc(100vh - 86px);
+      }
+
+      .left,
+      .right {
+        background: var(--surface);
+        border-radius: var(--radius-lg);
+        border: 1px solid rgba(255, 255, 255, 0.035);
+      }
+
+      .left {
+        padding: 32px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .right {
+        padding: 12px 16px 28px;
+        position: relative;
+      }
+
+      .left-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 31px;
+        font-weight: 800;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .label {
+        color: #acc7e5;
+        font-size: 16px;
+      }
+
+      .avatar-frame {
+        height: 226px;
+        border-radius: 15px;
+        background: var(--surface-3);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+      }
+
+      .avatar-frame img {
+        max-height: 226px;
+        width: auto;
+        object-fit: contain;
+      }
+
+      .speak-btn {
+        height: 90px;
+        border-radius: 9px;
+        background: var(--green);
+        display: grid;
+        place-items: center;
+        color: rgba(255, 255, 255, 0.68);
+        font-size: 29px;
+        font-weight: 800;
+        margin-top: 10px;
+      }
+
+      .card {
+        background: #0a1018;
+        border-radius: 18px;
+        padding: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+      }
+
+      .response-box {
+        height: 162px;
+        margin-top: 12px;
+        border-radius: 7px;
+        border: 1px solid #26384e;
+        padding: 12px;
+        color: white;
+        font-size: 18px;
+        background: #070c12;
+      }
+
+      .voice-panel {
+        background: #111f2c;
+        border-radius: 18px;
+        padding: 17px;
+      }
+
+      .chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0 8px;
+      }
+
+      .mini-chip {
+        background: #18263a;
+        border-radius: 13px;
+        padding: 7px 15px;
+        color: white;
+      }
+
+      .hint {
+        color: #9fc3e7;
+        font-size: 15px;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: 1fr 145px;
+        gap: 10px;
+        background: #111f2c;
+        border-radius: 16px;
+        padding: 12px;
+      }
+
+      .input {
+        height: 35px;
+        border-radius: 7px;
+        border: 1px solid #7a7a74;
+        background: #3b3d3f;
+        color: #c9c9c9;
+        padding: 7px;
+        font-size: 16px;
+      }
+
+      .send {
+        border-radius: 7px;
+        background: #5e5d5b;
+        display: grid;
+        place-items: center;
+        color: #c8c8c8;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 7px;
+      }
+
+      .tab {
+        height: 44px;
+        display: grid;
+        place-items: center;
+        border-radius: 10px;
+        background: #141f2e;
+        color: #6f8cac;
+        font-weight: 800;
+        font-size: 16px;
+      }
+
+      .tab.active {
+        background: var(--blue);
+        color: white;
+      }
+
+      .subtabs {
+        margin: 16px 4px 18px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+
+      .subtab {
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: #6d8baa;
+        font-weight: 800;
+      }
+
+      .subtab.active {
+        background: var(--blue-2);
+        border-radius: 7px;
+        color: white;
+      }
+
+      .settings {
+        padding: 0 14px;
+        display: grid;
+        gap: 20px;
+      }
+
+      .settings-card {
+        background: var(--surface-2);
+        border-radius: 16px;
+        padding: 22px 13px;
+      }
+
+      .settings-card.inner-pad {
+        padding: 22px 26px;
+      }
+
+      .settings-card p {
+        color: #a8c8ea;
+        font-size: 13px;
+      }
+
+      .wide-action {
+        height: 35px;
+        margin-top: 16px;
+        border-radius: 6px;
+        background: #316fa8;
+        display: grid;
+        place-items: center;
+        color: #b8cde1;
+        font-size: 16px;
+      }
+
+      .segment {
+        margin-top: 20px;
+        height: 35px;
+        border-radius: 7px;
+        background: var(--gray-btn);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        overflow: hidden;
+      }
+
+      .segment span {
+        display: grid;
+        place-items: center;
+      }
+
+      .segment .selected {
+        background: #2b79b8;
+      }
+
+      .toggle-row {
+        margin-top: 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .switch {
+        width: 45px;
+        height: 18px;
+        background: #2d82c8;
+        border-radius: 20px;
+        position: relative;
+      }
+
+      .switch::after {
+        content: "";
+        position: absolute;
+        left: 21px;
+        top: -4px;
+        width: 23px;
+        height: 23px;
+        background: #d6dbe1;
+        border-radius: 50%;
+      }
+
+      .speed {
+        margin-top: 14px;
+        height: 35px;
+        background: var(--gray-btn);
+        border-radius: 7px;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .speed span {
+        display: grid;
+        place-items: center;
+      }
+
+      .speed .selected {
+        background: #2b79b8;
+      }
+
+      .scrollbar {
+        position: absolute;
+        right: 16px;
+        top: 120px;
+        bottom: 30px;
+        width: 10px;
+        border-radius: 999px;
+        background: transparent;
+      }
+
+      .scrollbar::after {
+        content: "";
+        display: block;
+        width: 10px;
+        height: 94%;
+        border-radius: 999px;
+        background: #2b79b8;
+      }
+
+      .refinement-note {
+        position: absolute;
+        right: 36px;
+        bottom: 26px;
+        color: #536a82;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="window">
+      <section class="statusbar">
+        <div class="state-title">Modelo error</div>
+        <div class="pill red">Sistema: error</div>
+        <div class="pill red">Modelo: revisar Ollama</div>
+        <div class="pill">Mic: conectado</div>
+        <div class="pill">TTS: inactivo</div>
+        <div class="pill">Chat: desconectado</div>
+        <div class="pill soft-red">Health: acción requerida</div>
+        <div class="pill">Voz: —</div>
+        <div class="gear">⚙</div>
+      </section>
+
+      <section class="layout">
+        <aside class="left">
+          <div class="left-head">
+            <h1>Kira</h1>
+            <div class="label">Experiencia principal</div>
+          </div>
+
+          <div class="avatar-frame">
+            <img src="./public/kira-error.png" alt="Kira avatar" />
+          </div>
+
+          <div class="speak-btn">Hablar</div>
+
+          <section class="card">
+            <h2>Respuesta de Kira</h2>
+            <div class="response-box">Iniciando Kira... esperá unos segundos mientras se prepara.</div>
+          </section>
+
+          <section class="voice-panel">
+            <h2>Entrada de voz / PTT</h2>
+            <div class="chips">
+              <span class="mini-chip">Voz/PTT: listo</span>
+              <span class="mini-chip">TTS: idle</span>
+              <span class="mini-chip">Memoria: disponible</span>
+              <span class="mini-chip">Chat: desconectado</span>
+            </div>
+            <div class="hint">Conecta el reconocimiento de voz en tiempo real. PTT requiere LiveAudio activo.</div>
+          </section>
+
+          <section class="composer">
+            <div class="input">Escribe un mensaje para Kira (contexto o pregunta)...</div>
+            <div class="send">Enviar a IA</div>
+          </section>
+        </aside>
+
+        <section class="right">
+          <nav class="tabs">
+            <div class="tab active">Configuración</div>
+            <div class="tab">Stream</div>
+            <div class="tab">Co-host</div>
+            <div class="tab">Música</div>
+            <div class="tab">Avatar / OBS</div>
+          </nav>
+
+          <div class="subtabs">
+            <div class="subtab">M/Perfil</div>
+            <div class="subtab active">Audio/TTS</div>
+            <div class="subtab">Ayuda</div>
+          </div>
+
+          <div class="settings">
+            <section class="settings-card">
+              <p>LiveAudio es el motor que permite a Kira escuchar tu voz en tiempo real.</p>
+              <div class="wide-action">Conectar LiveAudio</div>
+            </section>
+
+            <section class="settings-card inner-pad">
+              <h2>Voz de Kira</h2>
+              <div class="segment">
+                <span>AR Argentina</span>
+                <span class="selected">🌐 Neutral</span>
+              </div>
+              <p style="margin-top: 12px">Ambas voces son 100% offline (Piper).</p>
+              <div class="toggle-row">
+                <div class="switch"></div>
+                <div>Solo TTS local (Piper)</div>
+              </div>
+              <p style="margin-top: 12px">OFF envía el texto a Edge-TTS (nube) para una voz más natural.</p>
+              <p style="margin-top: 52px">Velocidad de voz local (Piper). No afecta a Edge-TTS.</p>
+              <div class="speed">
+                <span class="selected">Rápida</span>
+                <span>Media</span>
+                <span>Calma</span>
+                <span>Lenta</span>
+              </div>
+            </section>
+
+            <section class="settings-card inner-pad">
+              <h2>Memoria</h2>
+              <div class="wide-action" style="background: #5d5c59; color: white">🧹 Limpiar Memoria</div>
+              <p style="margin-top: 20px">Kira olvidará el contexto previo de la conversación.</p>
+            </section>
+          </div>
+
+          <div class="scrollbar"></div>
+          <div class="refinement-note">Faithful polish preview — same product, cleaner hierarchy.</div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
