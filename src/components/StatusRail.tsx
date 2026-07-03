@@ -10,7 +10,7 @@ const OK_VALUES = new Set(["ok", "green", "healthy", "running", "ready"]);
 const WARN_VALUES = new Set(["yellow", "warn", "degraded", "low", "waiting", "unhealthy"]);
 const DANGER_VALUES = new Set(["red", "critical", "down", "failed"]);
 
-function healthTone(status: string | undefined): BadgeTone {
+export function healthTone(status: string | undefined): BadgeTone {
   if (!status) return "neutral";
   if (OK_VALUES.has(status)) return "ok";
   if (WARN_VALUES.has(status)) return "warn";
