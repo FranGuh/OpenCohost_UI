@@ -195,3 +195,34 @@ forward unchanged. *Cost:* two serialization domains is more moving parts than o
 not optional; pre-existing off-thread races become observable (stale-but-safe reads,
 deferrable proper fix); LiveVoice WS is the one genuinely new concurrency surface and
 carries the strongest R8 burden — sequenced last, behind its own auth decision.
+
+## Owner refinements (post-review)
+
+**Availability model — supersedes the "engine-dead 503" framing.** The failure to guard
+is the **API process not being up** (front can't reach back at all → "doom"), not just a
+dead worker thread. Model for a LOCAL app: the front pings a small fast endpoint
+(`GET /api/health`, or reuse the lightweight `/api/status`) on startup / periodically; on
+connection-refused it prompts to — or auto-does — **launch the compiled backend** (Tauri
+**sidecar** spawns the bundled binary; local + compiled = safe). The same `/api/health`
+also reports **engine liveness** (not just HTTP up), covering the worker-dead case in one
+place; the mutation-time 503 becomes a secondary safety net. **Local security posture:**
+bind `127.0.0.1` + CORS allowlist + R8 (no raw chat over the wire) — no TLS/auth (a
+*server* concern, out of scope). **Scope note:** the auto-launch is a Tauri
+sidecar/packaging mini-design (touches the packaging track), separate from the API.
+
+**Q4 — the TTL is NOT latency; don't raise it.** The 120 s TTL is only the idempotency
+dedup window and has ZERO effect on response latency (observed via `/api/status`
+polling). Instead of raising it, the client holds the **`command_id`** from `accepted`
+and polls status — with the id in hand it never blind-retries, so a double-turn cannot
+happen and the TTL is irrelevant to slow turns (it can even be lowered). The TTL only
+covers the seconds-long "sent but no ack" gap.
+
+**Q5 — Tier-C has no Q4-style problem.** It is synchronous request/response, and the ops
+are naturally idempotent / harmless to repeat (OBS probe, set-mood, full-replace config);
+the lock only prevents a *concurrent* double-fire. The one exception is a non-idempotent
+create like `music/import` → dedup by a **natural key** (filename) when built.
+
+**LiveAudio (was "LiveVoice"):** `#13` is the owner's **LiveAudio** program (Whisper
+transcriptions → OBS), likely a separate program — NOT a raw-voice channel to a browser
+tab. The "auth" concern was overstated; **note + defer**, confirm the WS payload before
+wiring. Not a concern for this pass.
