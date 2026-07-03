@@ -17,14 +17,10 @@ describe("PTTCard", () => {
     expect(screen.getByText("PTT on")).toBeInTheDocument();
   });
 
-  it("renders a Mapear button", () => {
+  it("renders 'Mapear atajo' permanently disabled with a desktop-only status note", () => {
     render(<PTTCard />);
-    expect(screen.getByRole("button", { name: "Mapear" })).toBeInTheDocument();
-  });
-
-  it("shows a not-wired-yet note after clicking Mapear", () => {
-    render(<PTTCard />);
-    fireEvent.click(screen.getByRole("button", { name: "Mapear" }));
-    expect(screen.getByRole("status")).toHaveTextContent(/Mapear: se habilitará/);
+    const mapButton = screen.getByRole("button", { name: "Mapear atajo" });
+    expect(mapButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/app de escritorio/);
   });
 });

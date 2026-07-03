@@ -20,4 +20,13 @@ describe("Segmented", () => {
     fireEvent.click(screen.getByRole("button", { name: "Opción B" }));
     expect(onChange).toHaveBeenCalledWith("b");
   });
+
+  it("disables every option and blocks onChange when disabled is true", () => {
+    const onChange = vi.fn();
+    render(<Segmented options={OPTIONS} value="a" onChange={onChange} ariaLabel="Test" disabled />);
+    const optionB = screen.getByRole("button", { name: "Opción B" });
+    expect(optionB).toBeDisabled();
+    fireEvent.click(optionB);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
