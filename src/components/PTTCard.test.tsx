@@ -21,4 +21,10 @@ describe("PTTCard", () => {
     render(<PTTCard />);
     expect(screen.getByRole("button", { name: "Mapear" })).toBeInTheDocument();
   });
+
+  it("shows a not-wired-yet note after clicking Mapear", () => {
+    render(<PTTCard />);
+    fireEvent.click(screen.getByRole("button", { name: "Mapear" }));
+    expect(screen.getByRole("status")).toHaveTextContent(/Mapear: se habilitará/);
+  });
 });
