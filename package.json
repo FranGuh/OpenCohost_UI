@@ -3,27 +3,40 @@
   "private": true,
   "version": "0.0.0-prototype",
   "type": "module",
+  "packageManager": "pnpm@11.5.2",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest run",
+    "gen:api": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/api/types.gen.ts",
+    "check:api": "node -e \"fetch('http://127.0.0.1:8000/openapi.json').then(r=>r.json()).then(j=>require('fs').writeFileSync('openapi.snapshot.check.json',JSON.stringify(j,null,2)+'\\n'))\" && git diff --no-index --exit-code openapi.snapshot.json openapi.snapshot.check.json && node -e \"require('fs').unlinkSync('openapi.snapshot.check.json')\""
   },
   "dependencies": {
+    "@tanstack/react-query": "5.101.2",
     "@tauri-apps/api": "^2.0.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "zustand": "5.0.14"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
+    "jsdom": "29.1.1",
+    "msw": "2.14.6",
+    "openapi-typescript": "7.13.0",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "vitest": "3.2.6"
   }
 }
