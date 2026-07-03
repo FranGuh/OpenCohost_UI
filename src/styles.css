@@ -37,3 +37,13 @@ button:hover {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* Quality floor: every interactive element gets a visible keyboard focus
+   ring, even if a component forgot its own focus-visible: utility. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

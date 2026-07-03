@@ -57,6 +57,15 @@ export default {
         glow: "0 0 40px rgba(125, 247, 232, 0.18)",
         soft: "var(--sh-1)",
         panel: "var(--sh-2)"
+      },
+      keyframes: {
+        eq: {
+          "0%, 100%": { height: "8px" },
+          "50%": { height: "26px" }
+        }
+      },
+      animation: {
+        eq: "eq 1s ease-in-out infinite"
       }
     }
   },

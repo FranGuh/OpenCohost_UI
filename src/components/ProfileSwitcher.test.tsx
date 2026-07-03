@@ -6,12 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
 import { useSwitchStore } from "../store/switchStore.js";
+import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
 import { ProfileSwitcher } from "./ProfileSwitcher.js";
 
 function renderSwitcher() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ProfileSwitcher))
+    React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(ProfileSwitchProvider, null, React.createElement(ProfileSwitcher))
+    )
   );
 }
 

@@ -44,7 +44,7 @@ export function StatusRail() {
   }
 
   return (
-    <header className="flex flex-wrap items-center gap-[10px] rounded-xl border border-border-soft bg-card px-4 py-3 shadow-soft">
+    <div className="flex flex-wrap items-center gap-[10px] rounded-xl border border-border-soft bg-card px-4 py-3 shadow-soft">
       <Badge tone={data.is_ready ? "ok" : "danger"}>{data.is_ready ? "Sistema: listo" : "Sistema: no listo"}</Badge>
       <Badge tone={data.current_model ? "info" : "neutral"} mono>
         Modelo: {data.current_model ?? "—"}
@@ -57,6 +57,6 @@ export function StatusRail() {
       <Badge tone="neutral" mono className="ml-auto">
         Perfil: {data.active_profile}
       </Badge>
-    </header>
+    </div>
   );
 }

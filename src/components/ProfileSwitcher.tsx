@@ -1,37 +1,23 @@
 import type { ChangeEvent } from "react";
-import { useProfilesQuery, useSwitchProfileMutation } from "../api/profiles.js";
-import { usePollUntilApplied } from "../api/status.js";
-import { useSwitchStore } from "../store/switchStore.js";
+import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Select } from "./ui/Select.js";
 
 /**
  * Native <select> profile control (design D9 — no shadcn/radix combobox
- * needed for a flat list). Wired to useProfilesQuery for the list and
- * useSwitchProfileMutation + usePollUntilApplied for the queued -> applying
- * -> applied reconcile (accepted != applied, design D6).
+ * needed for a flat list). Reads the shared ProfileSwitchProvider context
+ * for the list and the queued -> applying -> applied reconcile (accepted !=
+ * applied, design D6) — same single poll owner as ProfilePlaylist.
  */
 export function ProfileSwitcher() {
-  const profilesQuery = useProfilesQuery();
-  const switchMutation = useSwitchProfileMutation();
-  const pendingSwitch = useSwitchStore((state) => state.pendingSwitch);
-  // Target is re-derived from the store every render (mirrors status.test.ts's
-  // useDerivedPoll pattern) so it naturally becomes null once convergence
-  // clears pendingSwitch.
-  const statusQuery = usePollUntilApplied(pendingSwitch?.name ?? null);
-
-  const profiles = profilesQuery.data?.profiles ?? [];
-  const activeProfile = statusQuery.data?.active_profile;
+  const { profiles, activeProfile, pendingSwitch, profilesLoading, switchError, switchTo } =
+    useProfileSwitchContext();
   const selectValue = pendingSwitch?.name ?? activeProfile ?? "";
   const isApplying = pendingSwitch?.status === "applying";
 
   function handleChange(event: ChangeEvent<HTMLSelectElement>) {
-    const name = event.target.value;
-    if (!name || name === activeProfile) {
-      return;
-    }
-    switchMutation.mutate({ name });
+    switchTo(event.target.value);
   }
 
   return (
@@ -54,7 +40,7 @@ export function ProfileSwitcher() {
       <Select
         aria-label="Perfil activo"
         value={selectValue}
-        disabled={isApplying || profilesQuery.isLoading}
+        disabled={isApplying || profilesLoading}
         onChange={handleChange}
       >
         {profiles.length === 0 && <option value="">Sin perfiles</option>}
@@ -65,7 +51,7 @@ export function ProfileSwitcher() {
         ))}
       </Select>
 
-      {switchMutation.isError && (
+      {switchError && (
         <p role="alert" className="text-xs text-danger">
           No se pudo cambiar de perfil. Intentá de nuevo.
         </p>

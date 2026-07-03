@@ -51,6 +51,27 @@ function studioAccentGradStops(): [string, string] {
   return [match[1], match[2]];
 }
 
+// Badge's real rendering surface is its own translucent tint (--{tone}-bg),
+// not the plain white Card — flatten the rgba() tint over white to get the
+// actual pixel color a screen renders, per #2828 (studio Badge text on its
+// tinted pill measured ~4.0-4.25:1 against that flattened surface, below
+// the 4.5:1 AA text needs even though the same tokens clear AA against
+// plain #ffffff).
+function studioTintRgba(name: string): { r: number; g: number; b: number; a: number } {
+  const studioBlock = tokensCss.slice(tokensCss.indexOf('[data-theme="studio"]'));
+  const match = studioBlock.match(new RegExp(`--${name}-bg:\\s*rgba\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\)`));
+  if (!match) {
+    throw new Error(`token --${name}-bg not found in [data-theme="studio"] block`);
+  }
+  return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a: Number(match[4]) };
+}
+
+function flattenTintOverWhite(name: string): string {
+  const { r, g, b, a } = studioTintRgba(name);
+  const flat = [r, g, b].map((channel) => Math.round(a * channel + (1 - a) * 255));
+  return `#${flat.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
 const WHITE = "#ffffff";
 const AA_SMALL_TEXT = 4.5;
 
@@ -58,6 +79,12 @@ describe("studio theme contrast (WCAG AA)", () => {
   it.each(["ok", "warn", "danger", "info"])("--%s meets 4.5:1 against #ffffff", (name) => {
     const hex = studioTokenHex(name);
     expect(contrastRatio(hex, WHITE)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it.each(["ok", "warn", "danger", "info"])("--%s meets 4.5:1 against its own flattened Badge tint (--%s-bg)", (name) => {
+    const textHex = studioTokenHex(name);
+    const flattenedBg = flattenTintOverWhite(name);
+    expect(contrastRatio(textHex, flattenedBg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
   });
 
   it("both --accent-grad stops meet 4.5:1 with a white label (primary Button)", () => {

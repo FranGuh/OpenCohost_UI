@@ -58,6 +58,23 @@
   --sh-2: 0 20px 60px rgba(0, 0, 0, 0.38);
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
 
+  /* Kira "reproductor" shell signature palette — first-pass, exact concept
+     values (this IS the concept theme). Additive: --accent/--accent-grad
+     stay untouched, used app-wide. */
+  --spectrum: linear-gradient(90deg, #5ad7e6 0%, #9b7cff 48%, #ff5fb0 100%);
+  --spectrum-soft: linear-gradient(
+    135deg,
+    rgba(90, 215, 230, 0.16),
+    rgba(155, 124, 255, 0.14),
+    rgba(255, 95, 176, 0.16)
+  );
+  --kira-cyan: #5ad7e6;
+  --kira-violet: #9b7cff;
+  --kira-pink: #ff5fb0;
+  --kira-amber: #f6c15a;
+  --bg-deep: #060911;
+  --spectrum-gloss: rgba(255, 255, 255, 0.06);
+
   /* scale — shared across themes, not re-declared below */
   --radius: 16px;
   --r-sm: 8px;
@@ -110,6 +127,24 @@
   --sh-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
   --sh-2: 0 28px 70px rgba(0, 0, 0, 0.42);
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* Kira reproductor shell — interim values, borrowed from this theme's own
+     glow stops. Flagged for later tuning, out of first-pass scope. */
+  --spectrum: linear-gradient(90deg, #7bf4ff, #b48cff, #ff7ac8);
+  --spectrum-soft: linear-gradient(
+    135deg,
+    rgba(123, 244, 255, 0.18),
+    rgba(180, 140, 255, 0.16),
+    rgba(255, 122, 200, 0.18)
+  );
+  --kira-cyan: #7bf4ff;
+  --kira-violet: #b48cff;
+  --kira-pink: #ff7ac8;
+  --kira-amber: #f6c768;
+  --bg-deep: #050310;
+  /* aurora is already glassy (--surface-blur) — a touch brighter than
+     cockpit's gloss reads correctly against its translucent surfaces. */
+  --spectrum-gloss: rgba(255, 255, 255, 0.1);
 }
 
 [data-theme="studio"] {
@@ -142,17 +177,25 @@
   /* F3 (a11y): darkened from the mockup's originals to clear WCAG AA
      (>=4.5:1 for small text) on #ffffff — verified: ok 4.74:1, warn 4.66:1,
      danger 4.60:1, info 4.65:1. Originals (ok #12a05f 3.38:1, warn #b3791a
-     3.71:1, danger #d64550 4.35:1, info #2b83d6 3.95:1) all failed AA. */
-  --ok: #0f844f;
+     3.71:1, danger #d64550 4.35:1, info #2b83d6 3.95:1) all failed AA.
+     B2 (a11y, #2828): F3 only checked these against plain #ffffff, but
+     Badge actually renders this text on its OWN translucent tint
+     (--{tone}-bg flattened over the white Card), which measured only
+     ~4.0-4.25:1 — still below AA on that real surface. Darkened once more
+     (tint/-bg/-bd unchanged) — verified against the flattened tint:
+     ok 4.65:1, warn 4.66:1, danger 4.64:1, info 4.60:1 (all still >=4.5:1
+     against plain #ffffff too, so ProfileSwitcher's text-info/text-danger
+     spans on the plain Card stay comfortably above AA). */
+  --ok: #087d48;
   --ok-bg: rgba(18, 160, 95, 0.1);
   --ok-bd: rgba(18, 160, 95, 0.24);
-  --warn: #9d6a17;
+  --warn: #95620f;
   --warn-bg: rgba(179, 121, 26, 0.1);
   --warn-bd: rgba(179, 121, 26, 0.24);
-  --danger: #d43d48;
+  --danger: #c8313c;
   --danger-bg: rgba(214, 69, 80, 0.1);
   --danger-bd: rgba(214, 69, 80, 0.26);
-  --info: #2677c4;
+  --info: #1e6fbc;
   --info-bg: rgba(43, 131, 214, 0.1);
   --info-bd: rgba(43, 131, 214, 0.24);
 
@@ -161,4 +204,22 @@
   --sh-1: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 6px 18px rgba(23, 37, 63, 0.08);
   --sh-2: 0 24px 60px rgba(23, 37, 63, 0.14);
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* Kira reproductor shell — interim values, muted/AA-leaning for the light
+     theme. Flagged for later tuning, out of first-pass scope. */
+  --spectrum: linear-gradient(90deg, #0b8188, #5566e6, #c0468f);
+  --spectrum-soft: linear-gradient(
+    135deg,
+    rgba(15, 181, 190, 0.1),
+    rgba(85, 102, 230, 0.09),
+    rgba(192, 70, 143, 0.1)
+  );
+  --kira-cyan: #0b8188;
+  --kira-violet: #5566e6;
+  --kira-pink: #c0468f;
+  --kira-amber: #95620f;
+  --bg-deep: #e3e7ef;
+  /* studio's near-white surfaces need a stronger stop for the highlight to
+     still register, unlike the two dark themes. */
+  --spectrum-gloss: rgba(255, 255, 255, 0.5);
 }
