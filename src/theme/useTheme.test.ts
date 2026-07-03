@@ -1,12 +1,16 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useTheme } from "./useTheme.js";
+import { useTheme, useThemeStore } from "./useTheme.js";
 
 const STORAGE_KEY = "oc-theme";
 
+// useThemeStore (F4) is a module singleton by design (one shared source for
+// every consumer). Each test re-derives it from localStorage instead of
+// re-importing the module.
 beforeEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.theme;
+  useThemeStore.getState()._hydrateForTests();
 });
 
 afterEach(() => {
@@ -32,6 +36,7 @@ describe("useTheme", () => {
 
   it("restores the previously saved theme on load", () => {
     window.localStorage.setItem(STORAGE_KEY, "studio");
+    useThemeStore.getState()._hydrateForTests();
 
     const { result } = renderHook(() => useTheme());
 
@@ -41,9 +46,23 @@ describe("useTheme", () => {
 
   it("falls back to the default theme when localStorage holds an unknown value", () => {
     window.localStorage.setItem(STORAGE_KEY, "not-a-real-theme");
+    useThemeStore.getState()._hydrateForTests();
 
     const { result } = renderHook(() => useTheme());
 
     expect(result.current.theme).toBe("cockpit");
+  });
+
+  // F4 regression: two components consuming useTheme must share ONE theme
+  // value instead of desyncing per-component state.
+  it("keeps multiple consumers in sync through the shared store", () => {
+    const consumerA = renderHook(() => useTheme());
+    const consumerB = renderHook(() => useTheme());
+
+    act(() => consumerA.result.current.setTheme("aurora"));
+
+    expect(consumerA.result.current.theme).toBe("aurora");
+    expect(consumerB.result.current.theme).toBe("aurora");
+    expect(document.documentElement.dataset.theme).toBe("aurora");
   });
 });
