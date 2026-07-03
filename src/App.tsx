@@ -1,5 +1,9 @@
 import { StatusRail } from "./components/StatusRail.js";
 import { ProfileSwitcher } from "./components/ProfileSwitcher.js";
+import { ModelCard } from "./components/ModelCard.js";
+import { VoiceCard } from "./components/VoiceCard.js";
+import { PTTCard } from "./components/PTTCard.js";
+import { MemoryCard } from "./components/MemoryCard.js";
 import { ThemeSwitcher } from "./theme/ThemeSwitcher.js";
 import { Card } from "./components/ui/Card.js";
 
@@ -36,10 +40,10 @@ export function App() {
 
           <section className="flex flex-col gap-3.5">
             <ProfileSwitcher />
-            <PlaceholderCard title="Modelo" note="Selector de modelo y tiers LLM manual — Slice B2." />
-            <PlaceholderCard title="Voz / TTS" note="Idioma, velocidad y modo local/nube — Slice B2." />
-            <PlaceholderCard title="PTT · Push-to-Talk" note="Mapeo de tecla y modo de escucha — Slice B2." />
-            <PlaceholderCard title="Memoria" note="Gestión de memoria de Kira — Slice B2." />
+            <ModelCard />
+            <VoiceCard />
+            <PTTCard />
+            <MemoryCard />
           </section>
         </div>
       </div>
