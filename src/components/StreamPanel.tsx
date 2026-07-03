@@ -165,13 +165,23 @@ const COOLDOWN_PRESET_VALUES: Record<StreamPresetLevel, string> = {
   alto: "120"
 };
 
+// Preset highlight is derived from the current value (not tracked as its
+// own state) so it can never drift out of sync with the Select — returns
+// null when no preset maps to the value, which Segmented renders as
+// "nothing pressed" instead of a stale default.
+function presetForValue<T extends string>(value: string, presetValues: Record<T, string>): T | null {
+  const match = (Object.entries(presetValues) as Array<[T, string]>).find(([, presetValue]) => presetValue === value);
+  return match ? match[0] : null;
+}
+
 function AccionesCard() {
   const [reactionThreshold, setReactionThreshold] = useState(STREAM_FIXTURE.reaction_threshold);
-  const [reactionPreset, setReactionPreset] = useState<StreamPresetLevel>("medio");
   const [cooldown, setCooldown] = useState(STREAM_FIXTURE.cooldown);
-  const [cooldownPreset, setCooldownPreset] = useState<StreamPresetLevel>("medio");
   const [spamLimit, setSpamLimit] = useState(STREAM_FIXTURE.spam_limit);
   const [inputContract, setInputContract] = useState(STREAM_FIXTURE.input_contract);
+
+  const reactionPreset = presetForValue(reactionThreshold, REACTION_PRESET_VALUES);
+  const cooldownPreset = presetForValue(cooldown, COOLDOWN_PRESET_VALUES);
 
   const reactionCommand = useMockCommand<string>();
   const cooldownCommand = useMockCommand<string>();
@@ -225,7 +235,6 @@ function AccionesCard() {
             disabled={reactionCommand.pending}
             onChange={(level) => {
               const value = REACTION_PRESET_VALUES[level];
-              setReactionPreset(level);
               setReactionThreshold(value);
               void reactionCommand.run(value);
             }}
@@ -264,7 +273,6 @@ function AccionesCard() {
             disabled={cooldownCommand.pending}
             onChange={(level) => {
               const value = COOLDOWN_PRESET_VALUES[level];
-              setCooldownPreset(level);
               setCooldown(value);
               void cooldownCommand.run(value);
             }}

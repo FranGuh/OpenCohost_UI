@@ -1,25 +1,26 @@
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
 import { cn } from "../lib/cn.js";
 
-export type Section = "experiencia" | "controles" | "agenda" | "stream";
+export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica";
 
 interface NavItem {
-  id: Section | "buscar" | "ajustes";
+  id: Section | "ajustes";
   icon: string;
   label: string;
   wired: boolean;
 }
 
-// "Biblioteca" (formerly inert) is repurposed as the Agenda nav entry, and
-// "Inicio" (formerly inert) as the Stream nav entry — Buscar/Ajustes stay
-// inert placeholders for later waves. Order reads as the coherent wired
-// product flow: Experiencia -> Agenda -> Stream -> Controles.
+// "Biblioteca" (formerly inert) is repurposed as the Agenda nav entry,
+// "Inicio" (formerly inert) as the Stream nav entry, and "Buscar" (formerly
+// inert) as the Música nav entry — Ajustes stays an inert placeholder for a
+// later wave. Order reads as the coherent wired product flow:
+// Experiencia -> Agenda -> Stream -> Música -> Controles.
 const NAV_ITEMS: readonly NavItem[] = [
   { id: "experiencia", icon: "◈", label: "Experiencia", wired: true },
   { id: "agenda", icon: "▤", label: "Agenda", wired: true },
   { id: "stream", icon: "◉", label: "Stream", wired: true },
+  { id: "musica", icon: "♪", label: "Música", wired: true },
   { id: "controles", icon: "⚙", label: "Controles", wired: true },
-  { id: "buscar", icon: "⌕", label: "Buscar", wired: false },
   { id: "ajustes", icon: "☰", label: "Ajustes", wired: false }
 ];
 
@@ -28,8 +29,9 @@ export interface SidebarProps {
   onSelect: (section: Section) => void;
 }
 
-/** <nav> region — primary nav (only Experiencia/Controles wired) + the
- * profiles-as-playlists list below the separator. */
+/** <nav> region — primary nav (Experiencia/Agenda/Stream/Música/Controles
+ * wired, only Ajustes stays inert) + the profiles-as-playlists list below
+ * the separator. */
 export function Sidebar({ activeSection, onSelect }: SidebarProps) {
   return (
     <nav className="flex min-h-0 flex-col overflow-auto border-r border-border-soft bg-card py-3">

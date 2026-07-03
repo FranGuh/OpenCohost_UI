@@ -273,3 +273,41 @@ export const AGENDA_FIXTURE: AgendaFixtureShape = {
   ],
   session_state: "active"
 };
+
+/**
+ * Mock backend data for the Música domain. No /api/music/* endpoint exists
+ * yet — the real thing lives in opencohost/ui/music_panel.py +
+ * opencohost/core/music_library.py (MusicLibrary, AudioBedEngine.
+ * request_mood), persisted to MUSIC_CONFIG_FILE json. `moods` mirrors
+ * MusicLibrary.KNOWN_MOODS exactly (order matters for parity — this is not a
+ * curated subset). `status` mirrors the CTK's derived label: "ok" ==
+ * MusicTrack with missing=False/invalid=False, "faltante" == missing=True
+ * (file no longer at its path), "invalido" == invalid=True (wrong header/
+ * extension). Proposed endpoints: GET /api/music/library, POST
+ * /api/music/mood, POST /api/music/fade, POST /api/music/import, DELETE
+ * /api/music/track/{id}.
+ */
+export type MusicMood = "normal" | "nostalgia" | "hype" | "tension" | "sad" | "calm" | "comedy" | "ending";
+export type MusicTrackStatus = "ok" | "faltante" | "invalido";
+
+export interface MusicTrackFixture {
+  id: string;
+  name: string;
+  mood: MusicMood;
+  status: MusicTrackStatus;
+}
+
+export interface MusicFixtureShape {
+  moods: MusicMood[];
+  tracks: MusicTrackFixture[];
+}
+
+export const MUSIC_FIXTURE: MusicFixtureShape = {
+  moods: ["normal", "nostalgia", "hype", "tension", "sad", "calm", "comedy", "ending"],
+  tracks: [
+    { id: "track-1", name: "ambient_drift.mp3", mood: "calm", status: "ok" },
+    { id: "track-2", name: "hype_intro.wav", mood: "hype", status: "ok" },
+    { id: "track-3", name: "old_synth.mp3", mood: "nostalgia", status: "faltante" },
+    { id: "track-4", name: "broken_file.wav", mood: "tension", status: "invalido" }
+  ]
+};

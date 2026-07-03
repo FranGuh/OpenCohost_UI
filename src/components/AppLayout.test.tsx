@@ -43,7 +43,7 @@ describe("AppLayout", () => {
 
   it("does not switch when an inert nav item is clicked", () => {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: /Buscar/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Ajustes/ }));
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
   });
 
@@ -69,6 +69,19 @@ describe("AppLayout", () => {
     expect(streamBtn).toHaveAttribute("aria-current", "true");
     expect(screen.queryByRole("heading", { name: "Kira" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Chat en vivo" })).toBeInTheDocument();
+  });
+
+  it("switches to Música on nav click, marks aria-current, and renders MusicPanel", () => {
+    renderApp();
+    const musicaBtn = screen.getByRole("button", { name: /Música/ });
+    expect(musicaBtn).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(musicaBtn);
+
+    expect(musicaBtn).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByRole("heading", { name: "Kira" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Mood" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Biblioteca" })).toBeInTheDocument();
   });
 
   it("shares one ProfileSwitchProvider owner across ProfilePlaylist and ProfileSwitcher (no double-poll)", async () => {

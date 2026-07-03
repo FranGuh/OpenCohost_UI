@@ -8,7 +8,8 @@ export interface SegmentedOption<T extends string> {
 
 export interface SegmentedProps<T extends string> {
   options: readonly SegmentedOption<T>[];
-  value: T;
+  /** `null` means no option maps to the current external value — nothing is marked pressed. */
+  value: T | null;
   onChange: (value: T) => void;
   ariaLabel: string;
   disabled?: boolean;

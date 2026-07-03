@@ -55,6 +55,38 @@ describe("StreamPanel", () => {
     expect(screen.getByLabelText("Límite de spam")).toHaveValue(STREAM_FIXTURE.spam_limit);
   });
 
+  it("highlights only the preset matching the initial fixture value, and none when no preset matches", () => {
+    render(<StreamPanel />);
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    const cooldownGroup = screen.getByRole("group", { name: "Preset de cooldown" });
+
+    // fixture reaction_threshold "1" msg/s maps to the "medio" preset.
+    expect(within(reactionGroup).getByRole("button", { name: "Medio" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(reactionGroup).getByRole("button", { name: "Bajo" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(reactionGroup).getByRole("button", { name: "Alto" })).toHaveAttribute("aria-pressed", "false");
+
+    // fixture cooldown "45" does not map to any preset (30/60/120) — nothing pressed.
+    for (const button of within(cooldownGroup).getAllByRole("button")) {
+      expect(button).toHaveAttribute("aria-pressed", "false");
+    }
+  });
+
+  it("picking a Select value with no matching preset clears the preset highlight", async () => {
+    render(<StreamPanel />);
+    const cooldownGroup = screen.getByRole("group", { name: "Preset de cooldown" });
+    const cooldownSelect = screen.getByLabelText("Cooldown entre reacciones");
+
+    fireEvent.change(cooldownSelect, { target: { value: "30" } });
+    expect(within(cooldownGroup).getByRole("button", { name: "Bajo" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(within(cooldownGroup).getByRole("button", { name: "Bajo" })).not.toBeDisabled());
+
+    fireEvent.change(cooldownSelect, { target: { value: "45" } });
+    for (const button of within(cooldownGroup).getAllByRole("button")) {
+      expect(button).toHaveAttribute("aria-pressed", "false");
+    }
+    await waitFor(() => expect(cooldownSelect).not.toBeDisabled());
+  });
+
   it("selecting a reaction preset marks it pressed, runs the mock command, and updates the sibling Select", async () => {
     render(<StreamPanel />);
     const altoButtons = screen.getAllByRole("button", { name: "Alto" });
