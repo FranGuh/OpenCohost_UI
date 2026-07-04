@@ -71,6 +71,9 @@ export const handlers = [
   ),
   http.post(`${API_BASE_URL}/api/commands`, () =>
     HttpResponse.json({ accepted: true, command_id: "cmd-1", status: "queued", state_version: 2 })
+  ),
+  http.post(`${API_BASE_URL}/api/chat/turn`, () =>
+    HttpResponse.json({ accepted: true, command_id: "cmd-chat-1", status: "queued", state_version: 2 })
   )
 ];
 
@@ -127,6 +130,30 @@ export function commandValidationHandler(detail = "invalid command") {
 /** Per-test override: POST /api/commands fails at the network level (no response at all). */
 export function commandNetworkErrorHandler() {
   return http.post(`${API_BASE_URL}/api/commands`, () => HttpResponse.error());
+}
+
+/** Per-test override: POST /api/chat/turn rejected with 409 conflict. */
+export function chatTurnConflictHandler() {
+  return http.post(`${API_BASE_URL}/api/chat/turn`, () =>
+    HttpResponse.json({ accepted: false, reason: "conflict" }, { status: 409 })
+  );
+}
+
+/** Per-test override: POST /api/chat/turn rejected with 429 queue_full. */
+export function chatTurnQueueFullHandler() {
+  return http.post(`${API_BASE_URL}/api/chat/turn`, () =>
+    HttpResponse.json({ accepted: false, reason: "queue_full" }, { status: 429 })
+  );
+}
+
+/** Per-test override: POST /api/chat/turn rejected with 422 (invalid text). */
+export function chatTurnValidationHandler(detail = "text must be non-empty") {
+  return http.post(`${API_BASE_URL}/api/chat/turn`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/chat/turn fails at the network level (no response at all). */
+export function chatTurnNetworkErrorHandler() {
+  return http.post(`${API_BASE_URL}/api/chat/turn`, () => HttpResponse.error());
 }
 
 /**

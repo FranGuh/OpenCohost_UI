@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useStatusQuery } from "../api/status.js";
 import { KiraCover } from "./KiraCover.js";
 import { Segmented } from "./ui/Segmented.js";
 import { ProfileSwitcher } from "./ProfileSwitcher.js";
@@ -11,7 +12,7 @@ import { ObsCard } from "./ObsCard.js";
 import { AgendaPanel } from "./AgendaPanel.js";
 import { StreamPanel } from "./StreamPanel.js";
 import { MusicPanel } from "./MusicPanel.js";
-import { DEFAULT_TRANSCRIPT } from "./kiraState.js";
+import { AVATAR_LABEL, deriveAvatarState } from "./kiraState.js";
 import type { Section } from "./Sidebar.js";
 
 const INPUT_MODES = [
@@ -29,6 +30,8 @@ export interface MainStageProps {
  * Model/Voice/PTT/Memory settings cards (Controles). */
 export function MainStage({ activeSection }: MainStageProps) {
   const [inputMode, setInputMode] = useState<InputMode>("chat");
+  const { data } = useStatusQuery();
+  const avatarState = deriveAvatarState(data);
 
   if (activeSection === "controles") {
     return (
@@ -91,12 +94,12 @@ export function MainStage({ activeSection }: MainStageProps) {
 
       <div className="flex flex-col items-center gap-1 text-center">
         <h1 className="text-2xl font-extrabold tracking-tight text-foreground">Kira</h1>
-        <p className="text-xs text-muted-foreground">Akira · co-host local · Qwen 3 (1.7B)</p>
+        <p className="text-xs text-muted-foreground">Akira · co-host local · {data?.current_model ?? "cargando…"}</p>
       </div>
 
       <p className="max-w-[520px] rounded-md border border-border bg-background px-4 py-3 text-center text-sm leading-relaxed text-foreground">
         <span className="font-bold text-[var(--kira-cyan)]">[Kira] </span>
-        {DEFAULT_TRANSCRIPT}
+        Estado: {AVATAR_LABEL[avatarState]}
       </p>
     </main>
   );

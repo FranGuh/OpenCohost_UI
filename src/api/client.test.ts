@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
+  chatTurnConflictHandler,
+  chatTurnQueueFullHandler,
+  chatTurnValidationHandler,
   commandConflictHandler,
   commandQueueFullHandler,
   commandValidationHandler,
@@ -26,6 +29,7 @@ import {
   getPerfiles,
   getStatus,
   getTtsConfig,
+  postChatTurn,
   postCommand,
   switchProfile
 } from "./client.js";
@@ -179,5 +183,55 @@ describe("client/postCommand", () => {
       )
     );
     await expect(postCommand("switch_model", "x", "key-rejected")).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("client/postChatTurn", () => {
+  it("sends Idempotency-Key header + {text} body, parses {accepted,command_id,status,state_version} — R8: no reply field", async () => {
+    let capturedHeader: string | null = null;
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
+        capturedHeader = request.headers.get("Idempotency-Key");
+        capturedBody = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "cmd-chat", status: "queued", state_version: 3 });
+      })
+    );
+
+    const result = await postChatTurn("¿Cómo viene el stream?", "key-chat-1");
+
+    expect(capturedHeader).toBe("key-chat-1");
+    expect(capturedBody).toEqual({ text: "¿Cómo viene el stream?" });
+    expect(result).toEqual({ accepted: true, command_id: "cmd-chat", status: "queued", state_version: 3 });
+    expect(result).not.toHaveProperty("reply");
+  });
+
+  it("maps 409 to ConflictError", async () => {
+    server.use(chatTurnConflictHandler());
+    await expect(postChatTurn("hola", "key-409")).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("maps 429 to QueueFullError", async () => {
+    server.use(chatTurnQueueFullHandler());
+    await expect(postChatTurn("hola", "key-429")).rejects.toBeInstanceOf(QueueFullError);
+  });
+
+  it("maps 422 to ValidationError carrying the backend detail", async () => {
+    server.use(chatTurnValidationHandler("text must be non-empty"));
+    await expect(postChatTurn("", "key-422")).rejects.toThrow("text must be non-empty");
+  });
+
+  it("maps a network error to a rejected promise", async () => {
+    server.use(http.post(`${API_BASE_URL}/api/chat/turn`, () => HttpResponse.error()));
+    await expect(postChatTurn("hola", "key-network")).rejects.toThrow();
+  });
+
+  it("treats a 200 with accepted:false as an error, not a successful turn", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, () =>
+        HttpResponse.json({ accepted: false, command_id: "cmd-rejected", status: "rejected" })
+      )
+    );
+    await expect(postChatTurn("hola", "key-rejected")).rejects.toBeInstanceOf(ApiError);
   });
 });

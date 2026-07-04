@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
 import { DEFAULT_TRANSCRIPT } from "./kiraState.js";
+import { useSendChatTurn } from "../api/chat.js";
 import { cn } from "../lib/cn.js";
 
 const TABS = ["Todo", "Chat", "Alertas"] as const;
@@ -13,10 +14,14 @@ type TurnKind = "chat" | "alert";
 interface Turn {
   id: string;
   kind: TurnKind;
+  /** Present only for operator-submitted turns (see handleSubmit) — canned
+   * turns below render fixed copy keyed off `id` instead. */
+  text?: string;
 }
 
-// Canned turn list (no chat-history endpoint exists in P1). Tagged with
-// `kind` so the Todo/Chat/Alertas tabs actually filter what's rendered.
+// Canned turn list (no chat-history endpoint exists in P1 — Kira's reply is
+// audio-only per R8, there's nothing to fetch). Tagged with `kind` so the
+// Todo/Chat/Alertas tabs actually filter what's rendered.
 const TURNS: readonly Turn[] = [
   { id: "viewer-question", kind: "chat" },
   { id: "kira-reply", kind: "chat" },
@@ -30,6 +35,17 @@ function matchesTab(tab: Tab, kind: TurnKind): boolean {
 }
 
 function ConversationTurn({ turn }: { turn: Turn }) {
+  if (turn.text !== undefined) {
+    return (
+      <div className="flex flex-col gap-1 self-end text-right">
+        <span className="text-[11px] font-semibold text-dim">Vos</span>
+        <p className="max-w-[85%] self-end rounded-md border border-border-soft bg-background px-3 py-2 text-sm text-foreground">
+          {turn.text}
+        </p>
+      </div>
+    );
+  }
+
   if (turn.id === "viewer-question") {
     return (
       <div className="flex flex-col gap-1 self-end text-right">
@@ -60,24 +76,38 @@ function ConversationTurn({ turn }: { turn: Turn }) {
   return <p className="text-xs text-dim">🎫 el chat de viewers está silenciado</p>;
 }
 
-/** <aside> queue region — canned turn list (no chat-history endpoint exists
- * in P1) + a composer that reuses the app-wide P2 not-wired-yet note
- * pattern. */
+/** <aside> queue region — canned Kira-side turn list (no chat-history
+ * endpoint exists — Kira's reply is audio-only per R8) + a composer wired to
+ * the real POST /api/chat/turn (useSendChatTurn). The operator's own message
+ * is appended locally as an ephemeral turn so it's visible immediately;
+ * there's no server echo to reconcile against. */
 export function ConversationPanel() {
   const [activeTab, setActiveTab] = useState<Tab>("Todo");
   const [message, setMessage] = useState("");
-  const [lastAction, setLastAction] = useState<string | null>(null);
+  const [operatorTurns, setOperatorTurns] = useState<Turn[]>([]);
+  const { send, pending, isError, error } = useSendChatTurn();
 
   function handleMessageChange(event: ChangeEvent<HTMLInputElement>) {
     setMessage(event.target.value);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLastAction("Enviar");
+    const text = message.trim();
+    if (!text) return;
+
+    setOperatorTurns((turns) => [...turns, { id: `operator-${turns.length}-${Date.now()}`, kind: "chat", text }]);
+
+    try {
+      await send(text);
+      setMessage("");
+    } catch {
+      // isError/error below already carry this reactively — the message
+      // stays in the input so the operator can retry without retyping it.
+    }
   }
 
-  const visibleTurns = TURNS.filter((turn) => matchesTab(activeTab, turn.kind));
+  const visibleTurns = [...TURNS, ...operatorTurns].filter((turn) => matchesTab(activeTab, turn.kind));
 
   return (
     <aside className="flex min-h-0 flex-col border-l border-border-soft bg-card">
@@ -129,14 +159,14 @@ export function ConversationPanel() {
           aria-label="Mensaje para Kira"
           className="h-11 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         />
-        <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]">
+        <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={pending}>
           Enviar
         </Button>
       </form>
 
-      {lastAction && (
-        <p role="status" className="px-3 pb-3 text-xs text-muted-foreground">
-          {lastAction}: se habilitará cuando el backend lo soporte.
+      {isError && (
+        <p role="alert" className="px-3 pb-3 text-xs text-danger">
+          {error?.message ?? "No se pudo enviar el mensaje."}
         </p>
       )}
     </aside>

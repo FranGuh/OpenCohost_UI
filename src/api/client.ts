@@ -30,6 +30,19 @@ export interface CommandAccepted {
   state_version: number;
 }
 
+/**
+ * `POST /api/chat/turn` also has no `response_model` — same hand-typed
+ * pattern as CommandAccepted. R8: accepted-only, never echoes Kira's reply
+ * (audio-only) — do not add a `reply`/`transcript` field here.
+ * ponytail: keep in sync manually.
+ */
+export interface ChatTurnAccepted {
+  accepted: true;
+  command_id: string;
+  status: string;
+  state_version: number;
+}
+
 /** Server-side whitelist mirrored from opencohost/api/main.py::_COMMAND_WHITELIST. */
 export type EngineCommand =
   | "clear_history"
@@ -222,6 +235,47 @@ export async function postCommand(
   const body = (await res.json()) as CommandAccepted;
   if (!body.accepted) {
     throw new ApiError("POST /api/commands returned 200 with accepted:false", res.status);
+  }
+  return body;
+}
+
+/**
+ * POST /api/chat/turn (R8): accepted-only — the response never carries
+ * Kira's reply (that's audio-only, observed via is_speaking on the status
+ * poll). Same error-mapping shape as postCommand.
+ */
+export async function postChatTurn(text: string, idempotencyKey: string): Promise<ChatTurnAccepted> {
+  const res = await fetch(`${BASE_URL}/api/chat/turn`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey
+    },
+    body: JSON.stringify({ text })
+  });
+
+  if (res.status === 409) {
+    throw new ConflictError("chat turn conflict");
+  }
+  if (res.status === 429) {
+    throw new QueueFullError("chat turn queue full");
+  }
+  if (res.status === 422) {
+    let detail = "invalid chat turn";
+    try {
+      const body = (await res.json()) as { detail?: string };
+      detail = body.detail ?? detail;
+    } catch {
+      // non-JSON 422 body — fall back to a generic message.
+    }
+    throw new ValidationError(detail);
+  }
+  if (!res.ok) {
+    throw new ApiError(`POST /api/chat/turn failed with ${res.status}`, res.status);
+  }
+  const body = (await res.json()) as ChatTurnAccepted;
+  if (!body.accepted) {
+    throw new ApiError("POST /api/chat/turn returned 200 with accepted:false", res.status);
   }
   return body;
 }
