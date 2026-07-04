@@ -41,12 +41,6 @@ describe("AppLayout", () => {
     expect(screen.getByText("Perfil")).toBeInTheDocument();
   });
 
-  it("does not switch when an inert nav item is clicked", () => {
-    renderApp();
-    fireEvent.click(screen.getByRole("button", { name: /Ajustes/ }));
-    expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
-  });
-
   it("switches to Agenda on nav click, marks aria-current, and renders AgendaPanel", () => {
     renderApp();
     const agendaBtn = screen.getByRole("button", { name: /Agenda/ });

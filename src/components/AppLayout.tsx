@@ -13,8 +13,7 @@ const GRID_STYLE = {
   gridTemplateRows: "60px 1fr 88px",
   gridTemplateAreas: '"top top top" "side main queue" "player player player"',
   height: "100vh",
-  backgroundImage:
-    "radial-gradient(1100px 460px at 15% -10%, color-mix(in srgb, var(--kira-violet) 20%, transparent), transparent 70%)",
+  backgroundImage: "var(--app-bg-glow)",
   backgroundColor: "var(--background)"
 } as const;
 

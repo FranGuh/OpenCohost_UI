@@ -1,62 +1,97 @@
 /* ============================================================
-   DESIGN TOKENS — semantic roles. Components read ONLY these.
-   Ported from scratchpad/kira-redesign.html (owner-approved
-   mockup). Each [data-theme] block below re-skins the whole app
-   by swapping token values — components never hardcode color.
+   DESIGN TOKENS — THE single source of OpenCohost's identity.
+   Components read ONLY these semantic roles; they never hardcode
+   color or font. To re-tune the brand, edit the NAMED brand
+   tokens in the cockpit block below — every component inherits.
+
+   BRAND COLORS (named, cockpit = default experience):
+     --focus  #17E39A  OpenCohost green — primary accent + "ok".
+                       Confidence over hype. The signature color.
+     --pulse  #35EBE4  cyan — secondary / Kira's voice.
+     --void   #05070B  near-black ground the whole app sits on.
+     --panel  #0E141C  green-cool dark surface for cards/panels.
+     --bone   #E8F1EC  primary text.
+     --muted  #7C8B85  green-grey secondary text.
+     --panic  #C24BFF  RESERVED — danger/alert (kill-switch) ONLY.
+                       Never decorative. Semantic crit stays red.
+
+   TYPE VOICE (two families, both system stacks — no web fonts):
+     --font-mono  UI chrome: nav, labels, data, status, buttons —
+                  the local-control / mission-console texture.
+     --font-sans  Kira reply text + big display headings.
+   Base font is sans; chrome opts into mono (.mono / font-mono).
 
    Canonical names (--background/--foreground/--card/--border/
    --ring/--primary/--muted-foreground/--radius) keep the
-   shadcn/Tailwind contract working. The semantic extras
-   (--ok/--warn/--danger/--info + soft -bg/-bd variants,
-   --surface-2, --accent-grad, --surface-blur, --app-bg-glow)
-   carry the info-design system the mockup defines: soft tinted
+   shadcn/Tailwind contract working. Semantic extras (--ok/--warn/
+   --danger/--info + soft -bg/-bd, --surface-2, --accent-grad,
+   --app-bg-glow) carry the info-design system: soft tinted
    status, one accent used sparingly, technical values in mono.
+   aurora + studio themes keep their own palettes (functional,
+   pass the WCAG-AA contrast test) — the brand re-skin lives here.
    ============================================================ */
 
 :root,
 [data-theme="cockpit"] {
   color-scheme: dark;
 
+  /* NAMED BRAND TOKENS — the single knob. Everything below maps here. */
+  --focus: #17e39a;
+  --pulse: #35ebe4;
+  --void: #05070b;
+  --panel: #0e141c;
+  --bone: #e8f1ec;
+  --muted: #7c8b85;
+  --panic: #c24bff;
+
+  /* type voice — system stacks, theme-invariant (defined once, cascades) */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas, monospace;
+
   /* canonical (shadcn/Tailwind contract) */
-  --background: #0a0d15;
-  --foreground: #e9eef8;
-  --card: #111725;
-  --card-foreground: #e9eef8;
-  --border: rgba(255, 255, 255, 0.07);
-  --ring: rgba(63, 208, 216, 0.55);
-  --primary: #3fd0d8;
-  --primary-foreground: #04121a;
-  --muted-foreground: #9aa8be;
+  --background: var(--void);
+  --foreground: var(--bone);
+  --card: var(--panel);
+  --card-foreground: var(--bone);
+  --border: rgba(232, 241, 236, 0.08);
+  --ring: rgba(23, 227, 154, 0.5);
+  --primary: var(--focus);
+  --primary-foreground: #04140d;
+  --muted-foreground: var(--muted);
 
   /* semantic extras */
-  --surface-2: #172033;
+  --surface-2: #141d28;
   --surface-blur: none;
-  --border-soft: rgba(255, 255, 255, 0.045);
-  --dim: #667488;
-  --accent: #3fd0d8;
-  --accent-2: #7d8cff;
-  --accent-grad: linear-gradient(135deg, #3fd0d8, #5aa9ff);
-  --accent-contrast: #04121a;
-  --accent-soft: rgba(63, 208, 216, 0.12);
+  --border-soft: rgba(232, 241, 236, 0.05);
+  --dim: #667f78;
+  --accent: var(--focus);
+  --accent-2: var(--pulse);
+  --accent-grad: linear-gradient(135deg, var(--focus), var(--pulse));
+  --accent-contrast: #04140d;
+  --accent-soft: rgba(23, 227, 154, 0.12);
 
-  --ok: #55cf92;
-  --ok-bg: rgba(85, 207, 146, 0.12);
-  --ok-bd: rgba(85, 207, 146, 0.28);
+  /* ok = the brand green (--focus); warn amber, danger red stay
+     distinct from the accent. --panic is its OWN reserved token. */
+  --ok: var(--focus);
+  --ok-bg: rgba(23, 227, 154, 0.12);
+  --ok-bd: rgba(23, 227, 154, 0.28);
   --warn: #e6b45f;
   --warn-bg: rgba(230, 180, 95, 0.12);
   --warn-bd: rgba(230, 180, 95, 0.28);
   --danger: #f0616b;
   --danger-bg: rgba(240, 97, 107, 0.13);
   --danger-bd: rgba(240, 97, 107, 0.3);
+  --panic-bg: rgba(194, 75, 255, 0.13);
+  --panic-bd: rgba(194, 75, 255, 0.32);
   --info: #5fb2f0;
   --info-bg: rgba(95, 178, 240, 0.12);
   --info-bd: rgba(95, 178, 240, 0.26);
 
-  --app-bg-glow: radial-gradient(1200px 420px at 78% -10%, rgba(63, 208, 216, 0.1), transparent 70%);
+  --app-bg-glow: radial-gradient(1200px 420px at 78% -10%, rgba(23, 227, 154, 0.1), transparent 70%);
 
   --sh-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
   --sh-2: 0 20px 60px rgba(0, 0, 0, 0.38);
-  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --mono: var(--font-mono);
 
   /* Kira "reproductor" shell signature palette — first-pass, exact concept
      values (this IS the concept theme). Additive: --accent/--accent-grad

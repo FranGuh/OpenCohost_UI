@@ -119,3 +119,40 @@ describe("MemoryCard clear_history errors surface honestly", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 });
+
+describe("MemoryCard memoria row list + purge (F5)", () => {
+  it("renders the per-row list from GET /api/memoria/list on demand, with no title/content leak", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText(/mem_a/)).toBeInTheDocument());
+    expect(screen.getByText(/mem_b/)).toBeInTheDocument();
+    expect(screen.getByText("fijada")).toBeInTheDocument();
+    expect(screen.getByText("privada")).toBeInTheDocument();
+  });
+
+  it("purges memorias through the confirm/cancel pattern and empties the list", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText(/mem_a/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Purgar memorias" }));
+    expect(screen.getByText(/No se puede deshacer/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.getByText(/mem_a/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Purgar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() => expect(screen.getByText(/No hay memorias guardadas/)).toBeInTheDocument());
+  });
+
+  it("surfaces a GET /api/memoria/list error honestly", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json({ detail: "boom" }, { status: 500 }))
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText(/No se pudo leer el detalle/)).toBeInTheDocument());
+  });
+});

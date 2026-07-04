@@ -16,12 +16,22 @@ import {
   neverConvergesStatusHandler
 } from "../test/handlers.js";
 import { useEngineCommand } from "./engineCommand.js";
+import { MODELS_QUERY_KEY } from "./models.js";
 import type { StatusResponse } from "./client.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: ReactNode }) =>
     React.createElement(QueryClientProvider, { client: queryClient }, children);
+}
+
+/** Same as createWrapper, but also hands back the QueryClient instance so a
+ * test can spy on invalidateQueries. */
+function createWrapperWithClient() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
+  return { queryClient, wrapper };
 }
 
 afterEach(() => {
@@ -107,6 +117,26 @@ describe("useEngineCommand custom convergence (e.g. switch_model -> current_mode
 
     expect(result.current.pending).toBe(false);
     expect(result.current.isTimeout).toBe(true);
+  });
+});
+
+describe("useEngineCommand model-list invalidation (S5)", () => {
+  it("invalidates MODELS_QUERY_KEY alongside STATUS_QUERY_KEY after a successful switch_model run, so ModelCard doesn't stay stale", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-models", status: "queued", state_version: 1 })
+      )
+    );
+
+    const { queryClient, wrapper } = createWrapperWithClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useEngineCommand(), { wrapper });
+
+    await act(async () => {
+      await result.current.run("switch_model", "gemma4:e4b");
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: MODELS_QUERY_KEY }));
   });
 });
 

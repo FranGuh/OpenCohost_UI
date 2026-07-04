@@ -1,141 +1,176 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import React from "react";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
+import { server } from "../test/server.js";
+import { API_BASE_URL, defaultStreamChatLive, streamConnectInvalidUrlHandler } from "../test/handlers.js";
 import { StreamPanel } from "./StreamPanel.js";
 import { STREAM_FIXTURE } from "../api/mock/fixtures.js";
 
+function renderPanel() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(StreamPanel)));
+}
+
 describe("StreamPanel", () => {
-  it("renders the Chat en vivo URL input and Conectar button, starting desconectado", () => {
-    render(<StreamPanel />);
+  it("renders the Chat en vivo URL input and Conectar button, starting desconectado", async () => {
+    renderPanel();
     expect(screen.getByLabelText("URL del directo")).toHaveValue(STREAM_FIXTURE.url);
     expect(screen.getByRole("button", { name: "Conectar" })).toBeInTheDocument();
-    expect(screen.getByText("desconectado")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("desconectado")).toBeInTheDocument());
   });
 
-  it("rejects an invalid URL shape locally without ever going to conectando/conectado", () => {
-    render(<StreamPanel />);
+  it("rejects an invalid URL shape locally without ever calling POST /api/stream/chat-live/connect", async () => {
+    let called = false;
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () => {
+        called = true;
+        return HttpResponse.json({ ...defaultStreamChatLive, connected: true });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("desconectado")).toBeInTheDocument());
+
     fireEvent.change(screen.getByLabelText("URL del directo"), { target: { value: "no es una url" } });
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByText("desconectado")).toBeInTheDocument();
+    expect(called).toBe(false);
   });
 
-  it("connects with a valid URL through the mock command, discloses the missing endpoint, and re-enables Desconectar", async () => {
-    render(<StreamPanel />);
+  it("connects with a valid URL by firing POST /api/stream/chat-live/connect and reflects the returned state", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("desconectado")).toBeInTheDocument());
+
     fireEvent.change(screen.getByLabelText("URL del directo"), { target: { value: "https://twitch.tv/kira" } });
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
 
-    expect(screen.getByText("conectando…")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("conectado")).toBeInTheDocument());
-
-    expect(screen.getByText(/no existe todavía el endpoint/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Desconectar" })).not.toBeDisabled();
   });
 
-  it("disconnects back to desconectado once connected", async () => {
-    render(<StreamPanel />);
+  it("surfaces a connect error honestly instead of faking conectado", async () => {
+    server.use(streamConnectInvalidUrlHandler());
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("desconectado")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("URL del directo"), { target: { value: "https://twitch.tv/kira" } });
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("desconectado")).toBeInTheDocument();
+  });
+
+  it("disconnects back to desconectado by firing POST /api/stream/chat-live/disconnect", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("desconectado")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("URL del directo"), { target: { value: "https://twitch.tv/kira" } });
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
     await waitFor(() => expect(screen.getByText("conectado")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Desconectar" }));
 
-    expect(screen.getByText("desconectado")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("desconectado")).toBeInTheDocument());
   });
 
-  it("Desconectar stays disabled while not connected", () => {
-    render(<StreamPanel />);
-    expect(screen.getByRole("button", { name: "Desconectar" })).toBeDisabled();
+  it("Desconectar stays disabled while not connected", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Desconectar" })).toBeDisabled());
   });
 
-  it("defaults the reaction threshold and cooldown selects from the fixture", () => {
-    render(<StreamPanel />);
-    expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue(STREAM_FIXTURE.reaction_threshold);
-    expect(screen.getByLabelText("Cooldown entre reacciones")).toHaveValue(STREAM_FIXTURE.cooldown);
-    expect(screen.getByLabelText("Límite de spam")).toHaveValue(STREAM_FIXTURE.spam_limit);
+  it("hydrates the reaction threshold and cooldown selects from GET /api/stream/chat-live", async () => {
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue(String(defaultStreamChatLive.threshold_per_second))
+    );
+    expect(screen.getByLabelText("Cooldown entre reacciones")).toHaveValue(String(defaultStreamChatLive.cooldown_seconds));
+    expect(screen.getByLabelText("Límite de spam")).toHaveValue(String(defaultStreamChatLive.max_messages_per_user));
   });
 
-  it("highlights only the preset matching the initial fixture value, and none when no preset matches", () => {
-    render(<StreamPanel />);
-    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
-    const cooldownGroup = screen.getByRole("group", { name: "Preset de cooldown" });
+  it("changing the reaction threshold select fires PUT /api/stream/chat-live/limits", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, threshold_per_second: 3 });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());
 
-    // fixture reaction_threshold "1" msg/s maps to the "medio" preset.
-    expect(within(reactionGroup).getByRole("button", { name: "Medio" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(reactionGroup).getByRole("button", { name: "Bajo" })).toHaveAttribute("aria-pressed", "false");
-    expect(within(reactionGroup).getByRole("button", { name: "Alto" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.change(screen.getByLabelText("Umbral de reacciones"), { target: { value: "3" } });
 
-    // fixture cooldown "45" does not map to any preset (30/60/120) — nothing pressed.
-    for (const button of within(cooldownGroup).getAllByRole("button")) {
-      expect(button).toHaveAttribute("aria-pressed", "false");
-    }
+    await waitFor(() => expect(capturedBody).toEqual({ threshold_per_second: 3 }));
+    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue("3"));
   });
 
-  it("picking a Select value with no matching preset clears the preset highlight", async () => {
-    render(<StreamPanel />);
-    const cooldownGroup = screen.getByRole("group", { name: "Preset de cooldown" });
-    const cooldownSelect = screen.getByLabelText("Cooldown entre reacciones");
+  it("selecting a reaction preset fires PUT /api/stream/chat-live/limits with the preset value", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, threshold_per_second: 3 });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());
 
-    fireEvent.change(cooldownSelect, { target: { value: "30" } });
-    expect(within(cooldownGroup).getByRole("button", { name: "Bajo" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(within(cooldownGroup).getByRole("button", { name: "Bajo" })).not.toBeDisabled());
-
-    fireEvent.change(cooldownSelect, { target: { value: "45" } });
-    for (const button of within(cooldownGroup).getAllByRole("button")) {
-      expect(button).toHaveAttribute("aria-pressed", "false");
-    }
-    await waitFor(() => expect(cooldownSelect).not.toBeDisabled());
-  });
-
-  it("selecting a reaction preset marks it pressed, runs the mock command, and updates the sibling Select", async () => {
-    render(<StreamPanel />);
     const altoButtons = screen.getAllByRole("button", { name: "Alto" });
-    const reactionAlto = altoButtons[0];
-    fireEvent.click(reactionAlto);
+    fireEvent.click(altoButtons[0]);
 
-    expect(reactionAlto).toHaveAttribute("aria-pressed", "true");
-    expect(reactionAlto).toBeDisabled();
-    expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue("3");
-    await waitFor(() => expect(reactionAlto).not.toBeDisabled());
-    expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue("3");
+    await waitFor(() => expect(capturedBody).toEqual({ threshold_per_second: 3 }));
   });
 
-  it("selecting a cooldown preset marks it pressed independently from the reaction preset, and updates the sibling Select", async () => {
-    render(<StreamPanel />);
-    const bajoButtons = screen.getAllByRole("button", { name: "Bajo" });
-    const cooldownBajo = bajoButtons[1];
-    fireEvent.click(cooldownBajo);
+  it("changing the cooldown select fires PUT /api/stream/chat-live/limits", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, cooldown_seconds: 30 });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Cooldown entre reacciones")).not.toBeDisabled());
 
-    expect(cooldownBajo).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText("Cooldown entre reacciones")).toHaveValue("30");
-    await waitFor(() => expect(cooldownBajo).not.toBeDisabled());
-    expect(screen.getByLabelText("Cooldown entre reacciones")).toHaveValue("30");
+    fireEvent.change(screen.getByLabelText("Cooldown entre reacciones"), { target: { value: "30" } });
+
+    await waitFor(() => expect(capturedBody).toEqual({ cooldown_seconds: 30 }));
   });
 
-  it("changing the spam select runs the mock command", async () => {
-    render(<StreamPanel />);
-    const select = screen.getByLabelText("Límite de spam");
-    fireEvent.change(select, { target: { value: "20" } });
+  it("changing the spam select fires PUT /api/stream/chat-live/limits", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, max_messages_per_user: 20 });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Límite de spam")).not.toBeDisabled());
 
-    expect(select).toBeDisabled();
-    await waitFor(() => expect(select).not.toBeDisabled());
-    expect(select).toHaveValue("20");
+    fireEvent.change(screen.getByLabelText("Límite de spam"), { target: { value: "20" } });
+
+    await waitFor(() => expect(capturedBody).toEqual({ max_messages_per_user: 20 }));
   });
 
-  it("Input Contract switch defaults off per the fixture and toggles through the mock command", async () => {
-    render(<StreamPanel />);
+  it("Input Contract switch stays honestly disabled — no fake convergence (filter_policy preset mapping undecided)", async () => {
+    renderPanel();
     const toggle = screen.getByRole("switch", { name: "Input Contract" });
+    expect(toggle).toBeDisabled();
     expect(toggle).toHaveAttribute("aria-checked", String(STREAM_FIXTURE.input_contract));
 
     fireEvent.click(toggle);
 
-    expect(toggle).toHaveAttribute("aria-checked", "true");
+    // Disabled buttons don't fire onClick, so nothing should ever flip.
+    expect(toggle).toHaveAttribute("aria-checked", String(STREAM_FIXTURE.input_contract));
     expect(toggle).toBeDisabled();
-    await waitFor(() => expect(toggle).not.toBeDisabled());
   });
 
-  it("associates each threshold Select with its visible helper text via aria-describedby", () => {
-    render(<StreamPanel />);
+  it("associates each threshold Select with its visible helper text via aria-describedby", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());
 
     const reactionSelect = screen.getByLabelText("Umbral de reacciones");
     const reactionHelperId = reactionSelect.getAttribute("aria-describedby");
@@ -153,13 +188,23 @@ describe("StreamPanel", () => {
     expect(document.getElementById(spamHelperId!)).toHaveTextContent("Límite de mensajes repetidos");
   });
 
-  it("discloses that reaction/cooldown/spam/input-contract limits have no backend endpoint yet", () => {
-    render(<StreamPanel />);
-    expect(screen.getByText(/PUT \/api\/stream\/chat-live\/limits/)).toBeInTheDocument();
+  it("R8: never renders any viewer-chat-message content anywhere in the panel", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        // Even if the backend contract were ever violated and leaked a
+        // message-shaped field, the panel must not render it — it only
+        // reads the fixed StreamChatLiveResponse fields.
+        HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" })
+      )
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("conectado")).toBeInTheDocument());
+    expect(screen.queryByText(/viewer/i)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/mensaje de|viewer_message|chat_text/i);
   });
 
-  it("shows a single non-interactive deferred note for the RF4 Emisión area (OAuth/metadata/moderación)", () => {
-    render(<StreamPanel />);
+  it("shows a single non-interactive deferred note for the RF4 Emisión area (OAuth/metadata/moderación)", async () => {
+    renderPanel();
     const heading = screen.getByRole("heading", { name: /Emisión/ });
     expect(heading).toBeInTheDocument();
     const card = heading.closest("div")?.parentElement as HTMLElement;

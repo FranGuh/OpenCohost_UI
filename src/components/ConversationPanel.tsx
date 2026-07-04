@@ -1,9 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
-import { DEFAULT_TRANSCRIPT } from "./kiraState.js";
-import { useSendChatTurn } from "../api/chat.js";
+import { useLastReply, useSendChatTurn } from "../api/chat.js";
 import { cn } from "../lib/cn.js";
 
 const TABS = ["Todo", "Chat", "Alertas"] as const;
@@ -19,14 +18,23 @@ interface Turn {
   text?: string;
 }
 
-// Canned turn list (no chat-history endpoint exists in P1 — Kira's reply is
-// audio-only per R8, there's nothing to fetch). Tagged with `kind` so the
-// Todo/Chat/Alertas tabs actually filter what's rendered.
+// Canned turn list. Tagged with `kind` so the Todo/Chat/Alertas tabs actually
+// filter what's rendered. Kira's own reply turn is no longer canned here — it
+// comes from useLastReply (see buildKiraTurn below).
 const TURNS: readonly Turn[] = [
   { id: "viewer-question", kind: "chat" },
-  { id: "kira-reply", kind: "chat" },
   { id: "mute-notice", kind: "alert" }
 ];
+
+/** Builds the dynamic Kira turn: "thinking" while awaiting a reply to a
+ * just-sent turn, the fetched reply once it lands, or nothing if neither
+ * applies (fresh session, no reply yet). R8: only ever renders
+ * server-provided Kira text. */
+function buildKiraTurn(replyText: string | null | undefined, isThinking: boolean): Turn | null {
+  if (isThinking) return { id: "kira-thinking", kind: "chat" };
+  if (replyText) return { id: "kira-reply", kind: "chat", text: replyText };
+  return null;
+}
 
 function matchesTab(tab: Tab, kind: TurnKind): boolean {
   if (tab === "Todo") return true;
@@ -34,7 +42,40 @@ function matchesTab(tab: Tab, kind: TurnKind): boolean {
   return kind === "alert";
 }
 
+function KiraBadgeLabel() {
+  return (
+    <span className="mono inline-flex w-fit items-center gap-[6px] text-[11px] font-semibold tracking-[0.06em] text-[var(--kira-cyan)]">
+      <Badge tone="info" className="px-2 py-1">
+        ◈
+      </Badge>
+      KIRA
+    </span>
+  );
+}
+
 function ConversationTurn({ turn }: { turn: Turn }) {
+  if (turn.id === "kira-reply") {
+    return (
+      <div className="flex flex-col gap-1">
+        <KiraBadgeLabel />
+        <p className="max-w-[85%] rounded-md border border-border-soft bg-background px-3 py-2 text-sm text-foreground">
+          {turn.text}
+        </p>
+      </div>
+    );
+  }
+
+  if (turn.id === "kira-thinking") {
+    return (
+      <div className="flex flex-col gap-1">
+        <KiraBadgeLabel />
+        <p className="max-w-[85%] rounded-md border border-border-soft bg-background px-3 py-2 text-sm text-dim">
+          Kira está pensando…
+        </p>
+      </div>
+    );
+  }
+
   if (turn.text !== undefined) {
     return (
       <div className="flex flex-col gap-1 self-end text-right">
@@ -57,22 +98,6 @@ function ConversationTurn({ turn }: { turn: Turn }) {
     );
   }
 
-  if (turn.id === "kira-reply") {
-    return (
-      <div className="flex flex-col gap-1">
-        <span className="inline-flex w-fit items-center gap-[6px] text-[11px] font-semibold text-[var(--kira-cyan)]">
-          <Badge tone="info" className="bg-[image:var(--spectrum-soft)] border-transparent px-2 py-1">
-            ◈
-          </Badge>
-          KIRA
-        </span>
-        <p className="max-w-[85%] rounded-md border border-border-soft bg-background px-3 py-2 text-sm text-foreground">
-          {DEFAULT_TRANSCRIPT}
-        </p>
-      </div>
-    );
-  }
-
   return <p className="text-xs text-dim">🎫 el chat de viewers está silenciado</p>;
 }
 
@@ -86,10 +111,35 @@ export function ConversationPanel() {
   const [message, setMessage] = useState("");
   const [operatorTurns, setOperatorTurns] = useState<Turn[]>([]);
   const { send, pending, isError, error } = useSendChatTurn();
+  const lastReply = useLastReply();
   // Tracks the operator bubble for the in-flight/retryable send intent, so a
   // retry after a failed send updates that SAME bubble instead of appending
   // a duplicate "Vos" turn. Cleared once the send succeeds.
   const pendingTurnIdRef = useRef<string | null>(null);
+  // True from a successful send until a GENUINE new reply lands. Gating this
+  // on a plain "baseline turn_id" breaks when useLastReply hasn't resolved
+  // yet at submit time (baseline would be null, so pending clearing alone
+  // would immediately read as "no new reply" and drop the indicator). So we
+  // track "waiting" as its own flag and only capture the baseline turn_id
+  // once useLastReply actually resolves — the first resolution just anchors
+  // the baseline, only a LATER change away from it counts as the real reply.
+  const [awaitingReply, setAwaitingReply] = useState(false);
+  const [awaitingBaseline, setAwaitingBaseline] = useState<number | null>(null);
+  const currentTurnId = lastReply.data?.turn_id ?? null;
+
+  useEffect(() => {
+    if (!awaitingReply) return;
+    if (awaitingBaseline === null) {
+      if (currentTurnId !== null) setAwaitingBaseline(currentTurnId);
+      return;
+    }
+    if (currentTurnId !== awaitingBaseline) {
+      setAwaitingReply(false);
+      setAwaitingBaseline(null);
+    }
+  }, [awaitingReply, awaitingBaseline, currentTurnId]);
+
+  const isThinking = pending || awaitingReply;
 
   function handleMessageChange(event: ChangeEvent<HTMLInputElement>) {
     setMessage(event.target.value);
@@ -115,6 +165,8 @@ export function ConversationPanel() {
       await send(text);
       setMessage("");
       pendingTurnIdRef.current = null;
+      setAwaitingReply(true);
+      setAwaitingBaseline(currentTurnId);
     } catch {
       // isError/error below already carry this reactively — the message
       // stays in the input so the operator can retry without retyping it.
@@ -123,7 +175,10 @@ export function ConversationPanel() {
     }
   }
 
-  const visibleTurns = [...TURNS, ...operatorTurns].filter((turn) => matchesTab(activeTab, turn.kind));
+  const kiraTurn = buildKiraTurn(lastReply.data?.text, isThinking);
+  const [viewerTurn, muteTurn] = TURNS;
+  const baseTurns = kiraTurn ? [viewerTurn, kiraTurn, muteTurn] : [viewerTurn, muteTurn];
+  const visibleTurns = [...baseTurns, ...operatorTurns].filter((turn) => matchesTab(activeTab, turn.kind));
 
   return (
     <aside className="flex min-h-0 flex-col border-l border-border-soft bg-card">
@@ -138,9 +193,9 @@ export function ConversationPanel() {
             aria-controls="conversation-panel"
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "h-7 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground transition-colors",
+              "mono h-7 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground transition-colors",
               "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-              activeTab === tab && "bg-[image:var(--spectrum-soft)] text-[var(--kira-cyan)]"
+              activeTab === tab && "bg-[color:var(--accent-soft)] text-primary"
             )}
           >
             {tab}
@@ -149,7 +204,7 @@ export function ConversationPanel() {
       </div>
 
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
+        <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
         <span className="text-xs text-dim">sesión en vivo</span>
       </div>
 
@@ -175,7 +230,7 @@ export function ConversationPanel() {
           aria-label="Mensaje para Kira"
           className="h-11 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         />
-        <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={pending}>
+        <Button type="submit" variant="primary" disabled={pending}>
           Enviar
         </Button>
       </form>

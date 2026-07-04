@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
@@ -7,69 +7,70 @@ import { Button } from "./ui/Button.js";
 import { Select } from "./ui/Select.js";
 import { Segmented } from "./ui/Segmented.js";
 import { useMockCommand } from "../api/mock/useMockCommand.js";
+import { AGENDA_FIXTURE, type AgendaSuggestion } from "../api/mock/fixtures.js";
 import {
-  AGENDA_FIXTURE,
-  type AgendaConfidence,
-  type AgendaPriority,
-  type AgendaQueueTopic,
-  type AgendaRhythm,
-  type AgendaSafetyMode,
-  type AgendaSessionState,
-  type AgendaSuggestion
-} from "../api/mock/fixtures.js";
+  useAddAgendaTopicMutation,
+  useAgendaQuery,
+  useAgendaTopicActionMutation,
+  useUpdateAgendaSessionMutation,
+  type AgendaTopicOut
+} from "../api/agenda.js";
+import { useStatusQuery } from "../api/status.js";
 
-// No /api/agenda* endpoint exists yet — the CTK original lives in
-// opencohost/smart_aggregator/kira_agenda_controller.py +
-// opencohost/ui/cohost_agenda_panel.py, persisted to EDITORIAL_CARDS_DB
-// sqlite. This ships as a functional mock against AGENDA_FIXTURE, shaped so
-// swapping each useState for a TanStack Query hook (GET /api/agenda) and
-// each useMockCommand for a real useMutation (POST /api/agenda/{topic|
-// suggestion|session}) is a rename, not a reshape. Local state updates
-// immediately on every action (accepted != applied, same contract as
-// useProfileSwitch/useMockCommand elsewhere) — the mock command only drives
-// the pending/disable/Badge affordance, and every section that mutates
-// local-only data carries a persistent role="status" note so nothing reads
-// as a real persisted result.
+// S10: wired to live GET/POST/PUT /api/agenda* (opencohost/api/main.py
+// ~472-533) — Now/Queue hydrate from GET, adding a topic POSTs
+// /api/agenda/topic, queue reorder/remove POSTs /api/agenda/topic/action,
+// and turnos/ritmo/modo PUT /api/agenda/session. Every mutation writes the
+// full AgendaResponse it gets back straight into the query cache (see
+// useAgendaMutation in api/agenda.ts) so Now/Queue/session settings never
+// carry local-only queue state that could drift from the backend.
+//
+// Deferred (kept as an honest local mock, see the disclosure note in each
+// section): Kira's auto-suggestion generation (no backend route to draft
+// suggestions) and session ACTIVATION (Activar / Pausa suave / Emergencia —
+// no backend verb exists for KiraAgendaController's session lifecycle yet).
 
 const RHYTHM_OPTIONS = [
   { value: "calmo", label: "Calmo" },
   { value: "normal", label: "Normal" },
   { value: "dinamico", label: "Dinámico" }
-] as const satisfies ReadonlyArray<{ value: AgendaRhythm; label: string }>;
+] as const;
 
-const SAFETY_MODE_OPTIONS: ReadonlyArray<{ value: AgendaSafetyMode; label: string }> = [
+const SAFETY_MODE_OPTIONS = [
   { value: "live_safe", label: "Live-safe" },
   { value: "monologue", label: "Monólogo" },
   { value: "test", label: "Test" }
-];
+] as const;
 
 const TURN_OPTIONS = ["1", "2", "3", "5", "8"] as const;
 
-const PRIORITY_BADGE: Record<AgendaPriority, { tone: BadgeTone; label: string }> = {
+const PRIORITY_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
   alta: { tone: "warn", label: "Alta" },
   normal: { tone: "info", label: "Normal" },
   baja: { tone: "ok", label: "Baja" }
 };
 
-const CONFIDENCE_BADGE: Record<AgendaConfidence, { tone: BadgeTone; label: string }> = {
+const CONFIDENCE_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
   HIGH: { tone: "ok", label: "confianza alta" },
   MEDIUM: { tone: "info", label: "confianza media" },
   LOW: { tone: "warn", label: "confianza baja" }
 };
 
-const SESSION_BADGE: Record<AgendaSessionState, { tone: BadgeTone; label: string }> = {
-  off: { tone: "info", label: "inactiva" },
-  active: { tone: "ok", label: "activa" },
-  paused: { tone: "warn", label: "pausa suave" }
+// Live session states from opencohost/smart_aggregator/kira_agenda_controller.py::AgendaState.
+// ponytail: only the states CTk's _update_session_buttons treats specially get a distinct
+// label/tone; everything else (the "active_states" set) falls back to "activa" below.
+const SESSION_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
+  OFF: { tone: "info", label: "inactiva" },
+  PAUSED_NEEDS_OPERATOR: { tone: "warn", label: "pausa suave" },
+  HARD_PAUSED: { tone: "danger", label: "pausa dura" }
 };
 
-function moveQueueItem(queue: AgendaQueueTopic[], id: string, direction: -1 | 1): AgendaQueueTopic[] {
-  const idx = queue.findIndex((topic) => topic.id === id);
-  const target = idx + direction;
-  if (idx === -1 || target < 0 || target >= queue.length) return queue;
-  const next = [...queue];
-  [next[idx], next[target]] = [next[target], next[idx]];
-  return next;
+function sessionBadge(state: string): { tone: BadgeTone; label: string } {
+  return SESSION_BADGE[state] ?? { tone: "ok", label: "activa" };
+}
+
+function priorityBadge(priority: string) {
+  return PRIORITY_BADGE[priority] ?? PRIORITY_BADGE.normal;
 }
 
 function sectionLabel(id: string, text: string) {
@@ -80,33 +81,36 @@ function sectionLabel(id: string, text: string) {
   );
 }
 
-interface ProfileSessionCardProps {
-  name: string;
-  onSaveName: (name: string) => void;
-  turns: string;
-  onTurnsChange: (turns: string) => void;
-  rhythm: AgendaRhythm;
-  onRhythmChange: (rhythm: AgendaRhythm) => void;
-  safetyMode: AgendaSafetyMode;
-  onSafetyModeChange: (mode: AgendaSafetyMode) => void;
-}
-
-function ProfileSessionCard({
-  name,
-  onSaveName,
-  turns,
-  onTurnsChange,
-  rhythm,
-  onRhythmChange,
-  safetyMode,
-  onSafetyModeChange
-}: ProfileSessionCardProps) {
-  const [draftName, setDraftName] = useState(name);
+/**
+ * Session settings — turnos/ritmo/modo hydrate from GET /api/agenda and
+ * each change PUTs only that one field (AgendaSessionRequest is a partial
+ * update; an omitted field leaves the stored value unchanged). The profile
+ * NAME has no field on AgendaSessionSettings (only `profile_style`, a style
+ * knob, not a name) — the real active profile name lives on GET
+ * /api/status.active_profile (same field the CTk profile panel mirrors),
+ * so that's the seed here. Saving a new name is still a local-only mock —
+ * no backend rename verb exists — disclosed below.
+ */
+function ProfileSessionCard() {
+  const { data } = useAgendaQuery();
+  const { data: status } = useStatusQuery();
+  const updateSession = useUpdateAgendaSessionMutation();
+  const liveProfileName = status?.active_profile ?? AGENDA_FIXTURE.profile.name;
+  const [profileName, setProfileName] = useState(liveProfileName);
+  const [draftName, setDraftName] = useState(liveProfileName);
   const nameCommand = useMockCommand<string>();
-  const turnsCommand = useMockCommand<string>();
-  const rhythmCommand = useMockCommand<AgendaRhythm>();
-  const safetyCommand = useMockCommand<AgendaSafetyMode>();
-  const pending = nameCommand.pending || turnsCommand.pending || rhythmCommand.pending || safetyCommand.pending;
+
+  useEffect(() => {
+    if (status?.active_profile) {
+      setProfileName(status.active_profile);
+      setDraftName(status.active_profile);
+    }
+  }, [status?.active_profile]);
+
+  const turns = data ? String(data.session_settings.max_turns_per_topic) : "";
+  const rhythm = data?.session_settings.rhythm ?? "normal";
+  const safetyMode = data?.session_settings.safety_mode ?? "live_safe";
+  const pending = nameCommand.pending || updateSession.isPending;
 
   return (
     <Card className="flex flex-col p-4">
@@ -116,9 +120,15 @@ function ProfileSessionCard({
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
+        {updateSession.isError && (
+          <p role="alert" className="text-xs leading-relaxed text-danger">
+            No se pudo guardar la configuración de sesión.
+          </p>
+        )}
+
         <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Perfil y configuración de sesión son vistas previas locales — no existe endpoint{" "}
-          <span className="mono">/api/agenda</span> en el backend.
+          El nombre mostrado viene de <span className="mono">GET /api/status.active_profile</span> — guardarlo acá es
+          solo una vista previa local, no existe todavía un verbo de backend para renombrar el perfil.
         </p>
 
         <section aria-labelledby="agenda-profile-label" className="space-y-2">
@@ -138,74 +148,73 @@ function ProfileSessionCard({
               disabled={nameCommand.pending || !draftName.trim()}
               onClick={() => {
                 const trimmed = draftName.trim();
-                onSaveName(trimmed);
+                setProfileName(trimmed);
                 void nameCommand.run(trimmed);
               }}
             >
               Guardar perfil
             </Button>
           </div>
+          <p className="sr-only">{profileName}</p>
         </section>
 
-        <section aria-labelledby="agenda-session-settings-label" className="space-y-2">
-          {sectionLabel("agenda-session-settings-label", "Configuración de sesión")}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground">Turnos por tema</span>
-              <Select
-                aria-label="Turnos por tema"
-                value={turns}
-                disabled={turnsCommand.pending}
-                onChange={(event) => {
-                  onTurnsChange(event.target.value);
-                  void turnsCommand.run(event.target.value);
-                }}
-              >
-                {TURN_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </Select>
+        {data && (
+          <section aria-labelledby="agenda-session-settings-label" className="space-y-2">
+            {sectionLabel("agenda-session-settings-label", "Configuración de sesión")}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <span className="text-xs text-muted-foreground">Turnos por tema</span>
+                <Select
+                  aria-label="Turnos por tema"
+                  value={turns}
+                  disabled={updateSession.isPending}
+                  onChange={(event) => {
+                    updateSession.mutate({ max_turns_per_topic: Number(event.target.value) });
+                  }}
+                >
+                  {TURN_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <span className="text-xs text-muted-foreground">Modo de seguridad en vivo</span>
+                <Select
+                  aria-label="Modo de seguridad en vivo"
+                  value={safetyMode}
+                  disabled={updateSession.isPending}
+                  onChange={(event) => {
+                    updateSession.mutate({ safety_mode: event.target.value });
+                  }}
+                >
+                  {SAFETY_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground">Modo de seguridad en vivo</span>
-              <Select
-                aria-label="Modo de seguridad en vivo"
-                value={safetyMode}
-                disabled={safetyCommand.pending}
-                onChange={(event) => {
-                  const value = event.target.value as AgendaSafetyMode;
-                  onSafetyModeChange(value);
-                  void safetyCommand.run(value);
-                }}
-              >
-                {SAFETY_MODE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <span className="text-xs text-muted-foreground">Ritmo</span>
-          <Segmented
-            ariaLabel="Ritmo"
-            options={RHYTHM_OPTIONS}
-            value={rhythm}
-            disabled={rhythmCommand.pending}
-            onChange={(value) => {
-              onRhythmChange(value);
-              void rhythmCommand.run(value);
-            }}
-          />
-        </section>
+            <span className="text-xs text-muted-foreground">Ritmo</span>
+            <Segmented
+              ariaLabel="Ritmo"
+              options={RHYTHM_OPTIONS}
+              value={rhythm}
+              disabled={updateSession.isPending}
+              onChange={(value) => {
+                updateSession.mutate({ rhythm: value });
+              }}
+            />
+          </section>
+        )}
       </div>
     </Card>
   );
 }
 
-function NowCard({ now }: { now: AgendaQueueTopic | null }) {
+function NowCard({ now }: { now: AgendaTopicOut | null | undefined }) {
   return (
     <Card className="flex flex-col p-4">
       <div className="border-b border-border-soft pb-3">
@@ -228,23 +237,15 @@ function NowCard({ now }: { now: AgendaQueueTopic | null }) {
   );
 }
 
-interface QueueCardProps {
-  queue: AgendaQueueTopic[];
-  onMove: (id: string, direction: -1 | 1) => void;
-  onRemove: (id: string) => void;
-}
-
-function QueueCard({ queue, onMove, onRemove }: QueueCardProps) {
-  const command = useMockCommand<{ id: string; action: string }>();
+function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
+  const action = useAgendaTopicActionMutation();
 
   function move(id: string, direction: -1 | 1) {
-    onMove(id, direction);
-    void command.run({ id, action: direction === -1 ? "subir" : "bajar" });
+    action.mutate({ action: "move", topic_id: id, direction });
   }
 
   function remove(id: string) {
-    onRemove(id);
-    void command.run({ id, action: "quitar" });
+    action.mutate({ action: "remove", topic_id: id });
   }
 
   return (
@@ -253,22 +254,23 @@ function QueueCard({ queue, onMove, onRemove }: QueueCardProps) {
         <h2 className="text-sm font-bold text-foreground">Cola de temas</h2>
         <div className="flex items-center gap-2">
           <Badge tone="info">{queue.length} en cola</Badge>
-          {command.pending && <Badge tone="info">aplicando…</Badge>}
+          {action.isPending && <Badge tone="info">aplicando…</Badge>}
         </div>
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Reordenar y quitar temas son cambios locales — no existe todavía el endpoint{" "}
-          <span className="mono">/api/agenda/queue</span>.
-        </p>
+        {action.isError && (
+          <p role="alert" className="text-xs leading-relaxed text-danger">
+            No se pudo aplicar la acción sobre la cola.
+          </p>
+        )}
 
         {queue.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay temas en cola todavía.</p>
         ) : (
           <ol aria-label="Cola de temas ordenada" className="flex flex-col gap-2">
             {queue.map((topic, index) => {
-              const badge = PRIORITY_BADGE[topic.priority];
+              const badge = priorityBadge(topic.priority);
               return (
                 <li
                   key={topic.id}
@@ -288,7 +290,7 @@ function QueueCard({ queue, onMove, onRemove }: QueueCardProps) {
                       variant="ghost"
                       className="h-8 w-8 p-0"
                       aria-label={`Subir "${topic.title}"`}
-                      disabled={command.pending || index === 0}
+                      disabled={action.isPending || index === 0}
                       onClick={() => move(topic.id, -1)}
                     >
                       ▲
@@ -298,7 +300,7 @@ function QueueCard({ queue, onMove, onRemove }: QueueCardProps) {
                       variant="ghost"
                       className="h-8 w-8 p-0"
                       aria-label={`Bajar "${topic.title}"`}
-                      disabled={command.pending || index === queue.length - 1}
+                      disabled={action.isPending || index === queue.length - 1}
                       onClick={() => move(topic.id, 1)}
                     >
                       ▼
@@ -308,7 +310,7 @@ function QueueCard({ queue, onMove, onRemove }: QueueCardProps) {
                       variant="ghost"
                       className="h-8 w-8 p-0 text-danger"
                       aria-label={`Quitar "${topic.title}"`}
-                      disabled={command.pending}
+                      disabled={action.isPending}
                       onClick={() => remove(topic.id)}
                     >
                       ✕
@@ -401,11 +403,11 @@ function SuggestionsCard({ suggestions, onApprove, onReject }: SuggestionsCardPr
   );
 }
 
-function AddTopicCard({ onAdd }: { onAdd: (title: string, angle: string) => void }) {
+function AddTopicCard() {
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const command = useMockCommand<{ title: string; angle: string }>();
+  const addTopic = useAddAgendaTopicMutation();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -415,32 +417,35 @@ function AddTopicCard({ onAdd }: { onAdd: (title: string, angle: string) => void
       return;
     }
     setError(null);
-    onAdd(trimmedTitle, angle.trim());
-    void command.run({ title: trimmedTitle, angle: angle.trim() });
-    setTitle("");
-    setAngle("");
+    addTopic.mutate(
+      { title: trimmedTitle, angle: angle.trim() },
+      {
+        onSuccess: () => {
+          setTitle("");
+          setAngle("");
+        },
+        onError: (mutationError) => {
+          setError(mutationError instanceof Error ? mutationError.message : "No se pudo agregar el tema.");
+        }
+      }
+    );
   }
 
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">Agregar tema</h2>
-        {command.pending && <Badge tone="info">aplicando…</Badge>}
+        {addTopic.isPending && <Badge tone="info">aplicando…</Badge>}
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Agregar temas es un cambio local — no existe todavía POST{" "}
-          <span className="mono">/api/agenda/topic</span> en el backend.
-        </p>
-
         <section aria-labelledby="agenda-add-topic-label" className="space-y-2">
           {sectionLabel("agenda-add-topic-label", "Tema aprobado")}
           <input
             type="text"
             aria-label="Título del tema"
             value={title}
-            disabled={command.pending}
+            disabled={addTopic.isPending}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Tema claro, máximo 90 caracteres"
             className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60"
@@ -449,7 +454,7 @@ function AddTopicCard({ onAdd }: { onAdd: (title: string, angle: string) => void
             type="text"
             aria-label="Ángulo (opcional)"
             value={angle}
-            disabled={command.pending}
+            disabled={addTopic.isPending}
             onChange={(event) => setAngle(event.target.value)}
             placeholder="Ángulo: cómo querés que Kira lo trate"
             className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60"
@@ -462,7 +467,7 @@ function AddTopicCard({ onAdd }: { onAdd: (title: string, angle: string) => void
           </p>
         )}
 
-        <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={command.pending}>
+        <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={addTopic.isPending}>
           Agregar a cola
         </Button>
       </form>
@@ -470,53 +475,39 @@ function AddTopicCard({ onAdd }: { onAdd: (title: string, angle: string) => void
   );
 }
 
-interface SessionControlCardProps {
-  state: AgendaSessionState;
-  canActivate: boolean;
-  onActivar: () => void;
-  onPausaSuave: () => void;
-  onEmergencia: () => void;
-}
-
-function SessionControlCard({ state, canActivate, onActivar, onPausaSuave, onEmergencia }: SessionControlCardProps) {
-  const command = useMockCommand<AgendaSessionState>();
-  const badge = SESSION_BADGE[state];
-
-  function dispatch(next: AgendaSessionState, action: () => void) {
-    action();
-    void command.run(next);
-  }
+function SessionControlCard({ state }: { state: string }) {
+  const badge = sessionBadge(state);
+  const disabledReason = "No existe un endpoint POST de activación todavía — ver nota debajo.";
 
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">Control de sesión</h2>
-        <div className="flex items-center gap-2">
-          <Badge tone={badge.tone}>{badge.label}</Badge>
-          {command.pending && <Badge tone="info">aplicando…</Badge>}
-        </div>
+        <Badge tone={badge.tone}>{badge.label}</Badge>
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Los controles de sesión son simulados — todavía no hay un endpoint POST{" "}
-          <span className="mono">/api/agenda/session</span> en el backend.
+        <p id="agenda-session-activation-note" role="status" className="text-xs leading-relaxed text-muted-foreground">
+          Los controles de sesión están deshabilitados — no existe todavía un endpoint POST para activación,{" "}
+          <span className="mono">/api/agenda/session</span> solo acepta PUT de configuración.
         </p>
 
         <div className="grid grid-cols-3 gap-3">
           <Button
             type="button"
             variant="primary"
-            disabled={command.pending || !canActivate}
-            onClick={() => dispatch("active", onActivar)}
+            disabled
+            title={disabledReason}
+            aria-describedby="agenda-session-activation-note"
           >
-            {state === "paused" ? "Reanudar" : "Activar"}
+            Activar
           </Button>
           <Button
             type="button"
             variant="outline"
-            disabled={command.pending || state !== "active"}
-            onClick={() => dispatch("paused", onPausaSuave)}
+            disabled
+            title={disabledReason}
+            aria-describedby="agenda-session-activation-note"
           >
             Pausa suave
           </Button>
@@ -524,110 +515,57 @@ function SessionControlCard({ state, canActivate, onActivar, onPausaSuave, onEme
             type="button"
             variant="outline"
             className="border-danger-bd text-danger hover:bg-danger-bg"
-            disabled={command.pending || state === "off"}
-            onClick={() => dispatch("off", onEmergencia)}
+            disabled
+            title={disabledReason}
+            aria-describedby="agenda-session-activation-note"
           >
             Emergencia
           </Button>
         </div>
-
-        {!canActivate && state === "off" && (
-          <p role="status" className="text-xs leading-relaxed text-dim">
-            Activar deshabilitado: la cola de temas está vacía.
-          </p>
-        )}
       </div>
     </Card>
   );
 }
 
 /**
- * Agenda panel — CTK parity (opencohost/ui/cohost_agenda_panel.py) as a
- * functional mock: profile + session settings, Ahora (active topic),
- * Cola (reorder/remove), Sugerencias de Kira (approve/reject), Agregar tema,
- * and Control de sesión (Activar / Pausa suave / Emergencia, state-gated).
- * All state is local (useState) seeded from AGENDA_FIXTURE — see the mock
- * hook contract note at the top of this file for the intended real-backend
- * swap.
+ * Agenda panel — CTK parity (opencohost/ui/cohost_agenda_panel.py): profile
+ * + session settings, Ahora (active topic), Cola (reorder/remove),
+ * Sugerencias de Kira (approve/reject, local mock), Agregar tema, and
+ * Control de sesión (local mock — no activation verb on the backend yet).
+ * See the module-level note above for exactly what is wired vs. deferred.
  */
 export function AgendaPanel() {
-  const [profileName, setProfileName] = useState(AGENDA_FIXTURE.profile.name);
-  const [turns, setTurns] = useState(String(AGENDA_FIXTURE.session_settings.max_turns_per_topic));
-  const [rhythm, setRhythm] = useState<AgendaRhythm>(AGENDA_FIXTURE.session_settings.rhythm);
-  const [safetyMode, setSafetyMode] = useState<AgendaSafetyMode>(AGENDA_FIXTURE.session_settings.safety_mode);
-  const [now, setNow] = useState<AgendaQueueTopic | null>(AGENDA_FIXTURE.now);
-  const [queue, setQueue] = useState<AgendaQueueTopic[]>(AGENDA_FIXTURE.queue);
+  const { data, isError: getError } = useAgendaQuery();
   const [suggestions, setSuggestions] = useState<AgendaSuggestion[]>(AGENDA_FIXTURE.suggestions);
-  const [sessionState, setSessionState] = useState<AgendaSessionState>(AGENDA_FIXTURE.session_state);
-
-  function handleMove(id: string, direction: -1 | 1) {
-    setQueue((prev) => moveQueueItem(prev, id, direction));
-  }
-
-  function handleRemove(id: string) {
-    setQueue((prev) => prev.filter((topic) => topic.id !== id));
-  }
 
   function handleApprove(suggestion: AgendaSuggestion) {
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    setQueue((prev) => [
-      ...prev,
-      { id: suggestion.id, title: suggestion.title, angle: suggestion.angle, priority: "normal" }
-    ]);
   }
 
   function handleReject(id: string) {
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   }
 
-  function handleAddTopic(title: string, angle: string) {
-    setQueue((prev) => [...prev, { id: `topic-${Date.now()}`, title, angle, priority: "normal" }]);
-  }
-
-  function handleActivar() {
-    if (sessionState === "paused") {
-      setSessionState("active");
-      return;
-    }
-    if (queue.length === 0) return;
-    const [next, ...rest] = queue;
-    setSessionState("active");
-    setNow(next);
-    setQueue(rest);
-  }
-
-  function handlePausaSuave() {
-    setSessionState("paused");
-  }
-
-  function handleEmergencia() {
-    setSessionState("off");
-    setNow(null);
-  }
+  const queue = data?.queued_topics ?? [];
 
   return (
     <>
-      <ProfileSessionCard
-        name={profileName}
-        onSaveName={setProfileName}
-        turns={turns}
-        onTurnsChange={setTurns}
-        rhythm={rhythm}
-        onRhythmChange={setRhythm}
-        safetyMode={safetyMode}
-        onSafetyModeChange={setSafetyMode}
-      />
-      <NowCard now={now} />
-      <QueueCard queue={queue} onMove={handleMove} onRemove={handleRemove} />
+      <ProfileSessionCard />
+      {getError ? (
+        <Card className="flex flex-col p-4">
+          <p role="alert" className="text-xs leading-relaxed text-danger">
+            No se pudo cargar la agenda en vivo.
+          </p>
+        </Card>
+      ) : (
+        <>
+          <NowCard now={data?.active_topic} />
+          <QueueCard queue={queue} />
+          <AddTopicCard />
+        </>
+      )}
       <SuggestionsCard suggestions={suggestions} onApprove={handleApprove} onReject={handleReject} />
-      <AddTopicCard onAdd={handleAddTopic} />
-      <SessionControlCard
-        state={sessionState}
-        canActivate={sessionState !== "active" && (queue.length > 0 || now !== null)}
-        onActivar={handleActivar}
-        onPausaSuave={handlePausaSuave}
-        onEmergencia={handleEmergencia}
-      />
+      <SessionControlCard state={data?.state ?? data?.metrics.current_state ?? "OFF"} />
     </>
   );
 }

@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
-import { useMemoriaStatsQuery } from "../api/memoria.js";
+import { useMemoriaListQuery, useMemoriaPurgeMutation, useMemoriaStatsQuery } from "../api/memoria.js";
 import { useEngineCommand } from "../api/engineCommand.js";
+import { useStatusQuery } from "../api/status.js";
 
 // R8 (privacy): this card renders counts ONLY, never raw chat/persona content.
 function countRows(stats: {
@@ -36,9 +37,20 @@ export function MemoryCard() {
   const clearCommand = useEngineCommand<void>();
   const [confirming, setConfirming] = useState(false);
 
+  const profileId = useStatusQuery().data?.active_profile ?? "";
+  const { data: listData, isError: listError } = useMemoriaListQuery(profileId);
+  const purgeMutation = useMemoriaPurgeMutation(profileId);
+  const [confirmingPurge, setConfirmingPurge] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+
   function handleConfirmClear() {
     setConfirming(false);
     void clearCommand.run("clear_history");
+  }
+
+  function handleConfirmPurge() {
+    setConfirmingPurge(false);
+    purgeMutation.mutate();
   }
 
   return (
@@ -111,6 +123,79 @@ export function MemoryCard() {
                 </div>
               ))}
             </div>
+          )}
+        </section>
+
+        <section aria-labelledby="memory-list-label" className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <span id="memory-list-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Memorias guardadas — detalle
+            </span>
+            <Button type="button" variant="ghost" onClick={() => setListOpen((open) => !open)}>
+              {listOpen ? "Ocultar" : "Ver"}
+            </Button>
+          </div>
+
+          {listOpen && (
+            <>
+              {listError && (
+                <p role="alert" className="text-xs leading-relaxed text-danger">
+                  No se pudo leer el detalle de memorias.
+                </p>
+              )}
+              {listData && listData.items.length === 0 && (
+                <p className="text-xs text-dim">No hay memorias guardadas.</p>
+              )}
+              {listData && listData.items.length > 0 && (
+                <ul className="flex flex-col gap-1.5">
+                  {listData.items.map((item) => (
+                    <li key={item.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-xs">
+                      <span className="truncate text-dim">
+                        {item.id} · rev {item.revision} · {item.updated_at}
+                      </span>
+                      {item.pinned && <Badge tone="info">fijada</Badge>}
+                      {item.private && <Badge tone="neutral">privada</Badge>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {purgeMutation.isError && (
+                <p role="alert" className="text-xs leading-relaxed text-danger">
+                  No se pudo purgar la memoria.
+                </p>
+              )}
+              {confirmingPurge ? (
+                <div className="flex flex-col gap-2">
+                  <p role="alert" className="text-xs text-danger">
+                    ¿Purgar todas las memorias guardadas? No se puede deshacer.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="ghost" onClick={() => setConfirmingPurge(false)}>
+                      Cancelar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      autoFocus
+                      disabled={purgeMutation.isPending}
+                      onClick={handleConfirmPurge}
+                    >
+                      Confirmar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={purgeMutation.isPending || !profileId}
+                  onClick={() => setConfirmingPurge(true)}
+                >
+                  Purgar memorias
+                </Button>
+              )}
+            </>
           )}
         </section>
       </div>

@@ -9,6 +9,7 @@ import {
   switchProfile
 } from "./client.js";
 import { useSwitchStore } from "../store/switchStore.js";
+import { MODELS_QUERY_KEY } from "./models.js";
 import { STATUS_QUERY_KEY } from "./status.js";
 
 export const PROFILES_QUERY_KEY = ["perfiles"] as const;
@@ -45,6 +46,9 @@ export function useSwitchProfileMutation() {
         rotateIdempotencyKey(variables.name);
         clearPending();
         void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+        // S5: a profile switch (even this no-op/confirming case) can carry a
+        // different active_model than what's cached — keep ModelCard in sync.
+        void queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
         return;
       }
 
@@ -59,6 +63,10 @@ export function useSwitchProfileMutation() {
       // queued/applying UI state; the poll in usePollUntilApplied confirms.
       setPending({ name: variables.name, commandId: result.command_id, status: "applying" });
       void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+      // S5: a profile switch changes the active model — ModelCard's
+      // useModelsQuery must not stay stale (owner symptom: profile switch
+      // showing a different model than StatusRail).
+      void queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
     },
     onError: (error, variables) => {
       if (error instanceof NotFoundError) {

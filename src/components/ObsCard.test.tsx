@@ -1,62 +1,112 @@
+import { http, HttpResponse } from "msw";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
 import { describe, expect, it } from "vitest";
+import { server } from "../test/server.js";
+import { API_BASE_URL, defaultObsConfig, obsConfigGetErrorHandler, obsTestFailureHandler } from "../test/handlers.js";
 import { ObsCard } from "./ObsCard.js";
-import { OBS_FIXTURE } from "../api/mock/fixtures.js";
 
-describe("ObsCard", () => {
-  it("defaults Habilitar OBS to the fixture value", () => {
-    render(<ObsCard />);
+function renderCard() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ObsCard)));
+}
+
+describe("ObsCard populates from GET /api/obs/config", () => {
+  it("hydrates host/port/source and the enable toggle from the fetched config", async () => {
+    renderCard();
+
+    await waitFor(() => expect(screen.getByLabelText("Host")).toHaveValue(defaultObsConfig.host));
+    expect(screen.getByLabelText("Puerto")).toHaveValue(String(defaultObsConfig.port));
+    expect(screen.getByLabelText("Fuente")).toHaveValue(defaultObsConfig.source);
     expect(screen.getByRole("switch", { name: "Habilitar OBS" })).toHaveAttribute(
       "aria-checked",
-      String(OBS_FIXTURE.enabled)
+      String(defaultObsConfig.enabled)
     );
   });
 
-  it("toggles Habilitar OBS through the mock command", async () => {
-    render(<ObsCard />);
-    const toggle = screen.getByRole("switch", { name: "Habilitar OBS" });
-    fireEvent.click(toggle);
+  it("surfaces a GET error honestly instead of a stale/hardcoded config", async () => {
+    server.use(obsConfigGetErrorHandler());
+    renderCard();
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Host")).not.toBeInTheDocument();
+  });
+});
 
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(toggle).toBeDisabled();
+describe("ObsCard Guardar PUTs the edited config", () => {
+  it("fires PUT /api/obs/config with host/port/source/enabled, and omits password when none typed", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/obs/config`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultObsConfig, host: "192.168.1.5" });
+      })
+    );
+    renderCard();
 
-    await waitFor(() => expect(toggle).not.toBeDisabled());
+    await screen.findByLabelText("Host");
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "192.168.1.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({
+        enabled: defaultObsConfig.enabled,
+        host: "192.168.1.5",
+        port: defaultObsConfig.port,
+        source: defaultObsConfig.source
+      })
+    );
   });
 
-  it("discloses that OBS creds are owner-supplied and no backend endpoint exists yet", () => {
-    render(<ObsCard />);
-    expect(screen.getByText(/credenciales que vos configurás/i)).toBeInTheDocument();
+  it("includes password in the PUT body only when the operator typed one", async () => {
+    let capturedBody: any;
+    server.use(
+      http.put(`${API_BASE_URL}/api/obs/config`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(defaultObsConfig);
+      })
+    );
+    renderCard();
+
+    await screen.findByLabelText("Host");
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "s3cr3t" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(capturedBody?.password).toBe("s3cr3t"));
   });
 
-  it("hides the connection settings inside a closed native details/summary by default", () => {
-    render(<ObsCard />);
-    const details = screen.getByText("Configuración de conexión").closest("details");
-    expect(details).not.toBeNull();
-    expect(details).not.toHaveAttribute("open");
+  it("never echoes a saved password back into the rendered password field", async () => {
+    server.use(
+      http.put(`${API_BASE_URL}/api/obs/config`, () => HttpResponse.json({ ...defaultObsConfig, password_set: true }))
+    );
+    renderCard();
+
+    await screen.findByLabelText("Host");
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "s3cr3t" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.queryByText("aplicando…")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Contraseña")).toHaveValue("");
+  });
+});
+
+describe("ObsCard Probar conexión fires POST /api/obs/test", () => {
+  it("renders an ok result", async () => {
+    renderCard();
+    await screen.findByLabelText("Host");
+
+    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+
+    await waitFor(() => expect(screen.getByText(/conexión exitosa/i)).toBeInTheDocument());
   });
 
-  it("prefills host, port, and source from the fixture", () => {
-    render(<ObsCard />);
-    expect(screen.getByLabelText("Host")).toHaveValue(OBS_FIXTURE.host);
-    expect(screen.getByLabelText("Puerto")).toHaveValue(String(OBS_FIXTURE.port));
-    expect(screen.getByLabelText("Fuente")).toHaveValue(OBS_FIXTURE.source);
-  });
+  it("renders a color-coded failure result with the returned error", async () => {
+    server.use(obsTestFailureHandler("connection refused"));
+    renderCard();
+    await screen.findByLabelText("Host");
 
-  it("never pre-fills or echoes back the OBS password, showing a neutral configurada badge instead", () => {
-    render(<ObsCard />);
-    const passwordInput = screen.getByLabelText("Contraseña") as HTMLInputElement;
-    expect(passwordInput).toHaveAttribute("type", "password");
-    expect(passwordInput.value).toBe("");
-    expect(screen.getByText("configurada")).toBeInTheDocument();
-  });
+    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
 
-  it("runs Probar conexión through the mock command and shows a result status note", async () => {
-    render(<ObsCard />);
-    const button = screen.getByRole("button", { name: "Probar conexión", hidden: true });
-    fireEvent.click(button);
-
-    expect(button).toBeDisabled();
-    await waitFor(() => expect(button).not.toBeDisabled());
-    expect(screen.getByText(/no se verificó de verdad/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("connection refused")).toBeInTheDocument());
   });
 });

@@ -94,11 +94,11 @@ export function MainStage({ activeSection }: MainStageProps) {
 
       <div className="flex flex-col items-center gap-1 text-center">
         <h1 className="text-2xl font-extrabold tracking-tight text-foreground">Kira</h1>
-        <p className="text-xs text-muted-foreground">Akira · co-host local · {data?.current_model ?? "cargando…"}</p>
+        <p className="mono text-xs text-muted-foreground">Akira · co-host local · {data?.current_model ?? "cargando…"}</p>
       </div>
 
       <p className="max-w-[520px] rounded-md border border-border bg-background px-4 py-3 text-center text-sm leading-relaxed text-foreground">
-        <span className="font-bold text-[var(--kira-cyan)]">[Kira] </span>
+        <span className="mono font-bold text-[var(--kira-cyan)]">[Kira] </span>
         Estado: {AVATAR_LABEL[avatarState]}
       </p>
     </main>

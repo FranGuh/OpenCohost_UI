@@ -38,6 +38,11 @@ The prototype includes `src/lib/pythonEngineBridge.ts` with three intended modes
 
 No production Python code is changed by this prototype.
 
+## Setup
+
+Copy `.env.example` to `.env.local`. The backend runs on `:8765` via `run-api.bat`;
+without this file the app silently targets `:8000` and looks dead.
+
 ## Run later
 
 Dependencies are intentionally not installed here.

@@ -14,12 +14,22 @@ import {
 } from "../test/handlers.js";
 import { useSwitchStore } from "../store/switchStore.js";
 import { useProfilesQuery, useSwitchProfileMutation } from "./profiles.js";
+import { MODELS_QUERY_KEY } from "./models.js";
 import { STATUS_QUERY_KEY, usePollUntilApplied } from "./status.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return ({ children }: { children: ReactNode }) =>
     React.createElement(QueryClientProvider, { client: queryClient }, children);
+}
+
+/** Same as createWrapper, but also hands back the QueryClient instance so a
+ * test can spy on invalidateQueries. */
+function createWrapperWithClient() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
+  return { queryClient, wrapper };
 }
 
 /** Mirrors the real usage pattern (Slice B): target is derived reactively
@@ -158,6 +168,24 @@ describe("useSwitchProfileMutation (spec R5, R6, R7)", () => {
     expect(pending).toEqual({ name: "Akira", commandId: "cmd-2", status: "applying" });
   });
 
+  it("S5: invalidates MODELS_QUERY_KEY alongside STATUS_QUERY_KEY on the applying path, so a profile switch doesn't leave ModelCard showing a stale model", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-2b", status: "queued" })
+      )
+    );
+
+    const { queryClient, wrapper } = createWrapperWithClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useSwitchProfileMutation(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "Akira" });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: MODELS_QUERY_KEY }));
+  });
+
   it("F1 regression: re-switching to a previously-converged profile rotates the Idempotency-Key and re-enqueues (does not get stuck applying)", async () => {
     const { switchHandler, statusHandler, headersSeen } = keyRotationScenarioHandlers();
     server.use(switchHandler, statusHandler);
@@ -237,6 +265,28 @@ describe("useSwitchProfileMutation (spec R5, R6, R7)", () => {
     });
 
     expect(useSwitchStore.getState().pendingSwitch).toBeNull();
+  });
+
+  it("S5: invalidates MODELS_QUERY_KEY alongside STATUS_QUERY_KEY on the already-active no-op path too", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(STATUS_QUERY_KEY, { ...defaultStatus, active_profile: "default" });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-noop-2", status: "queued" })
+      )
+    );
+
+    const { result } = renderHook(() => useSwitchProfileMutation(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "default" });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: MODELS_QUERY_KEY }));
   });
 
   it("429 arriving while a prior pendingSwitch exists leaves it untouched", async () => {

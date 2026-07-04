@@ -9,7 +9,9 @@ import {
   chatTurnConflictHandler,
   chatTurnNetworkErrorHandler,
   chatTurnQueueFullHandler,
-  chatTurnValidationHandler
+  chatTurnValidationHandler,
+  evolvingLastReplyHandler,
+  lastReplyHandler
 } from "../test/handlers.js";
 import { ConversationPanel } from "./ConversationPanel.js";
 
@@ -19,9 +21,15 @@ function renderPanel() {
 }
 
 describe("ConversationPanel", () => {
-  it("shows the canned Kira turn seeded from the default transcript", () => {
+  it("renders Kira's fetched reply, not a canned transcript", async () => {
+    server.use(lastReplyHandler({ text: "todo joya, arrancamos con el stream", turn_id: 1 }));
     renderPanel();
-    expect(screen.getByText(/Preparando el motor/)).toBeInTheDocument();
+    expect(await screen.findByText("todo joya, arrancamos con el stream")).toBeInTheDocument();
+  });
+
+  it("renders nothing for Kira when no reply has landed yet (text: null)", () => {
+    renderPanel();
+    expect(screen.queryByText("KIRA")).not.toBeInTheDocument();
   });
 
   it("switches the active filter tab and marks aria-selected", () => {
@@ -31,21 +39,23 @@ describe("ConversationPanel", () => {
     expect(chatTab).toHaveAttribute("aria-selected", "true");
   });
 
-  it("filters the visible turns by tab and wires honest tab<->tabpanel ARIA", () => {
+  it("filters the visible turns by tab and wires honest tab<->tabpanel ARIA", async () => {
+    server.use(lastReplyHandler({ text: "todo bien por acá", turn_id: 1 }));
     renderPanel();
+    await screen.findByText("todo bien por acá");
     const chatTab = screen.getByRole("tab", { name: "Chat" });
     const alertasTab = screen.getByRole("tab", { name: "Alertas" });
 
     // Todo (default): both a chat turn and the alert are visible.
     const todoPanel = screen.getByRole("tabpanel");
-    expect(todoPanel).toHaveTextContent(/Preparando el motor/);
+    expect(todoPanel).toHaveTextContent(/todo bien por acá/);
     expect(todoPanel).toHaveTextContent(/silenciado/);
 
     fireEvent.click(chatTab);
     const chatPanel = screen.getByRole("tabpanel");
     expect(chatTab).toHaveAttribute("aria-controls", chatPanel.id);
     expect(chatPanel).toHaveAttribute("aria-labelledby", chatTab.id);
-    expect(chatPanel).toHaveTextContent(/Preparando el motor/);
+    expect(chatPanel).toHaveTextContent(/todo bien por acá/);
     expect(chatPanel).not.toHaveTextContent(/silenciado/);
 
     fireEvent.click(alertasTab);
@@ -53,7 +63,37 @@ describe("ConversationPanel", () => {
     expect(alertasTab).toHaveAttribute("aria-controls", alertasPanel.id);
     expect(alertasPanel).toHaveAttribute("aria-labelledby", alertasTab.id);
     expect(alertasPanel).toHaveTextContent(/silenciado/);
-    expect(alertasPanel).not.toHaveTextContent(/Preparando el motor/);
+    expect(alertasPanel).not.toHaveTextContent(/todo bien por acá/);
+  });
+});
+
+describe("ConversationPanel — 'pensando' state (spec P3/S3)", () => {
+  it("shows a thinking indicator after send, then replaces it with the new reply once turn_id changes", async () => {
+    server.use(evolvingLastReplyHandler({ turn_id: 1 }, { text: "che, buenísimo el clip", turn_id: 2 }, 1));
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument()); // let the initial GET land
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(screen.getByText(/pensando/i)).toBeInTheDocument());
+
+    await waitFor(() => expect(screen.getByText("che, buenísimo el clip")).toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps showing the thinking indicator when the reply query hasn't resolved yet at submit time (FIX-F4)", async () => {
+    server.use(evolvingLastReplyHandler({ turn_id: 0 }, { text: "ya volvió", turn_id: 5 }, 2));
+    renderPanel();
+
+    // Submit immediately — no await before this, so GET /api/chat/last-reply
+    // has not resolved yet and currentTurnId is still null at submit time.
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(screen.getByText(/pensando/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("ya volvió")).toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument();
   });
 });
 

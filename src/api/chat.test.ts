@@ -3,16 +3,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import React from "react";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
   chatTurnConflictHandler,
   chatTurnNetworkErrorHandler,
   chatTurnQueueFullHandler,
-  chatTurnValidationHandler
+  chatTurnValidationHandler,
+  defaultLastReply,
+  lastReplyHandler
 } from "../test/handlers.js";
-import { useSendChatTurn } from "./chat.js";
+import { useLastReply, useSendChatTurn } from "./chat.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -120,5 +122,42 @@ describe("useSendChatTurn", () => {
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe("useLastReply", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("fetches the shape returned by GET /api/chat/last-reply", async () => {
+    server.use(lastReplyHandler({ text: "todo bien por acá", source: "llm", turn_id: 3, ts: 1000 }));
+    const { result } = renderHook(() => useLastReply(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.data).toEqual({ text: "todo bien por acá", source: "llm", turn_id: 3, ts: 1000 });
+  });
+
+  it("treats text: null as no reply yet, matching the default handler", async () => {
+    const { result } = renderHook(() => useLastReply(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.data).toEqual(defaultLastReply);
+  });
+
+  it("polls approximately every 1.5s", async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/chat/last-reply`, () => {
+        calls += 1;
+        return HttpResponse.json(defaultLastReply);
+      })
+    );
+    renderHook(() => useLastReply(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(calls).toBe(1);
+
+    await act(() => vi.advanceTimersByTimeAsync(1500));
+    expect(calls).toBe(2);
   });
 });

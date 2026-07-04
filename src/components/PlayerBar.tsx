@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { useStatusQuery } from "../api/status.js";
+import { useLastReply } from "../api/chat.js";
 import { Badge } from "./ui/Badge.js";
 import { Switch } from "./ui/Switch.js";
-import { AVATAR_LABEL, DEFAULT_TRANSCRIPT, deriveAvatarState } from "./kiraState.js";
+import { AVATAR_LABEL, deriveAvatarState } from "./kiraState.js";
 import { cn } from "../lib/cn.js";
+
+// Neutral idle label (spec S3): shown when no reply has landed yet — no
+// canned transcript, R8 only ever renders server-provided Kira text.
+const NOW_PLAYING_IDLE_LABEL = "Sin reproducción en curso";
 
 const TRANSPORT_BUTTONS = [
   { id: "ptt", icon: "🎙", label: "Push-to-talk" },
@@ -17,11 +22,13 @@ const TRANSPORT_BUTTONS = [
  * the app-wide P2 not-wired-yet note pattern. */
 export function PlayerBar() {
   const { data } = useStatusQuery();
+  const lastReply = useLastReply();
   const [liveVoice, setLiveVoice] = useState(false);
   const [lastAction, setLastAction] = useState<string | null>(null);
 
   const avatarState = deriveAvatarState(data);
   const isSpeaking = Boolean(data?.is_speaking);
+  const nowPlayingLabel = lastReply.data?.text ?? NOW_PLAYING_IDLE_LABEL;
 
   return (
     <footer
@@ -31,13 +38,14 @@ export function PlayerBar() {
       <div className="flex min-w-0 items-center gap-3">
         <span
           aria-hidden="true"
-          className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-md bg-[image:var(--spectrum-soft)] text-lg"
+          className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-md text-lg"
+          style={{ backgroundColor: "var(--accent-soft)" }}
         >
           ◈
         </span>
         <div className="flex min-w-0 flex-col gap-[2px]">
           <span className="truncate text-sm font-semibold text-foreground">Kira · {AVATAR_LABEL[avatarState]}</span>
-          <span className="mono truncate text-xs text-dim">{DEFAULT_TRANSCRIPT}</span>
+          <span className="mono truncate text-xs text-dim">{nowPlayingLabel}</span>
           <Badge tone="ok" className="w-fit">
             TTS Piper
           </Badge>
@@ -65,7 +73,7 @@ export function PlayerBar() {
             className={cn(
               "flex h-11 w-11 items-center justify-center rounded-full text-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
               isSpeaking
-                ? "bg-[image:var(--spectrum)] text-[var(--accent-contrast)]"
+                ? "bg-[image:var(--accent-grad)] text-primary-foreground"
                 : "bg-surface-2 text-foreground"
             )}
           >
@@ -88,7 +96,7 @@ export function PlayerBar() {
         <div className="flex w-full max-w-[420px] items-center gap-2">
           <span className="mono text-[11px] text-dim">0:00</span>
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full w-[35%]" style={{ backgroundImage: "var(--spectrum)" }} />
+            <div className="h-full w-[35%]" style={{ backgroundImage: "var(--accent-grad)" }} />
           </div>
           <span className="mono text-[11px] text-dim">--:--</span>
         </div>

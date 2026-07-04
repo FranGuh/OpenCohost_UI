@@ -9,6 +9,7 @@ import {
   rotateIdempotencyKey
 } from "./client.js";
 import { STATUS_QUERY_KEY, useStatusQuery } from "./status.js";
+import { MODELS_QUERY_KEY } from "./models.js";
 
 interface PendingCommand {
   intentKey: string;
@@ -76,6 +77,10 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
       setConvergeValue(variables.value);
       setPendingCommand({ intentKey: result.intentKey });
       void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+      // S5: any engine command can change the active model (switch_model
+      // directly, but also profile-driven commands) — ModelCard's
+      // useModelsQuery must not stay stale.
+      void queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
     }
   });
 

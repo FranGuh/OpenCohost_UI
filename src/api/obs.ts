@@ -1,0 +1,103 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiError, ValidationError } from "./client.js";
+
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+/**
+ * GET/PUT /api/obs/config + POST /api/obs/test (opencohost/api/main.py
+ * ~678-712) predate types.gen.ts's OpenAPI generation, so they have no
+ * generated type — hand-typed from opencohost/api/models.py::
+ * ObsConfigResponse/ObsConfigRequest/ObsTestResponse. R8/secret:
+ * `password_set` is a bool only, the real password is never echoed back.
+ * ponytail: keep in sync manually if those models change.
+ */
+export interface ObsConfigResponse {
+  enabled: boolean;
+  host: string;
+  port: number;
+  source: string;
+  password_set: boolean;
+}
+
+/** PUT body — partial update. `password` omitted leaves the stored value
+ * untouched (never send an empty string to "clear" it — omit the field). */
+export interface ObsConfigRequest {
+  enabled?: boolean;
+  host?: string;
+  port?: number;
+  source?: string;
+  password?: string;
+}
+
+export interface ObsTestResponse {
+  ok: boolean;
+  error: string | null;
+}
+
+export const OBS_CONFIG_QUERY_KEY = ["obs-config"] as const;
+
+export async function getObsConfig(): Promise<ObsConfigResponse> {
+  const res = await fetch(`${BASE_URL}/api/obs/config`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/obs/config failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ObsConfigResponse;
+}
+
+export async function putObsConfig(body: ObsConfigRequest): Promise<ObsConfigResponse> {
+  const res = await fetch(`${BASE_URL}/api/obs/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (res.status === 422) {
+    let detail = "invalid obs config";
+    try {
+      const errBody = (await res.json()) as { detail?: string };
+      detail = errBody.detail ?? detail;
+    } catch {
+      // non-JSON 422 body — fall back to a generic message.
+    }
+    throw new ValidationError(detail);
+  }
+  if (!res.ok) {
+    throw new ApiError(`PUT /api/obs/config failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ObsConfigResponse;
+}
+
+export async function postObsTest(body: ObsConfigRequest): Promise<ObsTestResponse> {
+  const res = await fetch(`${BASE_URL}/api/obs/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST /api/obs/test failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ObsTestResponse;
+}
+
+export function useObsConfigQuery() {
+  return useQuery({
+    queryKey: OBS_CONFIG_QUERY_KEY,
+    queryFn: getObsConfig
+  });
+}
+
+export function useUpdateObsConfigMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putObsConfig,
+    onSuccess: (data) => {
+      queryClient.setQueryData(OBS_CONFIG_QUERY_KEY, data);
+    }
+  });
+}
+
+export function useTestObsConnectionMutation() {
+  return useMutation({
+    mutationFn: postObsTest
+  });
+}

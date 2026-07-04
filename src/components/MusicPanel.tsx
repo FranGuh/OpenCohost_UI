@@ -1,28 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import type { BadgeTone } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
-import { cn } from "../lib/cn.js";
 import { useMockCommand } from "../api/mock/useMockCommand.js";
-import { MUSIC_FIXTURE, type MusicMood, type MusicTrackFixture, type MusicTrackStatus } from "../api/mock/fixtures.js";
+import { useMusicLibraryQuery, type MusicTrackOut } from "../api/music.js";
+import { MUSIC_FIXTURE } from "../api/mock/fixtures.js";
 
-// No /api/music/* endpoint exists yet — the CTK original lives in
-// opencohost/ui/music_panel.py + opencohost/core/music_library.py
-// (MusicLibrary, AudioBedEngine.request_mood), persisted to
-// MUSIC_CONFIG_FILE json. This ships as a functional mock against
-// MUSIC_FIXTURE: every mutation goes through useMockCommand (accepted !=
-// applied, same contract as AgendaPanel/StreamPanel) and carries a
-// role="status" disclosure. Proposed swap: GET /api/music/library, POST
-// /api/music/mood, POST /api/music/fade, POST /api/music/import, DELETE
-// /api/music/track/{id}.
-//
-// ponytail: the CTK's mood combo (import target) and mood-test grid are
-// collapsed into ONE control surface here — the quick-test grid buttons
-// double as the mood selector (clicking IS selecting). A separate dropdown
-// picking from the same 8-mood list the grid already exhibits would just be
-// two widgets doing one job; add a dropdown back if the grid ever needs to
-// scroll off-screen for a longer mood list.
+// S11: LibraryCard is wired to the live GET /api/music/library
+// (opencohost/api/main.py ~459, opencohost/core/music_library.py
+// MusicLibrary.all_tracks) — read-only, no queue, no audio. Two affordances
+// stay deliberately disabled with a role="status" blocker note because their
+// backing verbs don't exist yet: Importar (no upload endpoint — a local-file
+// vs multipart-upload UX decision is still the owner's to make) and the mood
+// quick-test grid (server-side playback via AudioBedEngine.request_mood is
+// deferred by design — this is a pure library listing, not a player). Quitar
+// track / Limpiar faltantes remain the same local-only mock they were before
+// this slice (no DELETE /api/music/track/{id} either) — out of scope here.
 
 function moodLabel(mood: string): string {
   return mood.charAt(0).toUpperCase() + mood.slice(1);
@@ -36,89 +30,58 @@ function sectionLabel(id: string, text: string) {
   );
 }
 
-const TRACK_STATUS_BADGE: Record<MusicTrackStatus, { tone: BadgeTone; label: string }> = {
+const TRACK_STATUS_BADGE: Record<MusicTrackOut["status"], { tone: BadgeTone; label: string }> = {
   ok: { tone: "ok", label: "OK" },
   faltante: { tone: "warn", label: "faltante" },
   invalido: { tone: "danger", label: "inválido" }
 };
 
-interface MoodCardProps {
-  activeMood: MusicMood | null;
-  onPlay: (mood: MusicMood) => void;
-  onFade: () => void;
-}
-
-function MoodCard({ activeMood, onPlay, onFade }: MoodCardProps) {
-  const moodCommand = useMockCommand<MusicMood>();
-  const fadeCommand = useMockCommand<void>();
-  const pending = moodCommand.pending || fadeCommand.pending;
-
-  function play(mood: MusicMood) {
-    onPlay(mood);
-    void moodCommand.run(mood);
-  }
-
-  async function fade() {
-    await fadeCommand.run();
-    onFade();
-  }
-
+function MoodCard() {
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">Mood</h2>
-        {pending && <Badge tone="info">aplicando…</Badge>}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Reproducir un mood y hacer fade son cambios locales — no existe todavía el endpoint{" "}
-          <span className="mono">/api/music/mood</span> en el backend.
+          Reproducción server-side no implementada — no existe todavía{" "}
+          <span className="mono">POST /api/music/mood</span> en el backend. Los botones son solo referencia de moods
+          conocidos.
         </p>
 
         <section aria-labelledby="music-mood-label" className="space-y-2">
-          {sectionLabel("music-mood-label", "Prueba rápida")}
+          {sectionLabel("music-mood-label", "Moods conocidos")}
           <div className="grid grid-cols-4 gap-2">
             {MUSIC_FIXTURE.moods.map((mood) => (
               <Button
                 key={mood}
                 type="button"
                 variant="ghost"
-                aria-pressed={activeMood === mood}
-                disabled={pending}
-                onClick={() => play(mood)}
-                className={cn(
-                  "h-10 justify-center border-border-soft text-[13px]",
-                  activeMood === mood && "bg-[image:var(--spectrum-soft)] text-[var(--kira-cyan)]"
-                )}
+                aria-pressed={false}
+                disabled
+                className="h-10 justify-center border-border-soft text-[13px]"
               >
                 {moodLabel(mood)}
               </Button>
             ))}
           </div>
-          <p role="status" data-testid="music-active-mood" className="text-xs text-muted-foreground">
-            {activeMood ? `Sonando: ${moodLabel(activeMood)}` : "Sin mood en reproducción."}
-          </p>
         </section>
-
-        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-          <span className="text-[13px] text-foreground">Detener el mood activo con fundido</span>
-          <Button type="button" variant="outline" disabled={pending || !activeMood} onClick={() => void fade()}>
-            Fade out
-          </Button>
-        </div>
       </div>
     </Card>
   );
 }
 
 interface LibraryCardProps {
-  tracks: MusicTrackFixture[];
+  tracks: MusicTrackOut[];
+  moods: string[];
+  isLoading: boolean;
+  isError: boolean;
   onRemove: (id: string) => void;
   onCleanupMissing: () => void;
 }
 
-function LibraryCard({ tracks, onRemove, onCleanupMissing }: LibraryCardProps) {
+function LibraryCard({ tracks, moods, isLoading, isError, onRemove, onCleanupMissing }: LibraryCardProps) {
   const deleteCommand = useMockCommand<string>();
   const cleanupCommand = useMockCommand<void>();
   const pending = deleteCommand.pending || cleanupCommand.pending;
@@ -134,6 +97,11 @@ function LibraryCard({ tracks, onRemove, onCleanupMissing }: LibraryCardProps) {
     void cleanupCommand.run();
   }
 
+  const moodCounts = moods.map((mood) => ({
+    mood,
+    count: tracks.filter((track) => track.mood === mood).length
+  }));
+
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
@@ -145,85 +113,113 @@ function LibraryCard({ tracks, onRemove, onCleanupMissing }: LibraryCardProps) {
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Quitar tracks y limpiar faltantes son cambios locales — no existe todavía{" "}
-          <span className="mono">DELETE /api/music/track/{"{id}"}</span> en el backend.
-        </p>
-
-        <section aria-labelledby="music-import-label" className="space-y-2">
-          {sectionLabel("music-import-label", "Importar track")}
-          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-muted-foreground">Subir .mp3 o .wav</span>
-            <Button type="button" variant="outline" disabled title="Decisión de UX pendiente (archivo local vs subida)">
-              Importar
-            </Button>
-          </div>
-          <p role="status" className="text-xs leading-relaxed text-dim">
-            Importar es una decisión pendiente del owner (elegir archivo local vs subida multipart) — todavía no
-            existe <span className="mono">POST /api/music/import</span>, así que no se simula una carga.
+        {isError ? (
+          <p role="alert" className="text-xs leading-relaxed text-danger">
+            No se pudo cargar la biblioteca de música en vivo.
           </p>
-        </section>
+        ) : (
+          <>
+            <p role="status" className="text-xs leading-relaxed text-muted-foreground">
+              Quitar tracks y limpiar faltantes son cambios locales — no existe todavía{" "}
+              <span className="mono">DELETE /api/music/track/{"{id}"}</span> en el backend.
+            </p>
 
-        <section aria-labelledby="music-tracks-label" className="space-y-2">
-          {sectionLabel("music-tracks-label", "Tracks")}
-          {tracks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay tracks todavía.</p>
-          ) : (
-            <ul aria-label="Tracks de la biblioteca" className="flex flex-col gap-2">
-              {tracks.map((track) => {
-                const badge = TRACK_STATUS_BADGE[track.status];
-                return (
-                  <li
-                    key={track.id}
-                    aria-label={`Track: ${track.name}`}
-                    className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-border-soft bg-background p-3"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[13px] font-semibold text-foreground">{track.name}</span>
-                      <Badge tone="neutral">{moodLabel(track.mood)}</Badge>
-                      <Badge tone={badge.tone}>{badge.label}</Badge>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8 w-8 p-0 text-danger"
-                      aria-label={`Quitar "${track.name}"`}
-                      disabled={pending}
-                      onClick={() => remove(track.id)}
-                    >
-                      ✕
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+            <section aria-labelledby="music-import-label" className="space-y-2">
+              {sectionLabel("music-import-label", "Importar track")}
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-muted-foreground">Subir .mp3 o .wav</span>
+                <Button type="button" variant="outline" disabled title="Decisión de UX pendiente (archivo local vs subida)">
+                  Importar
+                </Button>
+              </div>
+              <p role="status" className="text-xs leading-relaxed text-dim">
+                Importar es una decisión pendiente del owner (elegir archivo local vs subida multipart) — todavía no
+                existe <span className="mono">POST /api/music/import</span>, así que no se simula una carga.
+              </p>
+            </section>
 
-        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-          <span className="text-[13px] text-foreground">Quitar todos los tracks faltantes</span>
-          <Button type="button" variant="outline" disabled={pending || !hasMissing} onClick={cleanupMissing}>
-            Limpiar faltantes
-          </Button>
-        </div>
+            {!isLoading && tracks.length > 0 && (
+              <section aria-labelledby="music-mood-counts-label" className="space-y-2">
+                {sectionLabel("music-mood-counts-label", "Tracks por mood")}
+                <div data-testid="music-mood-counts" className="flex flex-wrap gap-2">
+                  {moodCounts.map(({ mood, count }) => (
+                    <Badge key={mood} tone="neutral">
+                      {moodLabel(mood)}: {count}
+                    </Badge>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section aria-labelledby="music-tracks-label" className="space-y-2">
+              {sectionLabel("music-tracks-label", "Tracks")}
+              {isLoading ? (
+                <p className="text-sm text-muted-foreground">Cargando biblioteca…</p>
+              ) : tracks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hay tracks todavía.</p>
+              ) : (
+                <ul aria-label="Tracks de la biblioteca" className="flex flex-col gap-2">
+                  {tracks.map((track) => {
+                    const badge = TRACK_STATUS_BADGE[track.status];
+                    return (
+                      <li
+                        key={track.id}
+                        aria-label={`Track: ${track.label}`}
+                        className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-border-soft bg-background p-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13px] font-semibold text-foreground">{track.label}</span>
+                          <Badge tone="neutral">{moodLabel(track.mood)}</Badge>
+                          <Badge tone={badge.tone}>{badge.label}</Badge>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-danger"
+                          aria-label={`Quitar "${track.label}"`}
+                          disabled={pending}
+                          onClick={() => remove(track.id)}
+                        >
+                          ✕
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <span className="text-[13px] text-foreground">Quitar todos los tracks faltantes</span>
+              <Button type="button" variant="outline" disabled={pending || !hasMissing} onClick={cleanupMissing}>
+                Limpiar faltantes
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </Card>
   );
 }
 
 /**
- * Música panel — CTK parity (opencohost/ui/music_panel.py) as a functional
- * mock: mood quick-test grid (single-flight, spectrum-soft active styling) +
- * Fade out, and a track library (status badges, quitar, limpiar faltantes,
- * Importar left as a disabled not-wired affordance — see the mock-command
- * contract note at the top of this file). All state is local (useState)
- * seeded from MUSIC_FIXTURE. Deliberately self-contained: no PlayerBar
- * coupling — Kira's voice transport and background mood beds are separate
- * concerns (a future PlayerBar<->mood integration is out of scope here).
+ * Música panel — CTK parity (opencohost/ui/music_panel.py), read-only slice
+ * (S11): LibraryCard hydrates from the live GET /api/music/library (track
+ * list with status badges + per-mood counts, quitar/limpiar faltantes still
+ * a local-only mock). MoodCard's quick-test grid is a disabled reference
+ * list — see the module note above for exactly what's wired vs. deferred.
+ * Deliberately self-contained: no PlayerBar coupling — Kira's voice
+ * transport and background mood beds are separate concerns.
  */
 export function MusicPanel() {
-  const [activeMood, setActiveMood] = useState<MusicMood | null>(null);
-  const [tracks, setTracks] = useState<MusicTrackFixture[]>(MUSIC_FIXTURE.tracks);
+  const { data, isLoading, isError } = useMusicLibraryQuery();
+  const [tracks, setTracks] = useState<MusicTrackOut[]>([]);
+
+  useEffect(() => {
+    if (data) {
+      setTracks(data.tracks);
+    }
+  }, [data]);
 
   function handleRemove(id: string) {
     setTracks((prev) => prev.filter((track) => track.id !== id));
@@ -235,8 +231,15 @@ export function MusicPanel() {
 
   return (
     <>
-      <MoodCard activeMood={activeMood} onPlay={setActiveMood} onFade={() => setActiveMood(null)} />
-      <LibraryCard tracks={tracks} onRemove={handleRemove} onCleanupMissing={handleCleanupMissing} />
+      <MoodCard />
+      <LibraryCard
+        tracks={tracks}
+        moods={data?.moods ?? []}
+        isLoading={isLoading}
+        isError={isError}
+        onRemove={handleRemove}
+        onCleanupMissing={handleCleanupMissing}
+      />
     </>
   );
 }

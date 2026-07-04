@@ -1,50 +1,76 @@
+import { http, HttpResponse } from "msw";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
 import { describe, expect, it } from "vitest";
+import { server } from "../test/server.js";
+import {
+  API_BASE_URL,
+  avatarConfigGetErrorHandler,
+  avatarConfigPutValidationHandler,
+  defaultAvatarConfig
+} from "../test/handlers.js";
 import { AvatarCard } from "./AvatarCard.js";
-import { AVATAR_FIXTURE } from "../api/mock/fixtures.js";
 
-describe("AvatarCard", () => {
-  it("defaults the mode select to the fixture mode", () => {
-    render(<AvatarCard />);
-    expect(screen.getByRole("combobox", { name: "Modo" })).toHaveValue(AVATAR_FIXTURE.mode);
+function renderCard() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(AvatarCard)));
+}
+
+describe("AvatarCard populates from GET /api/avatar/config", () => {
+  it("renders the mode and one row per state with its configured image path", async () => {
+    renderCard();
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Modo" })).toHaveValue(defaultAvatarConfig.mode)
+    );
+    expect(screen.getByText(defaultAvatarConfig.state_images.idle)).toBeInTheDocument();
+    expect(screen.getByText(defaultAvatarConfig.state_images.speaking)).toBeInTheDocument();
   });
 
-  it("applies a mode change through the mock command", async () => {
-    render(<AvatarCard />);
-    const select = screen.getByRole("combobox", { name: "Modo" }) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "estatico" } });
+  it("surfaces a GET error honestly instead of a stale/hardcoded config", async () => {
+    server.use(avatarConfigGetErrorHandler());
+    renderCard();
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByRole("combobox", { name: "Modo" })).not.toBeInTheDocument();
+  });
+});
 
-    expect(select.value).toBe("estatico");
-    expect(select).toBeDisabled();
-    expect(screen.getByText("aplicando…")).toBeInTheDocument();
+describe("AvatarCard mode change PUTs the edited config", () => {
+  it("fires PUT /api/avatar/config with the new mode on change", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultAvatarConfig, mode: "static" });
+      })
+    );
+    renderCard();
 
-    await waitFor(() => expect(select).not.toBeDisabled());
+    const select = (await screen.findByRole("combobox", { name: "Modo" })) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "static" } });
+
+    await waitFor(() => expect(capturedBody).toEqual({ mode: "static" }));
+    await waitFor(() => expect(screen.queryByText("aplicando…")).not.toBeInTheDocument());
   });
 
-  it("renders one row per Kira state with its current image ref", () => {
-    render(<AvatarCard />);
-    for (const entry of AVATAR_FIXTURE.images) {
-      expect(screen.getAllByText(entry.label).length).toBeGreaterThan(0);
-      expect(screen.getByText(entry.image)).toBeInTheDocument();
-    }
-  });
+  it("surfaces a PUT 422 validation error honestly", async () => {
+    server.use(avatarConfigPutValidationHandler("unknown avatar state(s): bogus"));
+    renderCard();
 
-  it("renders a disabled, not-wired Cambiar affordance per state row with a role=status note", () => {
-    render(<AvatarCard />);
+    const select = (await screen.findByRole("combobox", { name: "Modo" })) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "static" } });
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("unknown avatar state(s): bogus"));
+  });
+});
+
+describe("AvatarCard per-state image upload stays disabled (no upload endpoint)", () => {
+  it("renders a disabled Cambiar affordance per state row with a role=status note", async () => {
+    renderCard();
+    await screen.findByRole("combobox", { name: "Modo" });
     const changeButtons = screen.getAllByRole("button", { name: /^Cambiar imagen/ });
-    expect(changeButtons).toHaveLength(AVATAR_FIXTURE.images.length);
+    expect(changeButtons.length).toBeGreaterThan(0);
     changeButtons.forEach((button) => expect(button).toBeDisabled());
-
     expect(screen.getByText(/necesitaría subida multipart/i)).toBeInTheDocument();
-  });
-
-  it("previews a state through the mock command and shows a preview swatch", async () => {
-    render(<AvatarCard />);
-    const preview = screen.getByRole("combobox", { name: "Estado a probar" }) as HTMLSelectElement;
-    fireEvent.change(preview, { target: { value: "error" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
-    await waitFor(() => expect(screen.getByRole("img", { name: /Error/i })).toBeInTheDocument());
-    expect(screen.getByText(/vista previa local/i)).toBeInTheDocument();
   });
 });

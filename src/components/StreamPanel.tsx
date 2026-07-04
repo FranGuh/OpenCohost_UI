@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
@@ -7,22 +7,31 @@ import { Button } from "./ui/Button.js";
 import { Select } from "./ui/Select.js";
 import { Segmented } from "./ui/Segmented.js";
 import { Switch } from "./ui/Switch.js";
-import { useMockCommand } from "../api/mock/useMockCommand.js";
 import { STREAM_FIXTURE, type StreamPresetLevel } from "../api/mock/fixtures.js";
+import {
+  useStreamChatLiveQuery,
+  useStreamConnectMutation,
+  useStreamDisconnectMutation,
+  useStreamLimitsMutation
+} from "../api/stream.js";
 
-// No /api/stream/* endpoint exists yet — the CTK original lives in
+// Wired to GET /api/stream/chat-live, POST .../connect, POST .../disconnect,
+// PUT .../limits (opencohost/api/main.py ~549-624) — CTK parity:
 // opencohost/ui/stream_admin_ui.py's 'acciones' subtab (Chat Live tab),
-// wired to smart_agg.set_activity_limits / set_spam_limits /
-// set_filter_policy and sanitize_live_url for the connect URL. This ships
-// as a functional mock against STREAM_FIXTURE: connect/disconnect is local
-// state (accepted != applied, same contract as useMockCommand elsewhere),
-// and every control that mutates local-only data carries a role="status"
-// disclosure. Proposed swap: GET /api/stream/chat-live, POST
-// /api/stream/chat-live/connect, PUT /api/stream/chat-live/limits.
+// wired to smart_agg.set_activity_limits / set_spam_limits and
+// sanitize_live_url for the connect URL. R8-CRITICAL: the response is
+// STATE + LIMITS ONLY (StreamChatLiveResponse) — never render anything but
+// connection state and tuning values, never raw viewer chat.
 //
 // RF4 (OAuth connect, stream metadata, moderation) is a flagged USER-ASSIST
 // product decision (STREAM_ADMIN_ENABLED=False in the CTK) and is
 // deliberately NOT built here — see DeferredStreamAdminNote below.
+//
+// `filter_policy`/Input Contract switch: PUT .../limits DOES accept
+// filter_policy (StreamLimitsRequest.filter_policy, main.py:620-624) — the
+// endpoint exists. What's undecided is the product mapping from this
+// boolean toggle to a filter_policy preset value, so the switch stays
+// local-only/non-wired until that mapping is decided — see AccionesCard.
 
 type StreamConnectionState = "desconectado" | "conectando" | "conectado";
 
@@ -48,11 +57,17 @@ function isValidStreamUrl(value: string): boolean {
 
 function ChatLiveCard() {
   const [url, setUrl] = useState(STREAM_FIXTURE.url);
-  const [connectionState, setConnectionState] = useState<StreamConnectionState>(
-    STREAM_FIXTURE.connected ? "conectado" : "desconectado"
-  );
   const [error, setError] = useState<string | null>(null);
-  const connectCommand = useMockCommand<string>();
+  const chatLiveQuery = useStreamChatLiveQuery();
+  const connectMutation = useStreamConnectMutation();
+  const disconnectMutation = useStreamDisconnectMutation();
+
+  const connected = chatLiveQuery.data?.connected ?? false;
+  const connectionState: StreamConnectionState = connectMutation.isPending
+    ? "conectando"
+    : connected
+      ? "conectado"
+      : "desconectado";
   const badge = CONNECTION_BADGE[connectionState];
 
   async function handleConnect(event: FormEvent<HTMLFormElement>) {
@@ -63,13 +78,15 @@ function ChatLiveCard() {
       return;
     }
     setError(null);
-    setConnectionState("conectando");
-    await connectCommand.run(trimmed);
-    setConnectionState("conectado");
+    try {
+      await connectMutation.mutateAsync(trimmed);
+    } catch {
+      setError("No se pudo conectar al chat en vivo.");
+    }
   }
 
   function handleDisconnect() {
-    setConnectionState("desconectado");
+    disconnectMutation.mutate();
   }
 
   return (
@@ -80,11 +97,6 @@ function ChatLiveCard() {
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Conectar es un mock local — no existe todavía el endpoint{" "}
-          <span className="mono">POST /api/stream/chat-live/connect</span> en el backend.
-        </p>
-
         <section aria-labelledby="stream-url-label" className="space-y-2">
           <span id="stream-url-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
             Conexión
@@ -94,7 +106,7 @@ function ChatLiveCard() {
               type="text"
               aria-label="URL del directo"
               value={url}
-              disabled={connectCommand.pending || connectionState === "conectado"}
+              disabled={connectMutation.isPending || connectionState === "conectado"}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://twitch.tv/tu_canal o https://youtube.com/watch?v=..."
               className="h-11 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60"
@@ -103,7 +115,7 @@ function ChatLiveCard() {
               type="submit"
               variant="primary"
               className="bg-[image:var(--spectrum)]"
-              disabled={connectCommand.pending || connectionState === "conectado"}
+              disabled={connectMutation.isPending || connectionState === "conectado"}
             >
               Conectar
             </Button>
@@ -117,7 +129,12 @@ function ChatLiveCard() {
 
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
           <span className="text-[13px] text-foreground">Desconectar del chat en vivo</span>
-          <Button type="button" variant="outline" disabled={connectionState !== "conectado"} onClick={handleDisconnect}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={connectionState !== "conectado" || disconnectMutation.isPending}
+            onClick={handleDisconnect}
+          >
             Desconectar
           </Button>
         </div>
@@ -175,20 +192,25 @@ function presetForValue<T extends string>(value: string, presetValues: Record<T,
 }
 
 function AccionesCard() {
+  const chatLiveQuery = useStreamChatLiveQuery();
+  const limitsMutation = useStreamLimitsMutation();
+
   const [reactionThreshold, setReactionThreshold] = useState(STREAM_FIXTURE.reaction_threshold);
   const [cooldown, setCooldown] = useState(STREAM_FIXTURE.cooldown);
   const [spamLimit, setSpamLimit] = useState(STREAM_FIXTURE.spam_limit);
   const [inputContract, setInputContract] = useState(STREAM_FIXTURE.input_contract);
 
+  useEffect(() => {
+    if (!chatLiveQuery.data) return;
+    setReactionThreshold(String(chatLiveQuery.data.threshold_per_second));
+    setCooldown(String(chatLiveQuery.data.cooldown_seconds));
+    setSpamLimit(String(chatLiveQuery.data.max_messages_per_user));
+  }, [chatLiveQuery.data]);
+
   const reactionPreset = presetForValue(reactionThreshold, REACTION_PRESET_VALUES);
   const cooldownPreset = presetForValue(cooldown, COOLDOWN_PRESET_VALUES);
 
-  const reactionCommand = useMockCommand<string>();
-  const cooldownCommand = useMockCommand<string>();
-  const spamCommand = useMockCommand<string>();
-  const contractCommand = useMockCommand<boolean>();
-
-  const pending = reactionCommand.pending || cooldownCommand.pending || spamCommand.pending || contractCommand.pending;
+  const pending = limitsMutation.isPending;
 
   return (
     <Card className="flex flex-col p-4">
@@ -199,8 +221,9 @@ function AccionesCard() {
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Reacciones, cooldown, spam y contrato de entrada son cambios locales — no existe todavía{" "}
-          <span className="mono">PUT /api/stream/chat-live/limits</span> en el backend.
+          El contrato de entrada es un cambio local — el endpoint ya acepta{" "}
+          <span className="mono">filter_policy</span>, pero falta decidir qué valor de preset le corresponde a este
+          switch.
         </p>
 
         <section aria-labelledby="stream-reactions-label" className="space-y-2">
@@ -215,10 +238,10 @@ function AccionesCard() {
               aria-label="Umbral de reacciones"
               aria-describedby="stream-reaction-helper"
               value={reactionThreshold}
-              disabled={reactionCommand.pending}
+              disabled={limitsMutation.isPending}
               onChange={(event) => {
                 setReactionThreshold(event.target.value);
-                void reactionCommand.run(event.target.value);
+                limitsMutation.mutate({ threshold_per_second: Number(event.target.value) });
               }}
             >
               {REACTION_OPTIONS.map((option) => (
@@ -232,11 +255,11 @@ function AccionesCard() {
             ariaLabel="Preset de reacciones"
             options={PRESET_OPTIONS}
             value={reactionPreset}
-            disabled={reactionCommand.pending}
+            disabled={limitsMutation.isPending}
             onChange={(level) => {
               const value = REACTION_PRESET_VALUES[level];
               setReactionThreshold(value);
-              void reactionCommand.run(value);
+              limitsMutation.mutate({ threshold_per_second: Number(value) });
             }}
           />
         </section>
@@ -253,10 +276,10 @@ function AccionesCard() {
               aria-label="Cooldown entre reacciones"
               aria-describedby="stream-cooldown-helper"
               value={cooldown}
-              disabled={cooldownCommand.pending}
+              disabled={limitsMutation.isPending}
               onChange={(event) => {
                 setCooldown(event.target.value);
-                void cooldownCommand.run(event.target.value);
+                limitsMutation.mutate({ cooldown_seconds: Number(event.target.value) });
               }}
             >
               {COOLDOWN_OPTIONS.map((option) => (
@@ -270,11 +293,11 @@ function AccionesCard() {
             ariaLabel="Preset de cooldown"
             options={PRESET_OPTIONS}
             value={cooldownPreset}
-            disabled={cooldownCommand.pending}
+            disabled={limitsMutation.isPending}
             onChange={(level) => {
               const value = COOLDOWN_PRESET_VALUES[level];
               setCooldown(value);
-              void cooldownCommand.run(value);
+              limitsMutation.mutate({ cooldown_seconds: Number(value) });
             }}
           />
         </section>
@@ -291,10 +314,10 @@ function AccionesCard() {
               aria-label="Límite de spam"
               aria-describedby="stream-spam-helper"
               value={spamLimit}
-              disabled={spamCommand.pending}
+              disabled={limitsMutation.isPending}
               onChange={(event) => {
                 setSpamLimit(event.target.value);
-                void spamCommand.run(event.target.value);
+                limitsMutation.mutate({ max_messages_per_user: Number(event.target.value) });
               }}
             >
               {SPAM_OPTIONS.map((option) => (
@@ -317,11 +340,8 @@ function AccionesCard() {
             <span className="text-[13px] text-foreground">Input Contract (contexto real)</span>
             <Switch
               checked={inputContract}
-              disabled={contractCommand.pending}
-              onChange={(checked) => {
-                setInputContract(checked);
-                void contractCommand.run(checked);
-              }}
+              disabled
+              onChange={() => {}}
               aria-label="Input Contract"
             />
           </div>
@@ -351,10 +371,12 @@ function DeferredStreamAdminNote() {
 
 /**
  * Stream panel — RF3 "Chat en vivo" only. CTK parity:
- * opencohost/ui/stream_admin_ui.py's 'acciones' subtab, functional mock
- * (no /api/stream/* endpoint yet — see the mock-command contract note at
- * the top of this file). RF4 (OAuth/metadata/moderación) is deliberately
- * out of scope, see DeferredStreamAdminNote.
+ * opencohost/ui/stream_admin_ui.py's 'acciones' subtab. Chat en vivo and
+ * Acciones are wired to the real GET/POST/PUT /api/stream/chat-live*
+ * endpoints (see the wiring note at the top of this file). Only the Input
+ * Contract switch (pending the boolean->filter_policy mapping decision)
+ * and the RF4 note stay deliberately non-wired — see AccionesCard and
+ * DeferredStreamAdminNote.
  */
 export function StreamPanel() {
   return (

@@ -1,10 +1,47 @@
 import type { paths } from "./types.gen.js";
 
-export type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"];
+type GeneratedStatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"];
+
+/**
+ * `ollama_warming` mirrors opencohost/api/models.py::StatusResponse.ollama_warming
+ * (added for S4/P2). types.gen.ts is generated from openapi.snapshot.json, which
+ * hasn't been regenerated against a live server since the field landed, so it's
+ * hand-added here the same way LastReplyResponse below is hand-typed.
+ * ponytail: keep in sync manually until the snapshot is regenerated.
+ */
+export type StatusResponse = GeneratedStatusResponse & {
+  ollama_warming?: boolean;
+  // F4: coarse avatar/pipeline state derived by the backend /api/status
+  // handler (opencohost/api/models.py::StatusResponse.avatar_state). Hand-added
+  // for the same snapshot-lag reason as ollama_warming above.
+  avatar_state?: string;
+};
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
 export type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
 export type MemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
+
+/**
+ * `GET /api/memoria/list` and `POST /api/memoria/purge` (F5) — not in
+ * types.gen.ts yet (snapshot lag, same reason as ollama_warming above).
+ * Hand-typed from opencohost/api/models.py::MemoriaListResponse /
+ * MemoriaPurgeResponse. R8: metadata only — never add title/content here.
+ * ponytail: keep in sync manually until the snapshot is regenerated.
+ */
+export interface MemoriaListItem {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+  pinned: boolean;
+  private: boolean;
+}
+export interface MemoriaListResponse {
+  items: MemoriaListItem[];
+}
+export interface MemoriaPurgeResponse {
+  deleted: number;
+}
 
 /**
  * `POST /api/perfiles/switch` has no `response_model` on the backend route
@@ -41,6 +78,23 @@ export interface ChatTurnAccepted {
   command_id: string;
   status: string;
   state_version: number;
+}
+
+/**
+ * `GET /api/chat/last-reply` declares `response_model=ChatLastReplyResponse`
+ * on the backend (opencohost/api/main.py), but types.gen.ts is generated from
+ * openapi.snapshot.json, which hasn't been regenerated since that model
+ * landed — hand-typed here from opencohost/api/models.py::ChatLastReplyResponse
+ * until the snapshot is refreshed.
+ * `text === null` means no reply has landed yet (R8: only Kira's own
+ * generated reply text is ever surfaced here, never raw viewer chat).
+ * ponytail: keep in sync manually.
+ */
+export interface LastReplyResponse {
+  text: string | null;
+  source: string | null;
+  turn_id: number;
+  ts: number | null;
 }
 
 /** Server-side whitelist mirrored from opencohost/api/main.py::_COMMAND_WHITELIST. */
@@ -193,6 +247,26 @@ export async function getMemoriaStats(): Promise<MemoriaStatsResponse> {
   return (await res.json()) as MemoriaStatsResponse;
 }
 
+export async function getMemoriaList(profileId: string): Promise<MemoriaListResponse> {
+  const res = await fetch(`${BASE_URL}/api/memoria/list?profile_id=${encodeURIComponent(profileId)}`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/memoria/list failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaListResponse;
+}
+
+export async function postMemoriaPurge(profileId: string): Promise<MemoriaPurgeResponse> {
+  const res = await fetch(`${BASE_URL}/api/memoria/purge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile_id: profileId })
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST /api/memoria/purge failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaPurgeResponse;
+}
+
 /**
  * POST /api/commands (spec B2). `value` lands under `payload.value` for
  * every verb except `clear_history`, which takes no value at all —
@@ -237,6 +311,14 @@ export async function postCommand(
     throw new ApiError("POST /api/commands returned 200 with accepted:false", res.status);
   }
   return body;
+}
+
+export async function getLastReply(): Promise<LastReplyResponse> {
+  const res = await fetch(`${BASE_URL}/api/chat/last-reply`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/chat/last-reply failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as LastReplyResponse;
 }
 
 /**

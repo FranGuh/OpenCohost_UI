@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
+import { API_BASE_URL, defaultStatus, lastReplyHandler } from "../test/handlers.js";
 import { PlayerBar } from "./PlayerBar.js";
 
 function renderBar() {
@@ -24,22 +24,33 @@ describe("PlayerBar", () => {
     expect(screen.getByRole("button", { name: "Detener" })).toBeInTheDocument();
   });
 
-  it("applies the spectrum treatment to the play button only when is_speaking is true", async () => {
+  it("applies the brand accent-grad treatment to the play button only when is_speaking is true", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, is_speaking: true }))
     );
     renderBar();
     await waitFor(() => {
       const playButton = screen.getByRole("button", { name: "Reproducir" });
-      expect(playButton.className).toContain("bg-[image:var(--spectrum)]");
+      expect(playButton.className).toContain("bg-[image:var(--accent-grad)]");
     });
   });
 
-  it("does not apply the spectrum treatment when is_speaking is false", async () => {
+  it("does not apply the accent-grad treatment when is_speaking is false", async () => {
     renderBar();
     await waitFor(() => expect(screen.getByText(/Kira ·/)).toBeInTheDocument());
     const playButton = screen.getByRole("button", { name: "Reproducir" });
-    expect(playButton.className).not.toContain("bg-[image:var(--spectrum)]");
+    expect(playButton.className).not.toContain("bg-[image:var(--accent-grad)]");
+  });
+
+  it("shows a neutral idle label instead of a canned transcript when no reply has landed yet", async () => {
+    renderBar();
+    expect(await screen.findByText("Sin reproducción en curso")).toBeInTheDocument();
+  });
+
+  it("shows Kira's fetched reply as the now-playing label once one lands", async () => {
+    server.use(lastReplyHandler({ text: "ese clip estuvo brutal", turn_id: 1 }));
+    renderBar();
+    expect(await screen.findByText("ese clip estuvo brutal")).toBeInTheDocument();
   });
 
   it("shows a P2 note when a transport button is clicked", () => {

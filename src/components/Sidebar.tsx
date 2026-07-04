@@ -4,24 +4,19 @@ import { cn } from "../lib/cn.js";
 export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica";
 
 interface NavItem {
-  id: Section | "ajustes";
+  id: Section;
   icon: string;
   label: string;
-  wired: boolean;
 }
 
-// "Biblioteca" (formerly inert) is repurposed as the Agenda nav entry,
-// "Inicio" (formerly inert) as the Stream nav entry, and "Buscar" (formerly
-// inert) as the Música nav entry — Ajustes stays an inert placeholder for a
-// later wave. Order reads as the coherent wired product flow:
-// Experiencia -> Agenda -> Stream -> Música -> Controles.
+// Flat, honest nav — every entry here is real and wired. Owner edits this
+// array to add/reorder/remove sections; no inert placeholders live here.
 const NAV_ITEMS: readonly NavItem[] = [
-  { id: "experiencia", icon: "◈", label: "Experiencia", wired: true },
-  { id: "agenda", icon: "▤", label: "Agenda", wired: true },
-  { id: "stream", icon: "◉", label: "Stream", wired: true },
-  { id: "musica", icon: "♪", label: "Música", wired: true },
-  { id: "controles", icon: "⚙", label: "Controles", wired: true },
-  { id: "ajustes", icon: "☰", label: "Ajustes", wired: false }
+  { id: "experiencia", icon: "◈", label: "Experiencia" },
+  { id: "agenda", icon: "▤", label: "Agenda" },
+  { id: "stream", icon: "◉", label: "Stream" },
+  { id: "musica", icon: "♪", label: "Música" },
+  { id: "controles", icon: "⚙", label: "Controles" }
 ];
 
 export interface SidebarProps {
@@ -29,29 +24,25 @@ export interface SidebarProps {
   onSelect: (section: Section) => void;
 }
 
-/** <nav> region — primary nav (Experiencia/Agenda/Stream/Música/Controles
- * wired, only Ajustes stays inert) + the profiles-as-playlists list below
- * the separator. */
+/** <nav> region — primary nav (all 5 sections wired, flat and honest) +
+ * the profiles-as-playlists list below the separator. */
 export function Sidebar({ activeSection, onSelect }: SidebarProps) {
   return (
     <nav className="flex min-h-0 flex-col overflow-auto border-r border-border-soft bg-card py-3">
       <div className="flex flex-col gap-1 px-2 pb-3">
         {NAV_ITEMS.map((item) => {
-          const isActive = item.wired && item.id === activeSection;
+          const isActive = item.id === activeSection;
           return (
             <button
               key={item.id}
               type="button"
-              disabled={!item.wired}
               aria-current={isActive ? "true" : undefined}
-              title={item.wired ? undefined : "Próximamente"}
-              onClick={() => item.wired && onSelect(item.id as Section)}
+              onClick={() => onSelect(item.id)}
               className={cn(
-                "flex h-9 items-center gap-3 rounded-md px-3 text-sm font-semibold text-muted-foreground transition-colors",
+                "flex h-9 items-center gap-3 rounded-md px-3 font-mono text-sm font-semibold text-muted-foreground transition-colors",
                 "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                item.wired && "hover:bg-surface-2 hover:text-foreground",
-                !item.wired && "cursor-not-allowed opacity-50",
-                isActive && "bg-[image:var(--spectrum-soft)] text-[var(--kira-cyan)]"
+                "hover:bg-surface-2 hover:text-foreground",
+                isActive && "bg-ok-bg text-[var(--kira-cyan)]"
               )}
             >
               <span aria-hidden="true">{item.icon}</span>

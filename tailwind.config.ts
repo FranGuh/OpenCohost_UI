@@ -27,9 +27,14 @@ export default {
         "surface-2": "var(--surface-2)",
         dim: "var(--dim)",
         accent2: "var(--accent-2)",
+        // brand signature — theme-invariant OpenCohost green/cyan (tokens.css)
+        focus: "var(--focus)",
+        pulse: "var(--pulse)",
         ok: { DEFAULT: "var(--ok)", bg: "var(--ok-bg)", bd: "var(--ok-bd)" },
         warn: { DEFAULT: "var(--warn)", bg: "var(--warn-bg)", bd: "var(--warn-bd)" },
         danger: { DEFAULT: "var(--danger)", bg: "var(--danger-bg)", bd: "var(--danger-bd)" },
+        // --panic: reserved brand token for danger/alert (kill-switch) only
+        panic: { DEFAULT: "var(--panic)", bg: "var(--panic-bg)", bd: "var(--panic-bd)" },
         info: { DEFAULT: "var(--info)", bg: "var(--info-bg)", bd: "var(--info-bd)" },
         // pre-redesign Kira palette — kept available, not migrated in B1
         cockpit: {
@@ -45,6 +50,11 @@ export default {
           violet: "#a78bfa",
           amber: "#f8c76a"
         }
+      },
+      fontFamily: {
+        // brand type voice — resolved from tokens.css (--font-mono / --font-sans)
+        mono: "var(--font-mono)",
+        sans: "var(--font-sans)"
       },
       borderRadius: {
         sm: "var(--r-sm)",

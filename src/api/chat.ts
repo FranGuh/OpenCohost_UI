@@ -1,6 +1,23 @@
 import { useCallback, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { postChatTurn } from "./client.js";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { getLastReply, postChatTurn } from "./client.js";
+
+export const LAST_REPLY_QUERY_KEY = ["chat", "last-reply"] as const;
+
+/**
+ * GET /api/chat/last-reply poll (spec P3/S3): `text === null` means no reply
+ * has landed yet. Same polling shape as useStatusQuery — plain interval, no
+ * convergence logic needed here (there's no "target" to converge on, just
+ * "did a new reply arrive").
+ */
+export function useLastReply() {
+  return useQuery({
+    queryKey: LAST_REPLY_QUERY_KEY,
+    queryFn: getLastReply,
+    refetchInterval: 1500,
+    refetchIntervalInBackground: false
+  });
+}
 
 /**
  * Chat turn send (spec R8): fire-and-forget POST /api/chat/turn. There is no
