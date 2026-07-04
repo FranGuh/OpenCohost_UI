@@ -153,4 +153,60 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("ignores a second submit while a send is pending (double-submit guard)", async () => {
+    let resolveRequest!: () => void;
+    let postCount = 0;
+    server.use(
+      http.post(
+        `${API_BASE_URL}/api/chat/turn`,
+        () =>
+          new Promise((resolve) => {
+            postCount += 1;
+            resolveRequest = () =>
+              resolve(HttpResponse.json({ accepted: true, command_id: "cmd-1", status: "queued", state_version: 2 }));
+          })
+      )
+    );
+    renderPanel();
+
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const form = input.closest("form") as HTMLFormElement;
+    fireEvent.change(input, { target: { value: "hola" } });
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled());
+
+    // A repeated submit while pending (e.g. rapid Enter) must be a no-op.
+    fireEvent.submit(form);
+
+    expect(postCount).toBe(1);
+    expect(screen.getAllByText("hola")).toHaveLength(1);
+
+    resolveRequest();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).not.toBeDisabled());
+  });
+
+  it("does not duplicate the Vos bubble when retrying after a failed send", async () => {
+    server.use(chatTurnNetworkErrorHandler());
+    renderPanel();
+
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getAllByText("hola")).toHaveLength(1);
+    expect(input.value).toBe("hola"); // kept in the input so the retry below resubmits it
+
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-retry", status: "queued", state_version: 3 })
+      )
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(screen.getAllByText("hola")).toHaveLength(1);
+  });
 });

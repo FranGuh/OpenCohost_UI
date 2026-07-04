@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
@@ -86,6 +86,10 @@ export function ConversationPanel() {
   const [message, setMessage] = useState("");
   const [operatorTurns, setOperatorTurns] = useState<Turn[]>([]);
   const { send, pending, isError, error } = useSendChatTurn();
+  // Tracks the operator bubble for the in-flight/retryable send intent, so a
+  // retry after a failed send updates that SAME bubble instead of appending
+  // a duplicate "Vos" turn. Cleared once the send succeeds.
+  const pendingTurnIdRef = useRef<string | null>(null);
 
   function handleMessageChange(event: ChangeEvent<HTMLInputElement>) {
     setMessage(event.target.value);
@@ -93,17 +97,29 @@ export function ConversationPanel() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return; // block concurrent submits (e.g. rapid Enter presses)
     const text = message.trim();
     if (!text) return;
 
-    setOperatorTurns((turns) => [...turns, { id: `operator-${turns.length}-${Date.now()}`, kind: "chat", text }]);
+    const turnId = pendingTurnIdRef.current ?? crypto.randomUUID();
+    pendingTurnIdRef.current = turnId;
+    setOperatorTurns((turns) => {
+      const existingIndex = turns.findIndex((turn) => turn.id === turnId);
+      if (existingIndex === -1) return [...turns, { id: turnId, kind: "chat", text }];
+      const next = [...turns];
+      next[existingIndex] = { ...next[existingIndex], text };
+      return next;
+    });
 
     try {
       await send(text);
       setMessage("");
+      pendingTurnIdRef.current = null;
     } catch {
       // isError/error below already carry this reactively — the message
       // stays in the input so the operator can retry without retyping it.
+      // pendingTurnIdRef stays set so that retry reuses (and updates) the
+      // same bubble instead of appending a duplicate.
     }
   }
 

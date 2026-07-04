@@ -1,7 +1,10 @@
 import { http, HttpResponse } from "msw";
 import type { paths } from "../api/types.gen.js";
 
-export const API_BASE_URL = "http://127.0.0.1:8000";
+// Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
+// handlers always match whatever base URL the app under test actually uses —
+// immune to a developer's local .env.local overriding VITE_API_BASE_URL.
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"];
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];

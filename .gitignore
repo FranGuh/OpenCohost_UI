@@ -7,6 +7,10 @@ src-tauri/gen/
 **/types.gen.ts
 openapi.snapshot.check.json
 
+# Machine-local env overrides — never committed.
+.env.local
+.env*.local
+
 # Kira avatar art — owner keeps this uncommitted (copied from the Python
 # repo's assets/avatar/kira/ at apply-time, not checked into OpenCohost_UI).
 public/avatar/

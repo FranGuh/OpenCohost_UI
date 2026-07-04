@@ -53,7 +53,7 @@ describe("client/switchProfile", () => {
     let capturedHeader: string | null = null;
     let capturedBody: unknown;
     server.use(
-      http.post("http://127.0.0.1:8000/api/perfiles/switch", async ({ request }) => {
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, async ({ request }) => {
         capturedHeader = request.headers.get("Idempotency-Key");
         capturedBody = await request.json();
         return HttpResponse.json({
