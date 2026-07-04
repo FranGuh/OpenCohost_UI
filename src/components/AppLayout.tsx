@@ -4,13 +4,13 @@ import { Sidebar } from "./Sidebar.js";
 import type { Section } from "./Sidebar.js";
 import { MainStage } from "./MainStage.js";
 import { ConversationPanel } from "./ConversationPanel.js";
-import { PlayerBar } from "./PlayerBar.js";
+// import { PlayerBar } from "./PlayerBar.js";
 import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
 
 const GRID_STYLE = {
   display: "grid",
   gridTemplateColumns: "248px 1fr 372px",
-  gridTemplateRows: "60px 1fr 88px",
+  // gridTemplateRows: "60px 1fr 88px",
   gridTemplateAreas: '"top top top" "side main queue" "player player player"',
   height: "100vh",
   backgroundImage: "var(--app-bg-glow)",
@@ -42,9 +42,9 @@ export function AppLayout() {
         <div className="grid min-h-0 [grid-area:queue]">
           <ConversationPanel />
         </div>
-        <div className="grid [grid-area:player]">
+        {/* <div className="grid [grid-area:player]">
           <PlayerBar />
-        </div>
+        </div> */}
       </div>
     </ProfileSwitchProvider>
   );

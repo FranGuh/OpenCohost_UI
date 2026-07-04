@@ -14,6 +14,17 @@ function renderStage() {
   );
 }
 
+// The "Estado: <state>" now-line renders the label in a styled <span> ("Estado: ")
+// followed by the state as a sibling text node, so the combined text is split
+// across elements. Match the element whose full textContent is exactly the phrase
+// (and whose children don't already own it) — the RTL-recommended split-text pattern.
+function combinedText(phrase: string) {
+  return (_content: string, element: Element | null): boolean => {
+    const owns = (el: Element | null) => el?.textContent === phrase;
+    return owns(element) && Array.from(element?.children ?? []).every((child) => !owns(child));
+  };
+}
+
 describe("MainStage — experiencia stage wired to GET /api/status", () => {
   it("shows the real current_model from status, not a hardcoded 'Qwen 3 (1.7B)'", async () => {
     server.use(http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, current_model: "llama3.2:3b" })));
@@ -32,13 +43,13 @@ describe("MainStage — experiencia stage wired to GET /api/status", () => {
     server.use(http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, is_speaking: true })));
     renderStage();
 
-    await waitFor(() => expect(screen.getByText(/Estado: hablando/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(combinedText("Estado: hablando"))).toBeInTheDocument());
   });
 
   it("reflects a mocked processing (thinking) state in the now-line", async () => {
     server.use(http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, is_processing: true })));
     renderStage();
 
-    await waitFor(() => expect(screen.getByText(/Estado: pensando/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(combinedText("Estado: pensando"))).toBeInTheDocument());
   });
 });
