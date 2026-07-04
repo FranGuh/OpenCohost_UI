@@ -39,7 +39,7 @@ export function KiraCover() {
           the inner ring carries the --focus glow, guarded behind
           prefers-reduced-motion for the breathing pulse. */}
 
-      <p className="fixed left-2/5 top-1/4 z-50 -translate-x-1/2 rounded-full border border-border-soft bg-card px-4 py-2 text-sm text-foreground">
+      <p className="fixed left-1/2 top-1/4 z-50 -translate-x-1/2 rounded-full border border-border-soft bg-card px-4 py-2 text-sm text-foreground">
         <span className="mono font-bold text-[var(--kira-cyan)]">Estado: </span>
         {AVATAR_LABEL[avatarState]}
       </p>
