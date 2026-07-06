@@ -13,6 +13,11 @@ function renderPanel() {
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(StreamPanel)));
 }
 
+function selectCustomOption(comboboxName: string | RegExp, optionName: string | RegExp) {
+  fireEvent.click(screen.getByRole("combobox", { name: comboboxName }));
+  fireEvent.click(screen.getByRole("option", { name: optionName }));
+}
+
 describe("StreamPanel", () => {
   it("renders the Chat en vivo URL input and Conectar button, starting desconectado", async () => {
     renderPanel();
@@ -83,10 +88,10 @@ describe("StreamPanel", () => {
   it("hydrates the reaction threshold and cooldown selects from GET /api/stream/chat-live", async () => {
     renderPanel();
     await waitFor(() =>
-      expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue(String(defaultStreamChatLive.threshold_per_second))
+      expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).toHaveTextContent(String(defaultStreamChatLive.threshold_per_second))
     );
-    expect(screen.getByLabelText("Cooldown entre reacciones")).toHaveValue(String(defaultStreamChatLive.cooldown_seconds));
-    expect(screen.getByLabelText("Límite de spam")).toHaveValue(String(defaultStreamChatLive.max_messages_per_user));
+    expect(screen.getByRole("combobox", { name: "Cooldown entre reacciones" })).toHaveTextContent(String(defaultStreamChatLive.cooldown_seconds));
+    expect(screen.getByRole("combobox", { name: "Límite de spam" })).toHaveTextContent(String(defaultStreamChatLive.max_messages_per_user));
   });
 
   it("changing the reaction threshold select fires PUT /api/stream/chat-live/limits", async () => {
@@ -98,12 +103,12 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled());
 
-    fireEvent.change(screen.getByLabelText("Umbral de reacciones"), { target: { value: "3" } });
+    selectCustomOption("Umbral de reacciones", "3 msg/s");
 
     await waitFor(() => expect(capturedBody).toEqual({ threshold_per_second: 3 }));
-    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).toHaveValue("3"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).toHaveTextContent("3 msg/s"));
   });
 
   it("selecting a reaction preset fires PUT /api/stream/chat-live/limits with the preset value", async () => {
@@ -115,7 +120,7 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled());
 
     const altoButtons = screen.getAllByRole("button", { name: "Alto" });
     fireEvent.click(altoButtons[0]);
@@ -132,9 +137,9 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByLabelText("Cooldown entre reacciones")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Cooldown entre reacciones" })).not.toBeDisabled());
 
-    fireEvent.change(screen.getByLabelText("Cooldown entre reacciones"), { target: { value: "30" } });
+    selectCustomOption("Cooldown entre reacciones", "30 s");
 
     await waitFor(() => expect(capturedBody).toEqual({ cooldown_seconds: 30 }));
   });
@@ -148,9 +153,9 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByLabelText("Límite de spam")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Límite de spam" })).not.toBeDisabled());
 
-    fireEvent.change(screen.getByLabelText("Límite de spam"), { target: { value: "20" } });
+    selectCustomOption("Límite de spam", "20 msgs/usuario en 30s");
 
     await waitFor(() => expect(capturedBody).toEqual({ max_messages_per_user: 20 }));
   });
@@ -208,7 +213,10 @@ describe("StreamPanel", () => {
     const heading = screen.getByRole("heading", { name: /Emisión/ });
     expect(heading).toBeInTheDocument();
     const card = heading.closest("div")?.parentElement as HTMLElement;
-    expect(within(card).queryAllByRole("button")).toHaveLength(0);
-    expect(within(card).queryAllByRole("textbox")).toHaveLength(0);
+    // The Collapsible body is the last child of the Card. We scope the query to it
+    // so we don't accidentally count the CollapsibleHeader (which has role=button).
+    const body = card.lastElementChild as HTMLElement;
+    expect(within(body).queryAllByRole("button")).toHaveLength(0);
+    expect(within(body).queryAllByRole("textbox")).toHaveLength(0);
   });
 });
