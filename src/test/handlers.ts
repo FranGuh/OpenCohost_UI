@@ -213,6 +213,26 @@ export interface MemoriaNoticeResponseFixture {
 
 export const defaultMemoriaNotice: MemoriaNoticeResponseFixture = { dismissed: false };
 
+/** GET/PUT/DELETE /api/personalization response — mirrors
+ * src/api/personalization.ts::PersonalizationResponse. */
+export interface PersonalizationResponseFixture {
+  enabled: boolean;
+  nickname: string;
+  occupation: string;
+  interests: string;
+  custom_instructions: string;
+  updated_at: string | null;
+}
+
+export const defaultPersonalization: PersonalizationResponseFixture = {
+  enabled: true,
+  nickname: "",
+  occupation: "",
+  interests: "",
+  custom_instructions: "",
+  updated_at: null
+};
+
 /** GET/PUT /api/avatar/config has no OpenAPI response_model type — hand-typed
  * here, mirrors src/api/avatar.ts::AvatarConfigResponse. ponytail: keep in sync manually. */
 export interface AvatarConfigResponse {
@@ -454,6 +474,12 @@ export const handlers = [
     const body = (await request.json()) as { dismissed: boolean };
     return HttpResponse.json({ dismissed: body.dismissed });
   }),
+  http.get(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json(defaultPersonalization)),
+  http.put(`${API_BASE_URL}/api/personalization`, async ({ request }) => {
+    const body = (await request.json()) as Partial<PersonalizationResponseFixture>;
+    return HttpResponse.json({ ...defaultPersonalization, ...body, updated_at: "2026-07-08T00:00:00Z" });
+  }),
+  http.delete(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json({ ok: true })),
   http.get(`${API_BASE_URL}/api/chat/last-reply`, () => HttpResponse.json(defaultLastReply)),
   http.get(`${API_BASE_URL}/api/avatar/config`, () => HttpResponse.json(defaultAvatarConfig)),
   http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
