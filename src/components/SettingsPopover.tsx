@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getI18nState, putI18nLocale, type I18nStateResponse } from "../api/i18n.js";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.js";
 import { useDensity } from "../theme/useDensity.js";
 import { Switch } from "./ui/Switch.js";
@@ -38,6 +39,34 @@ export function SettingsPopover() {
   const [showLogs, setShowLogs] = useState(false);
   const { compact, setCompact } = useDensity();
   const rootRef = useRef<HTMLDivElement>(null);
+  // D6 (kira_bilingual_e2e_20260705): locale switching is next-boot only, so
+  // this is plain fetch + local state (no query invalidation elsewhere
+  // depends on it) rather than react-query, mirroring this component's
+  // existing local-state pattern (compact/showLogs above).
+  const [i18n, setI18n] = useState<I18nStateResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getI18nState()
+      .then((data) => {
+        if (!cancelled) setI18n(data);
+      })
+      .catch(() => {
+        // Best-effort: the Idioma card just stays hidden on a fetch failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleLocaleChange(locale: string) {
+    try {
+      const next = await putI18nLocale(locale);
+      setI18n(next);
+    } catch {
+      // Best-effort: keep the previous selection if the write fails.
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -105,6 +134,31 @@ export function SettingsPopover() {
               toggle no trae datos reales.
             </p>
           </section>
+
+          {i18n && (
+            <section aria-labelledby="settings-language-label" className="space-y-2 border-t border-border-soft pt-3.5">
+              <span id="settings-language-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                Idioma
+              </span>
+              <select
+                aria-label="Idioma"
+                value={i18n.persisted_locale}
+                onChange={(event) => void handleLocaleChange(event.target.value)}
+                className="w-full rounded-md border border-border-soft bg-background px-2 py-1.5 text-[13px] text-foreground"
+              >
+                {i18n.available.map((bundle) => (
+                  <option key={bundle.code} value={bundle.code}>
+                    {bundle.display}
+                  </option>
+                ))}
+              </select>
+              {i18n.pending_restart && (
+                <p className="text-xs font-semibold text-amber-500">
+                  Reinicio requerido — se aplica en el próximo inicio de OpenCohost.
+                </p>
+              )}
+            </section>
+          )}
 
           <details className="border-t border-border-soft pt-3.5">
             <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">

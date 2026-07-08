@@ -233,6 +233,28 @@ export const defaultPersonalization: PersonalizationResponseFixture = {
   updated_at: null
 };
 
+/** GET/PUT /api/i18n has no OpenAPI response_model type — hand-typed here,
+ * mirrors src/api/i18n.ts::I18nStateResponse. D6: `pending_restart` is the
+ * only "restart required" signal — `active_locale` never changes mid-process. */
+export interface I18nStateResponseFixture {
+  active_locale: string;
+  persisted_locale: string;
+  pending_restart: boolean;
+  available: { code: string; display: string; tier: string; status: string }[];
+  warnings: { code: string; message: string }[];
+}
+
+export const defaultI18nState: I18nStateResponseFixture = {
+  active_locale: "es",
+  persisted_locale: "es",
+  pending_restart: false,
+  available: [
+    { code: "es", display: "Español", tier: "official", status: "complete" },
+    { code: "en", display: "English", tier: "official", status: "partial" }
+  ],
+  warnings: []
+};
+
 /** GET/PUT /api/avatar/config has no OpenAPI response_model type — hand-typed
  * here, mirrors src/api/avatar.ts::AvatarConfigResponse. ponytail: keep in sync manually. */
 export interface AvatarConfigResponse {
@@ -480,6 +502,19 @@ export const handlers = [
     return HttpResponse.json({ ...defaultPersonalization, ...body, updated_at: "2026-07-08T00:00:00Z" });
   }),
   http.delete(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json({ ok: true })),
+  http.get(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json(defaultI18nState)),
+  http.put(`${API_BASE_URL}/api/i18n`, async ({ request }) => {
+    const body = (await request.json()) as { locale: string };
+    const match = defaultI18nState.available.find((bundle) => bundle.code === body.locale);
+    if (!match) {
+      return HttpResponse.json({ detail: "unknown locale" }, { status: 422 });
+    }
+    return HttpResponse.json({
+      ...defaultI18nState,
+      persisted_locale: match.code,
+      pending_restart: match.code !== defaultI18nState.active_locale
+    });
+  }),
   http.get(`${API_BASE_URL}/api/chat/last-reply`, () => HttpResponse.json(defaultLastReply)),
   http.get(`${API_BASE_URL}/api/avatar/config`, () => HttpResponse.json(defaultAvatarConfig)),
   http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
@@ -761,6 +796,17 @@ export function evolvingStatusHandler(oldProfile: string, newProfile: string, fl
       active_profile: calls > flipAfterCalls ? newProfile : oldProfile
     });
   });
+}
+
+/** Per-test override: GET /api/i18n returns a caller-supplied response
+ * (e.g. a pending_restart:true state, or a different `available` list). */
+export function i18nStateHandler(response: I18nStateResponseFixture) {
+  return http.get(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: PUT /api/i18n rejected with 422 (unknown locale). */
+export function i18nSetLocaleValidationHandler(detail = "unknown locale") {
+  return http.put(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json({ detail }, { status: 422 }));
 }
 
 /** Per-test override: GET /api/avatar/config fails. */

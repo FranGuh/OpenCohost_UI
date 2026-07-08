@@ -1,5 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { server } from "../test/server.js";
+import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../test/handlers.js";
 import { SettingsPopover } from "./SettingsPopover.js";
 
 beforeEach(() => {
@@ -92,5 +95,55 @@ describe("SettingsPopover", () => {
     for (const title of ["Experiencia", "Controles", "Agenda", "Stream", "Música"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
+  });
+});
+
+describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", () => {
+  it("renders a select populated from .available, seeded with the persisted locale", async () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toBeInTheDocument());
+    const select = screen.getByRole("combobox", { name: "Idioma" }) as HTMLSelectElement;
+    expect(select).toHaveValue("es");
+    expect(screen.getByRole("option", { name: "Español" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "English" })).toBeInTheDocument();
+  });
+
+  it("shows no restart badge when pending_restart is false (default)", async () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toBeInTheDocument());
+    expect(screen.queryByText(/Reinicio requerido/)).not.toBeInTheDocument();
+  });
+
+  it("shows the restart badge when GET /api/i18n reports pending_restart:true", async () => {
+    server.use(
+      i18nStateHandler({ ...defaultI18nState, persisted_locale: "en", pending_restart: true })
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    await waitFor(() => expect(screen.getByText(/Reinicio requerido/)).toBeInTheDocument());
+  });
+
+  it("selecting a language PUTs /api/i18n and reflects the returned pending_restart badge", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/i18n`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultI18nState, persisted_locale: "en", pending_restart: true });
+      })
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toBeInTheDocument());
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Idioma" }), { target: { value: "en" } });
+
+    await waitFor(() => expect(capturedBody).toEqual({ locale: "en" }));
+    await waitFor(() => expect(screen.getByText(/Reinicio requerido/)).toBeInTheDocument());
+    expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveValue("en");
   });
 });
