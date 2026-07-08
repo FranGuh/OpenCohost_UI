@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
@@ -21,9 +21,14 @@ import {
 import {
   ApiError,
   ConflictError,
+  DEFAULT_API_BASE_URL,
   NotFoundError,
   QueueFullError,
   ValidationError,
+  authFetch,
+  bootstrapApiToken,
+  getApiBaseUrl,
+  getAuthHeaders,
   getMemoriaStats,
   getModels,
   getPerfiles,
@@ -31,8 +36,48 @@ import {
   getTtsConfig,
   postChatTurn,
   postCommand,
+  postMemoriaPurge,
+  setApiBaseUrl,
+  setApiToken,
   switchProfile
 } from "./client.js";
+
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args)
+}));
+
+describe("client/DEFAULT_API_BASE_URL", () => {
+  it("defaults to the real backend port 8765 (run-api.bat), not the dead :8000 fallback that leaves a packaged build silently unresponsive", () => {
+    expect(DEFAULT_API_BASE_URL).toBe("http://127.0.0.1:8765");
+  });
+});
+
+describe("client/setApiBaseUrl", () => {
+  it("redirects subsequent requests to the new base URL, and restores the original afterwards", async () => {
+    // Capture (not hardcode) the original base URL — it's whatever
+    // API_BASE_URL in test/handlers.ts already resolved to, which stays
+    // immune to a developer's local .env.local overriding VITE_API_BASE_URL.
+    const originalBaseUrl = getApiBaseUrl();
+    const REDIRECTED_BASE_URL = "http://127.0.0.1:8770";
+    server.use(
+      http.get(`${REDIRECTED_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, current_model: "redirected" }))
+    );
+
+    setApiBaseUrl(REDIRECTED_BASE_URL);
+    try {
+      expect(getApiBaseUrl()).toBe(REDIRECTED_BASE_URL);
+      const status = await getStatus();
+      expect(status.current_model).toBe("redirected");
+    } finally {
+      // Restore so every other test in this file (and any test that runs
+      // after this one in the same process) keeps hitting the original
+      // base URL, not this test's override.
+      setApiBaseUrl(originalBaseUrl);
+    }
+    expect(getApiBaseUrl()).toBe(originalBaseUrl);
+  });
+});
 
 describe("client/getStatus", () => {
   it("parses is_ready/current_model/is_speaking/is_processing/active_profile/health/state_version", async () => {
@@ -49,6 +94,25 @@ describe("client/getPerfiles", () => {
 });
 
 describe("client/switchProfile", () => {
+  afterEach(() => {
+    setApiToken(null);
+  });
+
+  it("attaches Authorization header when a token is cached (P4 auth wiring)", async () => {
+    setApiToken("op-secret");
+    let capturedHeader: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, ({ request }) => {
+        capturedHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ accepted: true, command_id: "cmd-abc", status: "queued" });
+      })
+    );
+
+    await switchProfile("Akira", "key-auth");
+
+    expect(capturedHeader).toBe("Bearer op-secret");
+  });
+
   it("sends Idempotency-Key header + {name} body, parses {accepted,command_id,status}", async () => {
     let capturedHeader: string | null = null;
     let capturedBody: unknown;
@@ -125,6 +189,25 @@ describe("client/getMemoriaStats", () => {
 });
 
 describe("client/postCommand", () => {
+  afterEach(() => {
+    setApiToken(null);
+  });
+
+  it("attaches Authorization header when a token is cached (P4 auth wiring)", async () => {
+    setApiToken("op-secret");
+    let capturedHeader: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, ({ request }) => {
+        capturedHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ accepted: true, command_id: "cmd-abc", status: "queued", state_version: 5 });
+      })
+    );
+
+    await postCommand("switch_model", "gemma4:e4b", "key-auth");
+
+    expect(capturedHeader).toBe("Bearer op-secret");
+  });
+
   it("sends Idempotency-Key header + {command, payload:{value}} body, parses {accepted,command_id,status,state_version}", async () => {
     let capturedHeader: string | null = null;
     let capturedBody: unknown;
@@ -187,6 +270,25 @@ describe("client/postCommand", () => {
 });
 
 describe("client/postChatTurn", () => {
+  afterEach(() => {
+    setApiToken(null);
+  });
+
+  it("attaches Authorization header when a token is cached (P4 auth wiring)", async () => {
+    setApiToken("op-secret");
+    let capturedHeader: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, ({ request }) => {
+        capturedHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ accepted: true, command_id: "cmd-chat", status: "queued", state_version: 3 });
+      })
+    );
+
+    await postChatTurn("hola", "key-auth");
+
+    expect(capturedHeader).toBe("Bearer op-secret");
+  });
+
   it("sends Idempotency-Key header + {text} body, parses {accepted,command_id,status,state_version} — R8: no reply field", async () => {
     let capturedHeader: string | null = null;
     let capturedBody: unknown;
@@ -233,5 +335,156 @@ describe("client/postChatTurn", () => {
       )
     );
     await expect(postChatTurn("hola", "key-rejected")).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("client/postMemoriaPurge", () => {
+  afterEach(() => {
+    setApiToken(null);
+  });
+
+  it("attaches Authorization header when a token is cached (P4 auth wiring)", async () => {
+    setApiToken("op-secret");
+    let capturedHeader: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/purge`, ({ request }) => {
+        capturedHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ deleted: 1 });
+      })
+    );
+
+    await postMemoriaPurge("profile-1");
+
+    expect(capturedHeader).toBe("Bearer op-secret");
+  });
+});
+
+/**
+ * agent_context_gateway Phase 4 (ADR-5): operator token handoff. Owner
+ * decision D2 — enforcement stays default OFF, so every one of these must
+ * keep an unauthenticated request working exactly as before this track.
+ */
+describe("client/getAuthHeaders", () => {
+  afterEach(() => {
+    setApiToken(null);
+  });
+
+  it("returns {} when no token is cached (default state — unauthenticated calls keep working, D2)", () => {
+    expect(getAuthHeaders()).toEqual({});
+  });
+
+  it("returns an Authorization Bearer header once a token is cached", () => {
+    setApiToken("op-secret");
+    expect(getAuthHeaders()).toEqual({ Authorization: "Bearer op-secret" });
+  });
+});
+
+describe("client/authFetch", () => {
+  afterEach(() => {
+    setApiToken(null);
+    invokeMock.mockReset();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+
+  it("attaches Authorization when a token is cached", async () => {
+    setApiToken("op-secret");
+    let capturedHeader: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/topic/action`, ({ request }) => {
+        capturedHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    await authFetch(`${API_BASE_URL}/api/agenda/topic/action`, { method: "POST" });
+
+    expect(capturedHeader).toBe("Bearer op-secret");
+  });
+
+  it("sends no Authorization header and the request still succeeds when no token is cached", async () => {
+    let capturedHeader: string | null | undefined;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/topic/action`, ({ request }) => {
+        capturedHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    const res = await authFetch(`${API_BASE_URL}/api/agenda/topic/action`, { method: "POST" });
+
+    expect(capturedHeader).toBeNull();
+    expect(res.ok).toBe(true);
+  });
+
+  it("re-invokes api_token once on a 401 and retries with the refreshed token (spawn-path race)", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    invokeMock.mockResolvedValueOnce("refreshed-token");
+    let attempts = 0;
+    let secondAttemptHeader: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/topic/action`, ({ request }) => {
+        attempts += 1;
+        if (attempts === 1) {
+          return new HttpResponse(null, { status: 401 });
+        }
+        secondAttemptHeader = request.headers.get("Authorization");
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    const res = await authFetch(`${API_BASE_URL}/api/agenda/topic/action`, { method: "POST" });
+
+    expect(invokeMock).toHaveBeenCalledWith("api_token");
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(attempts).toBe(2);
+    expect(secondAttemptHeader).toBe("Bearer refreshed-token");
+    expect(res.ok).toBe(true);
+  });
+
+  it("outside the Tauri shell, a 401 is returned as-is (no invoke, no retry loop)", async () => {
+    let attempts = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/topic/action`, () => {
+        attempts += 1;
+        return new HttpResponse(null, { status: 401 });
+      })
+    );
+
+    const res = await authFetch(`${API_BASE_URL}/api/agenda/topic/action`, { method: "POST" });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(attempts).toBe(1);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("client/bootstrapApiToken", () => {
+  afterEach(() => {
+    setApiToken(null);
+    invokeMock.mockReset();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+
+  it("caches the token returned by the api_token command", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    invokeMock.mockResolvedValueOnce("bootstrapped-token");
+
+    await bootstrapApiToken();
+
+    expect(getAuthHeaders()).toEqual({ Authorization: "Bearer bootstrapped-token" });
+  });
+
+  it("never throws when invoke fails, leaving the cache empty", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    invokeMock.mockRejectedValueOnce(new Error("no such command"));
+
+    await expect(bootstrapApiToken()).resolves.toBeUndefined();
+    expect(getAuthHeaders()).toEqual({});
+  });
+
+  it("is a no-op outside the Tauri shell", async () => {
+    await bootstrapApiToken();
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(getAuthHeaders()).toEqual({});
   });
 });

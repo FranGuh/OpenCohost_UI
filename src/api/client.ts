@@ -15,32 +15,82 @@ export type StatusResponse = GeneratedStatusResponse & {
   // handler (opencohost/api/models.py::StatusResponse.avatar_state). Hand-added
   // for the same snapshot-lag reason as ollama_warming above.
   avatar_state?: string;
+  // Stable profile UUID mirrored from MotorVocalIA._current_profile_id
+  // (opencohost/api/models.py::StatusResponse.active_profile_id). `active_profile`
+  // is a display NAME — memoria rows are stored keyed by this uuid, not the
+  // name, so any /api/memoria/* call must use this field. `null`/absent
+  // until the engine applies its first profile switch. Hand-added for the
+  // same snapshot-lag reason as ollama_warming above.
+  // ponytail: keep in sync manually.
+  active_profile_id?: string | null;
 };
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
 export type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
-export type MemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
+type GeneratedMemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
+/**
+ * FIX-A: `saved_memorias`/`pinned` are per-profile counts when the request
+ * carries `profile_id` (so the MemoryCard headline agrees with the per-profile
+ * list); `saved_memorias_total`/`pinned_total` carry the global figures. Both
+ * total fields mirror opencohost/api/models.py::MemoriaStatsResponse but are
+ * hand-added here because types.gen.ts predates them (same snapshot-lag pattern
+ * as StatusResponse.ollama_warming above). ponytail: keep in sync manually.
+ */
+export type MemoriaStatsResponse = GeneratedMemoriaStatsResponse & {
+  saved_memorias_total?: number;
+  pinned_total?: number;
+};
 
 /**
  * `GET /api/memoria/list` and `POST /api/memoria/purge` (F5) — not in
  * types.gen.ts yet (snapshot lag, same reason as ollama_warming above).
  * Hand-typed from opencohost/api/models.py::MemoriaListResponse /
- * MemoriaPurgeResponse. R8: metadata only — never add title/content here.
+ * MemoriaPurgeResponse. R8: `content` stays excluded from the list — it is
+ * only readable one row at a time via GET /api/memoria/row/{id} (see
+ * src/api/memoria.ts::getMemoriaRow).
  * ponytail: keep in sync manually until the snapshot is regenerated.
  */
 export interface MemoriaListItem {
   id: string;
+  // WU-H (operator viewing decision, 2026-07-05): the list projection now
+  // ALSO includes `title` — a deliberate, scoped relaxation of the prior
+  // metadata-only rule so the operator can recognize a row before deciding
+  // to load its content. `content` is still deliberately excluded here.
+  title: string;
   created_at: string;
   updated_at: string;
   revision: number;
   pinned: boolean;
   private: boolean;
+  // F5/WU-D: opencohost/api/main.py::_list_memoria_metadata's SELECT now
+  // reads `inactive` too (mirrors MemoriaFlagsRequest.inactive) — added here
+  // to keep this hand-typed shape honest with the real projection.
+  inactive: boolean;
 }
 export interface MemoriaListResponse {
   items: MemoriaListItem[];
 }
 export interface MemoriaPurgeResponse {
   deleted: number;
+}
+
+/**
+ * `GET /api/memoria/row/{id}` (WU-H, operator viewing decision, 2026-07-05)
+ * — not in types.gen.ts yet. Hand-typed from
+ * opencohost/api/models.py::MemoriaRowResponse. The ONLY memoria response
+ * that carries `content` — fetched on-demand, one row at a time, never
+ * preloaded alongside MemoriaListResponse.
+ * ponytail: keep in sync manually until the snapshot is regenerated.
+ */
+export interface MemoriaRowResponse {
+  id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  pinned: boolean;
+  private: boolean;
+  inactive: boolean;
 }
 
 /**
@@ -144,7 +194,35 @@ export class ValidationError extends ApiError {
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+/**
+ * The real backend (opencohost/api, run via run-api.bat) listens on :8765.
+ * VITE_API_BASE_URL (set in .env.local for dev) overrides this, but a
+ * packaged build with no .env.local must still reach the real port instead
+ * of silently targeting a dead :8000.
+ */
+export const DEFAULT_API_BASE_URL = "http://127.0.0.1:8765";
+
+let currentBaseUrl: string = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+
+/**
+ * Current API base URL. Read at call time (not captured at module load) so
+ * `setApiBaseUrl` below can redirect every already-imported api/*.ts module
+ * without re-importing anything.
+ */
+export function getApiBaseUrl(): string {
+  return currentBaseUrl;
+}
+
+/**
+ * Overrides the base URL at runtime. Used by the Tauri bootstrap
+ * (src/lib/backendBootstrap.ts) once `invoke("backend_info")` resolves the
+ * real managed/reused port — a packaged build has no .env.local to bake
+ * VITE_API_BASE_URL into the bundle at build time, so the port is only known
+ * after the Rust side spawns (or finds) the backend.
+ */
+export function setApiBaseUrl(url: string): void {
+  currentBaseUrl = url;
+}
 
 /**
  * Design D5: Idempotency-Key is stable per switch INTENT (per target),
@@ -170,8 +248,92 @@ export function rotateIdempotencyKey(target: string): void {
   idempotencyKeys.delete(target);
 }
 
+/**
+ * Operator token handoff (agent_context_gateway Phase 4, design ADR-5). The
+ * cache is populated by `bootstrapApiToken()` (called once from
+ * `src/lib/backendBootstrap.ts` at startup) and refreshed by `authFetch` on
+ * a 401. `null` — the default, and the only possible state outside the
+ * Tauri shell — means every mutating request goes out with no Authorization
+ * header, exactly as it did before this track (owner decision D2:
+ * enforcement stays default OFF).
+ */
+let cachedApiToken: string | null = null;
+let tokenFetchPromise: Promise<string | null> | null = null;
+
+/** Test/advanced override — same pattern as `setApiBaseUrl`. Production
+ * code never calls this directly. */
+export function setApiToken(token: string | null): void {
+  cachedApiToken = token;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  return cachedApiToken ? { Authorization: `Bearer ${cachedApiToken}` } : {};
+}
+
+/**
+ * Fetches (once — concurrent callers share the same in-flight request) and
+ * caches the operator bearer token via the Tauri `api_token` command
+ * (backend.rs, ADR-5). Outside the Tauri shell (`__TAURI_INTERNALS__`
+ * absent — plain browser dev) this is a no-op: the cache stays `null`.
+ * Never throws — a failed/missing command just leaves the cache empty.
+ */
+async function refreshApiToken(): Promise<string | null> {
+  if (!("__TAURI_INTERNALS__" in window)) {
+    cachedApiToken = null;
+    return null;
+  }
+  if (!tokenFetchPromise) {
+    tokenFetchPromise = (async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return await invoke<string | null>("api_token");
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("client: api_token invoke failed, continuing without a token", error);
+        return null;
+      } finally {
+        tokenFetchPromise = null;
+      }
+    })();
+  }
+  cachedApiToken = await tokenFetchPromise;
+  return cachedApiToken;
+}
+
+/** Called once at startup (src/lib/backendBootstrap.ts) to seed the cached
+ * operator token before any mutating call goes out. */
+export async function bootstrapApiToken(): Promise<void> {
+  await refreshApiToken();
+}
+
+function withAuthHeaders(init: RequestInit): RequestInit {
+  return { ...init, headers: { ...(init.headers as Record<string, string> | undefined), ...getAuthHeaders() } };
+}
+
+/**
+ * `fetch` wrapper for mutating (`POST`/`PUT`/`DELETE`) calls to operator
+ * endpoints — attaches `Authorization: Bearer <token>` when a token is
+ * cached, and none otherwise (D2: a missing token must never break the
+ * call). On a 401 the caller may be racing the spawn-path token mint
+ * (design risk "Token file appears AFTER Tauri probes") — refresh the
+ * token once and retry the exact same request before handing the response
+ * back; a second consecutive 401 (or no token available to retry with) is
+ * returned as-is, never looped.
+ */
+export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(url, withAuthHeaders(init));
+  if (res.status !== 401) {
+    return res;
+  }
+  const token = await refreshApiToken();
+  if (!token) {
+    return res;
+  }
+  return fetch(url, withAuthHeaders(init));
+}
+
 export async function getStatus(): Promise<StatusResponse> {
-  const res = await fetch(`${BASE_URL}/api/status`);
+  const res = await fetch(`${getApiBaseUrl()}/api/status`);
   if (!res.ok) {
     throw new ApiError(`GET /api/status failed with ${res.status}`, res.status);
   }
@@ -179,7 +341,7 @@ export async function getStatus(): Promise<StatusResponse> {
 }
 
 export async function getPerfiles(): Promise<ProfilesResponse> {
-  const res = await fetch(`${BASE_URL}/api/perfiles`);
+  const res = await fetch(`${getApiBaseUrl()}/api/perfiles`);
   if (!res.ok) {
     throw new ApiError(`GET /api/perfiles failed with ${res.status}`, res.status);
   }
@@ -187,7 +349,7 @@ export async function getPerfiles(): Promise<ProfilesResponse> {
 }
 
 export async function switchProfile(name: string, idempotencyKey: string): Promise<SwitchAccepted> {
-  const res = await fetch(`${BASE_URL}/api/perfiles/switch`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/perfiles/switch`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -224,7 +386,7 @@ export async function switchProfile(name: string, idempotencyKey: string): Promi
 }
 
 export async function getModels(): Promise<ModelsResponse> {
-  const res = await fetch(`${BASE_URL}/api/models`);
+  const res = await fetch(`${getApiBaseUrl()}/api/models`);
   if (!res.ok) {
     throw new ApiError(`GET /api/models failed with ${res.status}`, res.status);
   }
@@ -232,15 +394,22 @@ export async function getModels(): Promise<ModelsResponse> {
 }
 
 export async function getTtsConfig(): Promise<TtsConfigResponse> {
-  const res = await fetch(`${BASE_URL}/api/tts/config`);
+  const res = await fetch(`${getApiBaseUrl()}/api/tts/config`);
   if (!res.ok) {
     throw new ApiError(`GET /api/tts/config failed with ${res.status}`, res.status);
   }
   return (await res.json()) as TtsConfigResponse;
 }
 
-export async function getMemoriaStats(): Promise<MemoriaStatsResponse> {
-  const res = await fetch(`${BASE_URL}/api/memoria/stats`);
+/**
+ * GET /api/memoria/stats. Pass `profileId` to get per-profile
+ * `saved_memorias`/`pinned` counts (so the headline agrees with the
+ * per-profile GET /api/memoria/list); omit it for global counts. The global
+ * totals always come back in `saved_memorias_total`/`pinned_total`.
+ */
+export async function getMemoriaStats(profileId?: string): Promise<MemoriaStatsResponse> {
+  const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : "";
+  const res = await fetch(`${getApiBaseUrl()}/api/memoria/stats${query}`);
   if (!res.ok) {
     throw new ApiError(`GET /api/memoria/stats failed with ${res.status}`, res.status);
   }
@@ -248,7 +417,7 @@ export async function getMemoriaStats(): Promise<MemoriaStatsResponse> {
 }
 
 export async function getMemoriaList(profileId: string): Promise<MemoriaListResponse> {
-  const res = await fetch(`${BASE_URL}/api/memoria/list?profile_id=${encodeURIComponent(profileId)}`);
+  const res = await fetch(`${getApiBaseUrl()}/api/memoria/list?profile_id=${encodeURIComponent(profileId)}`);
   if (!res.ok) {
     throw new ApiError(`GET /api/memoria/list failed with ${res.status}`, res.status);
   }
@@ -256,7 +425,7 @@ export async function getMemoriaList(profileId: string): Promise<MemoriaListResp
 }
 
 export async function postMemoriaPurge(profileId: string): Promise<MemoriaPurgeResponse> {
-  const res = await fetch(`${BASE_URL}/api/memoria/purge`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/purge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ profile_id: profileId })
@@ -278,7 +447,7 @@ export async function postCommand(
   idempotencyKey: string
 ): Promise<CommandAccepted> {
   const payload = command === "clear_history" ? {} : { value };
-  const res = await fetch(`${BASE_URL}/api/commands`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/commands`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -314,7 +483,7 @@ export async function postCommand(
 }
 
 export async function getLastReply(): Promise<LastReplyResponse> {
-  const res = await fetch(`${BASE_URL}/api/chat/last-reply`);
+  const res = await fetch(`${getApiBaseUrl()}/api/chat/last-reply`);
   if (!res.ok) {
     throw new ApiError(`GET /api/chat/last-reply failed with ${res.status}`, res.status);
   }
@@ -327,7 +496,7 @@ export async function getLastReply(): Promise<LastReplyResponse> {
  * poll). Same error-mapping shape as postCommand.
  */
 export async function postChatTurn(text: string, idempotencyKey: string): Promise<ChatTurnAccepted> {
-  const res = await fetch(`${BASE_URL}/api/chat/turn`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/chat/turn`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
