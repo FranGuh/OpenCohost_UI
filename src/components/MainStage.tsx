@@ -1,7 +1,4 @@
-import { useState } from "react";
-import { useStatusQuery } from "../api/status.js";
 import { KiraCover } from "./KiraCover.js";
-import { Segmented } from "./ui/Segmented.js";
 import { ProfileSwitcher } from "./ProfileSwitcher.js";
 import { ModelCard } from "./ModelCard.js";
 import { VoiceCard } from "./VoiceCard.js";
@@ -12,33 +9,20 @@ import { ObsCard } from "./ObsCard.js";
 import { AgendaPanel } from "./AgendaPanel.js";
 import { StreamPanel } from "./StreamPanel.js";
 import { MusicPanel } from "./MusicPanel.js";
-import { AVATAR_LABEL, deriveAvatarState } from "./kiraState.js";
 import type { Section } from "./Sidebar.js";
 
-const INPUT_MODES = [
-  { value: "chat", label: "Chat" },
-  { value: "voz", label: "Voz" }
-] as const;
-
-type InputMode = (typeof INPUT_MODES)[number]["value"];
+const PANEL_CLASS = "flex min-h-0 flex-col gap-3.5 overflow-auto p-4";
+const PANEL_GRADIENT = "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)";
 
 export interface MainStageProps {
   activeSection: Section;
 }
 
-/** <main> region — Kira's now-playing stage (Experiencia) or the existing
- * Model/Voice/PTT/Memory settings cards (Controles). */
+/** Main region — Kira's presence stage (Experiencia) or settings panels (Controles, Agenda, etc.). */
 export function MainStage({ activeSection }: MainStageProps) {
-  const [inputMode, setInputMode] = useState<InputMode>("chat");
-  const { data } = useStatusQuery();
-  const avatarState = deriveAvatarState(data);
-
   if (activeSection === "controles") {
     return (
-      <main
-        className="flex min-h-0 flex-col gap-3.5 overflow-auto p-4"
-        style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
-      >
+      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
         <ProfileSwitcher />
         <ModelCard />
         <VoiceCard />
@@ -52,10 +36,7 @@ export function MainStage({ activeSection }: MainStageProps) {
 
   if (activeSection === "agenda") {
     return (
-      <main
-        className="flex min-h-0 flex-col gap-3.5 overflow-auto p-4"
-        style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
-      >
+      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
         <AgendaPanel />
       </main>
     );
@@ -63,10 +44,7 @@ export function MainStage({ activeSection }: MainStageProps) {
 
   if (activeSection === "stream") {
     return (
-      <main
-        className="flex min-h-0 flex-col gap-3.5 overflow-auto p-4"
-        style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
-      >
+      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
         <StreamPanel />
       </main>
     );
@@ -74,40 +52,23 @@ export function MainStage({ activeSection }: MainStageProps) {
 
   if (activeSection === "musica") {
     return (
-      <main
-        className="flex min-h-0 flex-col gap-3.5 overflow-auto p-4"
-        style={{ backgroundImage: "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)" }}
-      >
+      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
         <MusicPanel />
       </main>
     );
   }
 
+  // Default: Experiencia — Kira's full-bleed presence stage.
+  // KiraCover manages its own centering and glow; h-full gives it the app's
+  // remaining height so it fills the column without scrolling.
   return (
     <main
-      className="flex min-h-0 flex-col items-center justify-center gap-4 overflow-auto p-6"
-      style={{ backgroundImage: "radial-gradient(90% 70% at 50% -5%, var(--accent-soft), transparent 80%)" }}
+      className="h-full w-full overflow-hidden"
+      style={{
+        backgroundImage: "radial-gradient(90% 70% at 50% -5%, var(--accent-soft), transparent 80%)"
+      }}
     >
-
-      {/* 
-        NOTA: No es necesario (no hace nada de momento) diseño basura. ya en chat tenemos esto. o podriamos desplazarlo a un lado o abajo del avatar en vez de un switch.
-      <Segmented ariaLabel="Modo de entrada" options={INPUT_MODES} value={inputMode} onChange={setInputMode} /> */}
-
       <KiraCover />
-
-      {/*
-      que poronga hace esto aqui cuando deberia estar en KiraCover
-      
-      
-      <div className="flex flex-col items-center gap-1 text-center">
-        <h1 className="text-2xl font-extrabold tracking-tight text-foreground">Kira</h1>
-        <p className="mono text-xs text-muted-foreground">Akira · co-host local · {data?.current_model ?? "cargando…"}</p>
-      </div>
-
-      <p className="max-w-[520px] rounded-md border border-border bg-background px-4 py-3 text-center text-sm leading-relaxed text-foreground">
-        <span className="mono font-bold text-[var(--kira-cyan)]">[Kira] </span>
-        Estado: {AVATAR_LABEL[avatarState]}
-      </p> */}
     </main>
   );
 }

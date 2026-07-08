@@ -29,7 +29,7 @@ export interface SidebarProps {
 export function Sidebar({ activeSection, onSelect }: SidebarProps) {
   return (
     <nav className="flex min-h-0 flex-col overflow-auto border-r border-border-soft bg-card py-3">
-      <div className="flex flex-col gap-1 px-2 pb-3">
+      <div className="flex flex-col gap-1 px-2 pb-2">
         {NAV_ITEMS.map((item) => {
           const isActive = item.id === activeSection;
           return (

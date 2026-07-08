@@ -1,18 +1,40 @@
 import { http, HttpResponse } from "msw";
 import type { paths } from "../api/types.gen.js";
-import type { AgendaResponse, AgendaTopicOut } from "../api/agenda.js";
-import type { MusicLibraryResponse } from "../api/music.js";
+import type {
+  AgendaResponse,
+  AgendaTopicOut,
+  CohostProfileOut,
+  CohostProfilesResponse,
+  CohostProfileSelectResponse
+} from "../api/agenda.js";
+import type {
+  MusicImportResponse,
+  MusicLibraryResponse,
+  MusicMoodResponse,
+  MusicStateResponse,
+  MusicTrackOut
+} from "../api/music.js";
 
 // Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
 // handlers always match whatever base URL the app under test actually uses —
 // immune to a developer's local .env.local overriding VITE_API_BASE_URL.
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+// Fallback kept in sync manually with client.ts::DEFAULT_API_BASE_URL.
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8765";
 
-type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"];
+// active_profile_id mirrors src/api/client.ts's hand-added StatusResponse
+// field (snapshot lag — types.gen.ts predates it). ponytail: keep in sync.
+type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"] & {
+  active_profile_id?: string | null;
+};
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
 type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
-type MemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
+// saved_memorias_total / pinned_total mirror src/api/client.ts's hand-added
+// MemoriaStatsResponse fields (FIX-A, snapshot lag). ponytail: keep in sync.
+type MemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"] & {
+  saved_memorias_total?: number;
+  pinned_total?: number;
+};
 
 /** GET /api/chat/last-reply declares response_model=ChatLastReplyResponse on
  * the backend, but types.gen.ts hasn't been regenerated since — hand-typed
@@ -30,6 +52,7 @@ export const defaultStatus: StatusResponse = {
   is_speaking: false,
   is_processing: false,
   active_profile: "default",
+  active_profile_id: "profile-id-default",
   health: {
     vram_status: "ok",
     rtf_status: "ok",
@@ -46,6 +69,24 @@ export const defaultStatus: StatusResponse = {
 };
 
 export const defaultProfiles: ProfilesResponse = { profiles: ["default", "Akira"] };
+
+/** GET /api/perfiles/{name} has no OpenAPI type yet — hand-typed here,
+ * mirrors src/api/profiles.ts::ProfileDetailResponse. ponytail: keep in
+ * sync manually. */
+export interface ProfileDetailResponseFixture {
+  name: string;
+  id: string;
+  prompt: string;
+  use_system: boolean;
+}
+
+/** Per-profile id/prompt/use_system fixtures backing the default GET
+ * /api/perfiles/:name handler below — keyed by name to mirror the real
+ * profiles.json shape closely enough for tests. */
+export const defaultProfileDetails: Record<string, ProfileDetailResponseFixture> = {
+  default: { name: "default", id: "profile-id-default", prompt: "", use_system: true },
+  Akira: { name: "Akira", id: "profile-id-akira", prompt: "Sos ingeniosa y filosa, con humor seco.", use_system: false }
+};
 
 export const defaultModels: ModelsResponse = {
   catalog: {
@@ -72,8 +113,12 @@ export const defaultLastReply: LastReplyResponse = { text: null, source: null, t
 export const defaultMemoriaStats: MemoriaStatsResponse = {
   session_turns: 14,
   digest_entries: 3,
+  // Per-profile figures (FIX-A) — deliberately smaller than the *_total below
+  // so a test can tell the per-profile split from the global totals.
   saved_memorias: 7,
   pinned: 5,
+  saved_memorias_total: 12,
+  pinned_total: 9,
   editorial_cards_by_status: { draft: 1, published: 0, archived: 2 }
 };
 
@@ -82,19 +127,91 @@ export const defaultMemoriaStats: MemoriaStatsResponse = {
  * MemoriaPurgeResponse. ponytail: keep in sync manually. */
 export interface MemoriaListItemFixture {
   id: string;
+  title: string;
   created_at: string;
   updated_at: string;
   revision: number;
   pinned: boolean;
   private: boolean;
+  inactive: boolean;
 }
 
 export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
   items: [
-    { id: "mem_a", created_at: "2026-01-01T00:00:00+00:00", updated_at: "2026-01-01T00:00:00+00:00", revision: 1, pinned: true, private: false },
-    { id: "mem_b", created_at: "2026-01-02T00:00:00+00:00", updated_at: "2026-01-02T00:00:00+00:00", revision: 2, pinned: false, private: true }
+    {
+      id: "mem_a",
+      title: "Título memoria A",
+      created_at: "2026-01-01T00:00:00+00:00",
+      updated_at: "2026-01-01T00:00:00+00:00",
+      revision: 1,
+      pinned: true,
+      private: false,
+      inactive: false
+    },
+    {
+      id: "mem_b",
+      title: "Título memoria B",
+      created_at: "2026-01-02T00:00:00+00:00",
+      updated_at: "2026-01-02T00:00:00+00:00",
+      revision: 2,
+      pinned: false,
+      private: true,
+      inactive: false
+    }
   ]
 };
+
+/** GET /api/memoria/row/{id} response — hand-typed, mirrors
+ * src/api/memoria.ts::MemoriaRowResponse. WU-H (operator viewing decision):
+ * the ONLY memoria fixture that carries `content` — on-demand, one row at a
+ * time. ponytail: keep in sync manually. */
+export interface MemoriaRowResponseFixture {
+  id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  pinned: boolean;
+  private: boolean;
+  inactive: boolean;
+}
+
+export const defaultMemoriaRows: Record<string, MemoriaRowResponseFixture> = {
+  mem_a: {
+    id: "mem_a",
+    title: "Título memoria A",
+    content: "Contenido completo de la memoria A.",
+    created_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T00:00:00+00:00",
+    pinned: true,
+    private: false,
+    inactive: false
+  },
+  mem_b: {
+    id: "mem_b",
+    title: "Título memoria B",
+    content: "Contenido completo de la memoria B.",
+    created_at: "2026-01-02T00:00:00+00:00",
+    updated_at: "2026-01-02T00:00:00+00:00",
+    pinned: false,
+    private: true,
+    inactive: false
+  }
+};
+
+/** POST /api/memoria/{flags,delete,update,capture} response — mirrors
+ * src/api/client.ts::MemoriaMutationResponse / memoria.ts's re-export. */
+export interface MemoriaMutationResponseFixture {
+  ok: boolean;
+}
+
+/** GET/POST /api/memoria/notice response — mirrors
+ * src/api/memoria.ts::MemoriaNoticeResponse. */
+export interface MemoriaNoticeResponseFixture {
+  dismissed: boolean;
+}
+
+export const defaultMemoriaNotice: MemoriaNoticeResponseFixture = { dismissed: false };
 
 /** GET/PUT /api/avatar/config has no OpenAPI response_model type — hand-typed
  * here, mirrors src/api/avatar.ts::AvatarConfigResponse. ponytail: keep in sync manually. */
@@ -203,7 +320,22 @@ export const defaultAgenda: AgendaResponse = {
     agendaTopic({ id: "topic-1", title: "La nostalgia noventera en internet", priority: "alta" }),
     agendaTopic({ id: "topic-2", title: "Streamers y burnout", priority: "normal" })
   ],
-  drafted_topics: [],
+  drafted_topics: [
+    agendaTopic({
+      id: "topic-draft-1",
+      title: "IA generativa en overlays de stream",
+      angle: "Dónde está la línea entre herramienta y reemplazo.",
+      confidence: "HIGH",
+      status: "drafted"
+    }),
+    agendaTopic({
+      id: "topic-draft-2",
+      title: "Por qué el chat repite memes viejos",
+      angle: "Nostalgia colectiva a escala de comunidad.",
+      confidence: "MEDIUM",
+      status: "drafted"
+    })
+  ],
   session_settings: {
     max_turns_per_topic: 3,
     rhythm: "normal",
@@ -212,6 +344,27 @@ export const defaultAgenda: AgendaResponse = {
     profile_style: "Natural"
   },
   metrics: defaultAgendaMetrics
+};
+
+function cohostProfile(overrides: Partial<CohostProfileOut>): CohostProfileOut {
+  return {
+    name: "Natural",
+    style: "Soná como co-host natural de stream: cercana, con humor seco.",
+    default_priority: "normal",
+    default_response_length: "normal",
+    ...overrides
+  };
+}
+
+export const defaultCohostProfiles: CohostProfilesResponse = {
+  profiles: [
+    cohostProfile({ name: "Natural" }),
+    cohostProfile({
+      name: "Filosa",
+      style: "Sarcástica y directa, sin filtro pero sin cruzar la línea.",
+      default_priority: "alta"
+    })
+  ]
 };
 
 export const defaultMusicLibrary: MusicLibraryResponse = {
@@ -225,14 +378,82 @@ export const defaultMusicLibrary: MusicLibraryResponse = {
   moods: ["calm", "hype", "nostalgia", "tension"]
 };
 
+/** Mirrors opencohost/core/music_library.py::KNOWN_MOODS exactly (also
+ * mirrored client-side by src/api/mock/fixtures.ts::MUSIC_FIXTURE.moods,
+ * the quick-test button set in MoodCard). */
+const KNOWN_MOODS = ["normal", "nostalgia", "hype", "tension", "sad", "calm", "comedy", "ending"];
+
+export const defaultMusicState: MusicStateResponse = { active_mood: "normal", fade: null };
+
+function musicTracksForMood(library: MusicLibraryResponse, mood: string): MusicTrackOut[] {
+  return library.tracks.filter((track) => track.mood === mood && track.status === "ok");
+}
+
+/** Mirrors MusicLibrary.select_for_mood's mood->normal->any fallback closely
+ * enough for tests: first valid track in the requested mood, else the first
+ * valid track anywhere. */
+function suggestedTrackFor(library: MusicLibraryResponse, mood: string): string | null {
+  const matching = musicTracksForMood(library, mood);
+  if (matching.length > 0) {
+    return matching[0].id;
+  }
+  const fallback = library.tracks.find((track) => track.status === "ok");
+  return fallback ? fallback.id : null;
+}
+
 export const handlers = [
   http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json(defaultStatus)),
   http.get(`${API_BASE_URL}/api/perfiles`, () => HttpResponse.json(defaultProfiles)),
+  http.get(`${API_BASE_URL}/api/perfiles/:name`, ({ params }) => {
+    const name = decodeURIComponent(String(params.name));
+    const detail = defaultProfileDetails[name];
+    if (!detail) {
+      return HttpResponse.json({ detail: "profile not found" }, { status: 404 });
+    }
+    return HttpResponse.json(detail);
+  }),
+  http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+    const body = (await request.json()) as { name: string; prompt: string; use_system?: boolean };
+    return HttpResponse.json({
+      name: body.name,
+      id: `profile-id-${body.name}`,
+      prompt: body.prompt,
+      use_system: body.use_system ?? false
+    });
+  }),
+  http.put(`${API_BASE_URL}/api/perfiles/:name`, async ({ request, params }) => {
+    const name = decodeURIComponent(String(params.name));
+    const body = (await request.json()) as { new_name?: string; prompt?: string; use_system?: boolean };
+    const current = defaultProfileDetails[name] ?? { name, id: `profile-id-${name}`, prompt: "", use_system: false };
+    return HttpResponse.json({
+      name: body.new_name ?? current.name,
+      id: current.id,
+      prompt: body.prompt ?? current.prompt,
+      use_system: body.use_system ?? current.use_system
+    });
+  }),
+  http.delete(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ ok: true })),
   http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json(defaultModels)),
   http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json(defaultTtsConfig)),
   http.get(`${API_BASE_URL}/api/memoria/stats`, () => HttpResponse.json(defaultMemoriaStats)),
   http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json(defaultMemoriaList)),
+  http.get(`${API_BASE_URL}/api/memoria/row/:rowId`, ({ params }) => {
+    const row = defaultMemoriaRows[String(params.rowId)];
+    if (!row) {
+      return HttpResponse.json({ detail: "memoria not found" }, { status: 404 });
+    }
+    return HttpResponse.json(row);
+  }),
   http.post(`${API_BASE_URL}/api/memoria/purge`, () => HttpResponse.json({ deleted: defaultMemoriaList.items.length })),
+  http.post(`${API_BASE_URL}/api/memoria/flags`, () => HttpResponse.json({ ok: true })),
+  http.post(`${API_BASE_URL}/api/memoria/delete`, () => HttpResponse.json({ ok: true })),
+  http.post(`${API_BASE_URL}/api/memoria/update`, () => HttpResponse.json({ ok: true })),
+  http.post(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ ok: true })),
+  http.get(`${API_BASE_URL}/api/memoria/notice`, () => HttpResponse.json(defaultMemoriaNotice)),
+  http.post(`${API_BASE_URL}/api/memoria/notice`, async ({ request }) => {
+    const body = (await request.json()) as { dismissed: boolean };
+    return HttpResponse.json({ dismissed: body.dismissed });
+  }),
   http.get(`${API_BASE_URL}/api/chat/last-reply`, () => HttpResponse.json(defaultLastReply)),
   http.get(`${API_BASE_URL}/api/avatar/config`, () => HttpResponse.json(defaultAvatarConfig)),
   http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
@@ -267,6 +488,45 @@ export const handlers = [
     HttpResponse.json({ accepted: true, command_id: "cmd-chat-1", status: "queued", state_version: 2 })
   ),
   http.get(`${API_BASE_URL}/api/music/library`, () => HttpResponse.json(defaultMusicLibrary)),
+  http.post(`${API_BASE_URL}/api/music/mood`, async ({ request }) => {
+    const body = (await request.json()) as { mood: string };
+    const mood = (body.mood ?? "").trim().toLowerCase();
+    if (!KNOWN_MOODS.includes(mood)) {
+      return HttpResponse.json({ detail: "unknown mood" }, { status: 422 });
+    }
+    return HttpResponse.json({
+      active_mood: mood,
+      tracks: musicTracksForMood(defaultMusicLibrary, mood),
+      suggested_track_id: suggestedTrackFor(defaultMusicLibrary, mood)
+    });
+  }),
+  http.get(`${API_BASE_URL}/api/music/state`, () => HttpResponse.json(defaultMusicState)),
+  http.post(`${API_BASE_URL}/api/music/fade`, async ({ request }) => {
+    const body = (await request.json()) as { direction: string; duration_ms?: number };
+    if (body.direction !== "in" && body.direction !== "out") {
+      return HttpResponse.json({ detail: "unknown direction" }, { status: 422 });
+    }
+    return HttpResponse.json({
+      active_mood: defaultMusicState.active_mood,
+      fade: { direction: body.direction, duration_ms: body.duration_ms ?? 6000, seq: 1, ts: 0 }
+    });
+  }),
+  http.post(`${API_BASE_URL}/api/music/import`, async ({ request }) => {
+    const body = (await request.json()) as { path: string; mood: string };
+    const mood = (body.mood ?? "").trim().toLowerCase();
+    if (!KNOWN_MOODS.includes(mood)) {
+      return HttpResponse.json({ detail: "unknown mood" }, { status: 422 });
+    }
+    const label = body.path.split(/[\\/]/).pop() ?? body.path;
+    return HttpResponse.json({ track: { id: "track-imported", label, mood, status: "ok" } });
+  }),
+  http.delete(`${API_BASE_URL}/api/music/track/:id`, ({ params }) => {
+    const id = decodeURIComponent(String(params.id));
+    if (!defaultMusicLibrary.tracks.some((track) => track.id === id)) {
+      return HttpResponse.json({ detail: "track not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ ok: true });
+  }),
   http.get(`${API_BASE_URL}/api/agenda`, () => HttpResponse.json(defaultAgenda)),
   http.post(`${API_BASE_URL}/api/agenda/topic`, async ({ request }) => {
     const body = (await request.json()) as { title: string; angle?: string };
@@ -280,7 +540,28 @@ export const handlers = [
     return HttpResponse.json(next);
   }),
   http.post(`${API_BASE_URL}/api/agenda/topic/action`, () => HttpResponse.json(defaultAgenda)),
-  http.put(`${API_BASE_URL}/api/agenda/session`, () => HttpResponse.json(defaultAgenda))
+  http.put(`${API_BASE_URL}/api/agenda/session`, () => HttpResponse.json(defaultAgenda)),
+  http.post(`${API_BASE_URL}/api/agenda/session/action`, () => HttpResponse.json(defaultAgenda)),
+  http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, () => HttpResponse.json(defaultCohostProfiles)),
+  http.post(`${API_BASE_URL}/api/agenda/cohost-profiles`, async ({ request }) => {
+    const body = (await request.json()) as { name: string; style: string; priority?: string; length?: string };
+    const next: CohostProfilesResponse = {
+      profiles: [
+        ...defaultCohostProfiles.profiles.filter((profile) => profile.name !== body.name),
+        cohostProfile({
+          name: body.name,
+          style: body.style,
+          default_priority: body.priority ?? "normal",
+          default_response_length: body.length ?? "normal"
+        })
+      ]
+    };
+    return HttpResponse.json(next);
+  }),
+  http.post(`${API_BASE_URL}/api/agenda/cohost-profiles/select`, async ({ request }) => {
+    const body = (await request.json()) as { name: string };
+    return HttpResponse.json({ selected: body.name });
+  })
 ];
 
 /** Per-test override: switch rejected with 409 conflict. */
@@ -302,6 +583,32 @@ export function switchNotFoundHandler() {
   return http.post(`${API_BASE_URL}/api/perfiles/switch`, () =>
     HttpResponse.json({ detail: "profile not found" }, { status: 404 })
   );
+}
+
+/** Per-test override: POST /api/perfiles rejected with 409 (name already exists). */
+export function createPerfilConflictHandler(detail = "profile already exists") {
+  return http.post(`${API_BASE_URL}/api/perfiles`, () => HttpResponse.json({ detail }, { status: 409 }));
+}
+
+/** Per-test override: POST /api/perfiles rejected with 422 (invalid name/prompt). */
+export function createPerfilValidationHandler(detail = "invalid profile name") {
+  return http.post(`${API_BASE_URL}/api/perfiles`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: PUT /api/perfiles/:name rejected with 409 (new_name collision). */
+export function updatePerfilConflictHandler(detail = "profile already exists") {
+  return http.put(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ detail }, { status: 409 }));
+}
+
+/** Per-test override: DELETE /api/perfiles/:name rejected with 409 — the
+ * last-profile guard (opencohost/api/main.py::delete_perfil). */
+export function deletePerfilLastProfileHandler(detail = "cannot delete the last profile") {
+  return http.delete(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ detail }, { status: 409 }));
+}
+
+/** Per-test override: DELETE /api/perfiles/:name rejected with 404 (unknown profile). */
+export function deletePerfilNotFoundHandler(detail = "profile not found") {
+  return http.delete(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ detail }, { status: 404 }));
 }
 
 /**
@@ -510,6 +817,87 @@ export function musicLibraryGetErrorHandler(status = 503, detail = "music_unavai
   return http.get(`${API_BASE_URL}/api/music/library`, () => HttpResponse.json({ detail }, { status }));
 }
 
+/** Per-test override: POST /api/music/mood rejected with 422 (unknown mood). */
+export function musicMoodValidationHandler(detail = "unknown mood") {
+  return http.post(`${API_BASE_URL}/api/music/mood`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/music/mood fails at a non-422 status (e.g. 503 music_unavailable). */
+export function musicMoodErrorHandler(status = 503, detail = "music_unavailable") {
+  return http.post(`${API_BASE_URL}/api/music/mood`, () => HttpResponse.json({ detail }, { status }));
+}
+
+/** Per-test override: POST /api/music/mood returns a caller-supplied response
+ * (e.g. a multi-track bucket to exercise client-side rotation, or an empty
+ * bucket to exercise the suggested_track_id fallback). */
+export function musicMoodHandler(response: MusicMoodResponse) {
+  return http.post(`${API_BASE_URL}/api/music/mood`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: GET /api/music/state returns a caller-supplied response. */
+export function musicStateGetHandler(response: MusicStateResponse) {
+  return http.get(`${API_BASE_URL}/api/music/state`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: POST /api/music/fade rejected with 422 (unknown direction / out-of-range duration). */
+export function musicFadeValidationHandler(detail = "unknown direction") {
+  return http.post(`${API_BASE_URL}/api/music/fade`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/music/import returns a caller-supplied response. */
+export function musicImportHandler(response: MusicImportResponse) {
+  return http.post(`${API_BASE_URL}/api/music/import`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: POST /api/music/import rejected with 422 (unknown mood / invalid path). */
+export function musicImportValidationHandler(detail = "invalid path") {
+  return http.post(`${API_BASE_URL}/api/music/import`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/music/import fails with 503 (music_write_failed — the disk copy itself failed). */
+export function musicImportErrorHandler(detail = "music_write_failed") {
+  return http.post(`${API_BASE_URL}/api/music/import`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: DELETE /api/music/track/:id rejected with 404 (unknown/already-deleted track). */
+export function musicTrackDeleteNotFoundHandler(detail = "track not found") {
+  return http.delete(`${API_BASE_URL}/api/music/track/:id`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: DELETE /api/music/track/:id fails with 503 (music_write_failed — unlink itself failed). */
+export function musicTrackDeleteErrorHandler(detail = "music_write_failed") {
+  return http.delete(`${API_BASE_URL}/api/music/track/:id`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/**
+ * Per-test override pair simulating a real DELETE -> refetch cycle: GET
+ * /api/music/library keeps returning the full `library` until the matching
+ * DELETE succeeds, then serves `library` with `trackId` removed — so a
+ * component test that invalidates the library query after a successful
+ * delete sees the track actually disappear, without any shared mutable
+ * module state leaking across tests.
+ */
+export function musicLibraryDeleteFlowHandlers(library: MusicLibraryResponse, trackId: string) {
+  let deleted = false;
+  return [
+    http.get(`${API_BASE_URL}/api/music/library`, () => {
+      if (!deleted) {
+        return HttpResponse.json(library);
+      }
+      const tracks = library.tracks.filter((track) => track.id !== trackId);
+      return HttpResponse.json({
+        tracks,
+        count: tracks.length,
+        moods: Array.from(new Set(tracks.map((track) => track.mood)))
+      });
+    }),
+    http.delete(`${API_BASE_URL}/api/music/track/${trackId}`, () => {
+      deleted = true;
+      return HttpResponse.json({ ok: true });
+    })
+  ];
+}
+
 /** Per-test override: GET /api/agenda returns a caller-supplied response (e.g. an empty queue). */
 export function agendaGetHandler(response: AgendaResponse) {
   return http.get(`${API_BASE_URL}/api/agenda`, () => HttpResponse.json(response));
@@ -520,9 +908,28 @@ export function agendaGetErrorHandler(status = 503, detail = "agenda_unavailable
   return http.get(`${API_BASE_URL}/api/agenda`, () => HttpResponse.json({ detail }, { status }));
 }
 
+/**
+ * Per-test override simulating the agenda advancing between polls: GET
+ * /api/agenda keeps returning `before` for `flipAfterCalls` requests, then
+ * flips to `after` on every call after that — the agenda analog of
+ * evolvingLastReplyHandler, used to drive useAgendaEvents' snapshot diffing.
+ */
+export function evolvingAgendaHandler(before: AgendaResponse, after: AgendaResponse, flipAfterCalls: number) {
+  let calls = 0;
+  return http.get(`${API_BASE_URL}/api/agenda`, () => {
+    calls += 1;
+    return HttpResponse.json(calls > flipAfterCalls ? after : before);
+  });
+}
+
 /** Per-test override: POST /api/agenda/topic rejected with 422 (e.g. sanitize_topic_text failure). */
 export function agendaTopicValidationHandler(detail = "invalid topic") {
   return http.post(`${API_BASE_URL}/api/agenda/topic`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/agenda/topic/action rejected (e.g. agenda unavailable). */
+export function agendaTopicActionErrorHandler(status = 503, detail = "agenda_unavailable") {
+  return http.post(`${API_BASE_URL}/api/agenda/topic/action`, () => HttpResponse.json({ detail }, { status }));
 }
 
 /** Per-test override: POST /api/agenda/topic/action captures the request body for assertions. */
@@ -539,6 +946,146 @@ export function agendaSessionCaptureHandler(capture: { body?: unknown }, respons
     capture.body = await request.json();
     return HttpResponse.json(response);
   });
+}
+
+/** Per-test override: POST /api/agenda/session/action captures the request body for assertions. */
+export function agendaSessionActionCaptureHandler(
+  capture: { body?: unknown },
+  response: AgendaResponse = defaultAgenda
+) {
+  return http.post(`${API_BASE_URL}/api/agenda/session/action`, async ({ request }) => {
+    capture.body = await request.json();
+    return HttpResponse.json(response);
+  });
+}
+
+/** Per-test override: POST /api/agenda/session/action rejected with 503 (agenda_unavailable). */
+export function agendaSessionActionErrorHandler(status = 503, detail = "agenda_unavailable") {
+  return http.post(`${API_BASE_URL}/api/agenda/session/action`, () => HttpResponse.json({ detail }, { status }));
+}
+
+/**
+ * Per-test override: POST /api/agenda/session/action returns the CTK-parity
+ * empty-queue outcome (FIX-C) — 200 with applied=false, reason="empty_queue",
+ * and state OFF (enable refused because nothing is queued/active).
+ */
+export function agendaSessionActionEmptyQueueHandler() {
+  return http.post(`${API_BASE_URL}/api/agenda/session/action`, () =>
+    HttpResponse.json({ ...defaultAgenda, state: "OFF", applied: false, reason: "empty_queue" })
+  );
+}
+
+/** Per-test override: GET /api/agenda/cohost-profiles returns a caller-supplied response. */
+export function cohostProfilesGetHandler(response: CohostProfilesResponse) {
+  return http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: POST /api/agenda/cohost-profiles captures the request body for assertions. */
+export function cohostProfileSaveCaptureHandler(
+  capture: { body?: unknown },
+  response: CohostProfilesResponse = defaultCohostProfiles
+) {
+  return http.post(`${API_BASE_URL}/api/agenda/cohost-profiles`, async ({ request }) => {
+    capture.body = await request.json();
+    return HttpResponse.json(response);
+  });
+}
+
+/** Per-test override: POST /api/agenda/cohost-profiles rejected with 422 (empty profile name). */
+export function cohostProfileSaveValidationHandler(detail = "empty profile name") {
+  return http.post(`${API_BASE_URL}/api/agenda/cohost-profiles`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/agenda/cohost-profiles rejected with 503 (cohost_write_failed). */
+export function cohostProfileSaveErrorHandler(detail = "cohost_write_failed") {
+  return http.post(`${API_BASE_URL}/api/agenda/cohost-profiles`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: POST /api/agenda/cohost-profiles/select captures the request body for assertions. */
+export function cohostProfileSelectCaptureHandler(
+  capture: { body?: unknown },
+  response: CohostProfileSelectResponse = { selected: "Natural" }
+) {
+  return http.post(`${API_BASE_URL}/api/agenda/cohost-profiles/select`, async ({ request }) => {
+    capture.body = await request.json();
+    return HttpResponse.json(response);
+  });
+}
+
+/** Per-test override: POST /api/agenda/cohost-profiles/select rejected with 404 (unknown profile). */
+export function cohostProfileSelectNotFoundHandler(detail = "profile not found") {
+  return http.post(`${API_BASE_URL}/api/agenda/cohost-profiles/select`, () =>
+    HttpResponse.json({ detail }, { status: 404 })
+  );
+}
+
+/** Per-test override: GET /api/memoria/row/{id} rejected with 404 (memoria not found / wrong profile). */
+export function memoriaRowNotFoundHandler(detail = "memoria not found") {
+  return http.get(`${API_BASE_URL}/api/memoria/row/:rowId`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: GET /api/memoria/row/{id} rejected with 503 (memoria_unavailable). */
+export function memoriaRowUnavailableHandler(detail = "memoria_unavailable") {
+  return http.get(`${API_BASE_URL}/api/memoria/row/:rowId`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: counts every GET /api/memoria/row/{id} request while still
+ * answering with the default fixture — lets a test prove the row endpoint was
+ * NEVER hit while the list renders (content loads on-demand only). */
+export function memoriaRowSpyHandler(counter: { calls: number }) {
+  return http.get(`${API_BASE_URL}/api/memoria/row/:rowId`, ({ params }) => {
+    counter.calls += 1;
+    const row = defaultMemoriaRows[String(params.rowId)];
+    if (!row) {
+      return HttpResponse.json({ detail: "memoria not found" }, { status: 404 });
+    }
+    return HttpResponse.json(row);
+  });
+}
+
+/** Per-test override: POST /api/memoria/flags rejected with 422 (no flags provided). */
+export function memoriaFlagsValidationHandler(detail = "no flags provided") {
+  return http.post(`${API_BASE_URL}/api/memoria/flags`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/memoria/flags rejected with 404 (memoria not found / wrong profile). */
+export function memoriaFlagsNotFoundHandler(detail = "memoria not found") {
+  return http.post(`${API_BASE_URL}/api/memoria/flags`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: POST /api/memoria/flags rejected with 503 (memoria_unavailable / memoria_write_failed). */
+export function memoriaFlagsUnavailableHandler(detail = "memoria_unavailable") {
+  return http.post(`${API_BASE_URL}/api/memoria/flags`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: POST /api/memoria/delete rejected with 404 (memoria not found / wrong profile). */
+export function memoriaDeleteNotFoundHandler(detail = "memoria not found") {
+  return http.post(`${API_BASE_URL}/api/memoria/delete`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: POST /api/memoria/delete rejected with 503 (memoria_unavailable / memoria_write_failed). */
+export function memoriaDeleteUnavailableHandler(detail = "memoria_unavailable") {
+  return http.post(`${API_BASE_URL}/api/memoria/delete`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: POST /api/memoria/update rejected with 422 (empty title/content, or exceeds max length). */
+export function memoriaUpdateValidationHandler(detail = "title and content must not be empty") {
+  return http.post(`${API_BASE_URL}/api/memoria/update`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/memoria/update rejected with 404 (memoria not found / wrong profile). */
+export function memoriaUpdateNotFoundHandler(detail = "memoria not found") {
+  return http.post(`${API_BASE_URL}/api/memoria/update`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: POST /api/memoria/update rejected with 503 (memoria_unavailable / memoria_write_failed). */
+export function memoriaUpdateUnavailableHandler(detail = "memoria_unavailable") {
+  return http.post(`${API_BASE_URL}/api/memoria/update`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: GET /api/memoria/notice fails (surfaced as a generic ApiError). */
+export function memoriaNoticeGetErrorHandler() {
+  return http.get(`${API_BASE_URL}/api/memoria/notice`, () => HttpResponse.json({ detail: "boom" }, { status: 500 }));
 }
 
 /** Per-test override: GET /api/status's current_model flips after N calls (switch_model convergence). */

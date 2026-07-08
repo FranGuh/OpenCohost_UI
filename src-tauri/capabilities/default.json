@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capability for the prototype shell",
   "windows": ["main"],
-  "permissions": []
+  "permissions": ["core:default"]
 }

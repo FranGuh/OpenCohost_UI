@@ -1,7 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, ConflictError, ValidationError } from "./client.js";
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+import { ApiError, ConflictError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 
 /**
  * GET /api/stream/chat-live + POST .../connect + POST .../disconnect + PUT
@@ -32,7 +30,7 @@ export interface StreamLimitsRequest {
 export const STREAM_CHAT_LIVE_QUERY_KEY = ["stream-chat-live"] as const;
 
 export async function getStreamChatLive(): Promise<StreamChatLiveResponse> {
-  const res = await fetch(`${BASE_URL}/api/stream/chat-live`);
+  const res = await fetch(`${getApiBaseUrl()}/api/stream/chat-live`);
   if (!res.ok) {
     throw new ApiError(`GET /api/stream/chat-live failed with ${res.status}`, res.status);
   }
@@ -40,7 +38,7 @@ export async function getStreamChatLive(): Promise<StreamChatLiveResponse> {
 }
 
 export async function postStreamConnect(url: string): Promise<StreamChatLiveResponse> {
-  const res = await fetch(`${BASE_URL}/api/stream/chat-live/connect`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/stream/chat-live/connect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url })
@@ -66,7 +64,7 @@ export async function postStreamConnect(url: string): Promise<StreamChatLiveResp
 }
 
 export async function postStreamDisconnect(): Promise<StreamChatLiveResponse> {
-  const res = await fetch(`${BASE_URL}/api/stream/chat-live/disconnect`, { method: "POST" });
+  const res = await authFetch(`${getApiBaseUrl()}/api/stream/chat-live/disconnect`, { method: "POST" });
 
   if (res.status === 409) {
     throw new ConflictError("stream disconnect busy");
@@ -78,7 +76,7 @@ export async function postStreamDisconnect(): Promise<StreamChatLiveResponse> {
 }
 
 export async function putStreamLimits(body: StreamLimitsRequest): Promise<StreamChatLiveResponse> {
-  const res = await fetch(`${BASE_URL}/api/stream/chat-live/limits`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/stream/chat-live/limits`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)

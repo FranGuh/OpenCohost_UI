@@ -1,7 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, ValidationError } from "./client.js";
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+import { ApiError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 
 /**
  * GET/PUT /api/obs/config + POST /api/obs/test (opencohost/api/main.py
@@ -37,7 +35,7 @@ export interface ObsTestResponse {
 export const OBS_CONFIG_QUERY_KEY = ["obs-config"] as const;
 
 export async function getObsConfig(): Promise<ObsConfigResponse> {
-  const res = await fetch(`${BASE_URL}/api/obs/config`);
+  const res = await fetch(`${getApiBaseUrl()}/api/obs/config`);
   if (!res.ok) {
     throw new ApiError(`GET /api/obs/config failed with ${res.status}`, res.status);
   }
@@ -45,7 +43,7 @@ export async function getObsConfig(): Promise<ObsConfigResponse> {
 }
 
 export async function putObsConfig(body: ObsConfigRequest): Promise<ObsConfigResponse> {
-  const res = await fetch(`${BASE_URL}/api/obs/config`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/obs/config`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -68,7 +66,7 @@ export async function putObsConfig(body: ObsConfigRequest): Promise<ObsConfigRes
 }
 
 export async function postObsTest(body: ObsConfigRequest): Promise<ObsTestResponse> {
-  const res = await fetch(`${BASE_URL}/api/obs/test`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/obs/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)

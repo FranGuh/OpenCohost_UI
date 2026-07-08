@@ -4,6 +4,8 @@ import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import type { BadgeTone } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
+import { cn } from "../lib/cn.js";
+import { Input } from "./ui/Input.js";
 import { Select } from "./ui/Select.js";
 import { Segmented } from "./ui/Segmented.js";
 import { Switch } from "./ui/Switch.js";
@@ -55,7 +57,62 @@ function isValidStreamUrl(value: string): boolean {
   }
 }
 
+// ─── Shared collapsible header ─────────────────────────────────────────────
+
+interface CollapsibleHeaderProps {
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+function CollapsibleHeader({ isOpen, onToggle, children }: CollapsibleHeaderProps) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={isOpen}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); }
+      }}
+      className={cn(
+        "flex cursor-pointer select-none items-center justify-between gap-3",
+        isOpen && "border-b border-border-soft pb-3"
+      )}
+    >
+      {children}
+      <span
+        aria-hidden="true"
+        className={cn("shrink-0 text-xs text-dim transition-transform duration-200", !isOpen && "-rotate-90")}
+      >
+        ▾
+      </span>
+    </div>
+  );
+}
+
+// ─── Shared collapsible body ───────────────────────────────────────────────
+
+function CollapsibleBody({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "grid transition-all duration-200 ease-in-out",
+        isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0"
+      )}
+    >
+      {/* overflow-hidden only while collapsed so the grid-rows animation clips
+          correctly, but removed when open so absolutely-positioned dropdowns
+          (Select listbox) are never cut off by this boundary. */}
+      <div className={cn("min-h-0", !isOpen && "overflow-hidden")}>{children}</div>
+    </div>
+  );
+}
+
+// ─── Chat en vivo ─────────────────────────────────────────────────────────
+
 function ChatLiveCard() {
+  const [isOpen, setIsOpen] = useState(true);
   const [url, setUrl] = useState(STREAM_FIXTURE.url);
   const [error, setError] = useState<string | null>(null);
   const chatLiveQuery = useStreamChatLiveQuery();
@@ -91,57 +148,61 @@ function ChatLiveCard() {
 
   return (
     <Card className="flex flex-col p-4">
-      <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
+      <CollapsibleHeader isOpen={isOpen} onToggle={() => setIsOpen((o) => !o)}>
         <h2 className="text-sm font-bold text-foreground">Chat en vivo</h2>
         <Badge tone={badge.tone}>{badge.label}</Badge>
-      </div>
+      </CollapsibleHeader>
 
-      <div className="flex flex-col gap-3.5 pt-3.5">
-        <section aria-labelledby="stream-url-label" className="space-y-2">
-          <span id="stream-url-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Conexión
-          </span>
-          <form onSubmit={(event) => void handleConnect(event)} className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <input
-              type="text"
-              aria-label="URL del directo"
-              value={url}
-              disabled={connectMutation.isPending || connectionState === "conectado"}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://twitch.tv/tu_canal o https://youtube.com/watch?v=..."
-              className="h-11 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60"
-            />
+      <CollapsibleBody isOpen={isOpen}>
+        <div className="flex flex-col gap-3.5">
+          <section aria-labelledby="stream-url-label" className="space-y-2">
+            <span id="stream-url-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Conexión
+            </span>
+            <form onSubmit={(event) => void handleConnect(event)}>
+              <Input
+                type="text"
+                aria-label="URL del directo"
+                value={url}
+                disabled={connectMutation.isPending || connectionState === "conectado"}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://twitch.tv/tu_canal o https://youtube.com/watch?v=..."
+                trailing={
+                  <button
+                    type="submit"
+                    disabled={connectMutation.isPending || connectionState === "conectado"}
+                    className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    Conectar
+                  </button>
+                }
+              />
+            </form>
+            {error && (
+              <p role="alert" className="text-xs text-danger">
+                {error}
+              </p>
+            )}
+          </section>
+
+          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+            <span className="text-[13px] text-foreground">Desconectar del chat en vivo</span>
             <Button
-              type="submit"
-              variant="primary"
-              className="bg-[image:var(--spectrum)]"
-              disabled={connectMutation.isPending || connectionState === "conectado"}
+              type="button"
+              variant="outline"
+              disabled={connectionState !== "conectado" || disconnectMutation.isPending}
+              onClick={handleDisconnect}
             >
-              Conectar
+              Desconectar
             </Button>
-          </form>
-          {error && (
-            <p role="alert" className="text-xs text-danger">
-              {error}
-            </p>
-          )}
-        </section>
-
-        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-          <span className="text-[13px] text-foreground">Desconectar del chat en vivo</span>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={connectionState !== "conectado" || disconnectMutation.isPending}
-            onClick={handleDisconnect}
-          >
-            Desconectar
-          </Button>
+          </div>
         </div>
-      </div>
+      </CollapsibleBody>
     </Card>
   );
 }
+
+// ─── Acciones option sets ─────────────────────────────────────────────────
 
 const REACTION_OPTIONS = [
   { value: "0.5", label: "0.5 msg/s" },
@@ -191,7 +252,10 @@ function presetForValue<T extends string>(value: string, presetValues: Record<T,
   return match ? match[0] : null;
 }
 
+// ─── Acciones ─────────────────────────────────────────────────────────────
+
 function AccionesCard() {
+  const [isOpen, setIsOpen] = useState(true);
   const chatLiveQuery = useStreamChatLiveQuery();
   const limitsMutation = useStreamLimitsMutation();
 
@@ -214,160 +278,159 @@ function AccionesCard() {
 
   return (
     <Card className="flex flex-col p-4">
-      <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
+      <CollapsibleHeader isOpen={isOpen} onToggle={() => setIsOpen((o) => !o)}>
         <h2 className="text-sm font-bold text-foreground">Acciones</h2>
         {pending && <Badge tone="info">aplicando…</Badge>}
-      </div>
+      </CollapsibleHeader>
 
-      <div className="flex flex-col gap-3.5 pt-3.5">
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          El contrato de entrada es un cambio local — el endpoint ya acepta{" "}
-          <span className="mono">filter_policy</span>, pero falta decidir qué valor de preset le corresponde a este
-          switch.
-        </p>
-
-        <section aria-labelledby="stream-reactions-label" className="space-y-2">
-          <span id="stream-reactions-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Reacciones
-          </span>
-          <div className="space-y-2">
-            <span id="stream-reaction-helper" className="text-xs text-muted-foreground">
-              Reaccionar si el chat supera
-            </span>
-            <Select
-              aria-label="Umbral de reacciones"
-              aria-describedby="stream-reaction-helper"
-              value={reactionThreshold}
-              disabled={limitsMutation.isPending}
-              onChange={(event) => {
-                setReactionThreshold(event.target.value);
-                limitsMutation.mutate({ threshold_per_second: Number(event.target.value) });
-              }}
-            >
-              {REACTION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
+      <CollapsibleBody isOpen={isOpen}>
+        <div className="flex flex-col">
+          {/* Deferred note — local-only filter_policy switch */}
+          <div role="status" className="mb-3.5 rounded-md border border-warn-bd bg-warn-bg px-3 py-2.5">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              El contrato de entrada es un cambio local — el endpoint ya acepta{" "}
+              <span className="mono text-warn">filter_policy</span>, pero falta decidir qué valor de preset le
+              corresponde a este switch.
+            </p>
           </div>
-          <Segmented
-            ariaLabel="Preset de reacciones"
-            options={PRESET_OPTIONS}
-            value={reactionPreset}
-            disabled={limitsMutation.isPending}
-            onChange={(level) => {
-              const value = REACTION_PRESET_VALUES[level];
-              setReactionThreshold(value);
-              limitsMutation.mutate({ threshold_per_second: Number(value) });
-            }}
-          />
-        </section>
 
-        <section aria-labelledby="stream-cooldown-label" className="space-y-2">
-          <span id="stream-cooldown-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Cooldown
-          </span>
-          <div className="space-y-2">
-            <span id="stream-cooldown-helper" className="text-xs text-muted-foreground">
-              Esperar al menos, entre reacciones
+          <section aria-labelledby="stream-reactions-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-reactions-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Reacciones
             </span>
-            <Select
-              aria-label="Cooldown entre reacciones"
-              aria-describedby="stream-cooldown-helper"
-              value={cooldown}
+            <div className="space-y-2">
+              <span id="stream-reaction-helper" className="text-xs text-muted-foreground">
+                Reaccionar si el chat supera
+              </span>
+              <Select
+                aria-label="Umbral de reacciones"
+                aria-describedby="stream-reaction-helper"
+                options={REACTION_OPTIONS}
+                value={reactionThreshold}
+                disabled={limitsMutation.isPending}
+                onChange={(value) => {
+                  setReactionThreshold(value);
+                  limitsMutation.mutate({ threshold_per_second: Number(value) });
+                }}
+              />
+            </div>
+            <Segmented
+              ariaLabel="Preset de reacciones"
+              options={PRESET_OPTIONS}
+              value={reactionPreset}
               disabled={limitsMutation.isPending}
-              onChange={(event) => {
-                setCooldown(event.target.value);
-                limitsMutation.mutate({ cooldown_seconds: Number(event.target.value) });
+              onChange={(level) => {
+                const value = REACTION_PRESET_VALUES[level];
+                setReactionThreshold(value);
+                limitsMutation.mutate({ threshold_per_second: Number(value) });
               }}
-            >
-              {COOLDOWN_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <Segmented
-            ariaLabel="Preset de cooldown"
-            options={PRESET_OPTIONS}
-            value={cooldownPreset}
-            disabled={limitsMutation.isPending}
-            onChange={(level) => {
-              const value = COOLDOWN_PRESET_VALUES[level];
-              setCooldown(value);
-              limitsMutation.mutate({ cooldown_seconds: Number(value) });
-            }}
-          />
-        </section>
-
-        <section aria-labelledby="stream-spam-label" className="space-y-2">
-          <span id="stream-spam-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Spam
-          </span>
-          <div className="space-y-2">
-            <span id="stream-spam-helper" className="text-xs text-muted-foreground">
-              Límite de mensajes repetidos
-            </span>
-            <Select
-              aria-label="Límite de spam"
-              aria-describedby="stream-spam-helper"
-              value={spamLimit}
-              disabled={limitsMutation.isPending}
-              onChange={(event) => {
-                setSpamLimit(event.target.value);
-                limitsMutation.mutate({ max_messages_per_user: Number(event.target.value) });
-              }}
-            >
-              {SPAM_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </section>
-
-        <section aria-labelledby="stream-input-contract-label" className="space-y-2">
-          <span
-            id="stream-input-contract-label"
-            className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-          >
-            Contrato de entrada
-          </span>
-          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">Input Contract (contexto real)</span>
-            <Switch
-              checked={inputContract}
-              disabled
-              onChange={() => {}}
-              aria-label="Input Contract"
             />
-          </div>
-        </section>
-      </div>
+          </section>
+
+          <section aria-labelledby="stream-cooldown-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-cooldown-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Cooldown
+            </span>
+            <div className="space-y-2">
+              <span id="stream-cooldown-helper" className="text-xs text-muted-foreground">
+                Esperar al menos, entre reacciones
+              </span>
+              <Select
+                aria-label="Cooldown entre reacciones"
+                aria-describedby="stream-cooldown-helper"
+                options={COOLDOWN_OPTIONS}
+                value={cooldown}
+                disabled={limitsMutation.isPending}
+                onChange={(value) => {
+                  setCooldown(value);
+                  limitsMutation.mutate({ cooldown_seconds: Number(value) });
+                }}
+              />
+            </div>
+            <Segmented
+              ariaLabel="Preset de cooldown"
+              options={PRESET_OPTIONS}
+              value={cooldownPreset}
+              disabled={limitsMutation.isPending}
+              onChange={(level) => {
+                const value = COOLDOWN_PRESET_VALUES[level];
+                setCooldown(value);
+                limitsMutation.mutate({ cooldown_seconds: Number(value) });
+              }}
+            />
+          </section>
+
+          <section aria-labelledby="stream-spam-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-spam-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Spam
+            </span>
+            <div className="space-y-2">
+              <span id="stream-spam-helper" className="text-xs text-muted-foreground">
+                Límite de mensajes repetidos
+              </span>
+              <Select
+                aria-label="Límite de spam"
+                aria-describedby="stream-spam-helper"
+                options={SPAM_OPTIONS}
+                value={spamLimit}
+                disabled={limitsMutation.isPending}
+                onChange={(value) => {
+                  setSpamLimit(value);
+                  limitsMutation.mutate({ max_messages_per_user: Number(value) });
+                }}
+              />
+            </div>
+          </section>
+
+          <section aria-labelledby="stream-input-contract-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span
+              id="stream-input-contract-label"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              Contrato de entrada
+            </span>
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <span className="text-[13px] text-foreground">Input Contract (contexto real)</span>
+              <Switch
+                checked={inputContract}
+                disabled
+                onChange={() => {}}
+                aria-label="Input Contract"
+              />
+            </div>
+          </section>
+        </div>
+      </CollapsibleBody>
     </Card>
   );
 }
+
+// ─── Emisión (deferred) ───────────────────────────────────────────────────
 
 /** RF4 (OAuth connect, stream metadata, moderation) is flagged off in the
  * CTK (STREAM_ADMIN_ENABLED=False) pending an owner product decision — this
  * is a single honest deferred note, nothing interactive. */
 function DeferredStreamAdminNote() {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
     <Card className="flex flex-col p-4">
-      <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
+      <CollapsibleHeader isOpen={isOpen} onToggle={() => setIsOpen((o) => !o)}>
         <h2 className="text-sm font-bold text-foreground">Emisión (OAuth/metadata/moderación)</h2>
         <Badge tone="neutral">pendiente</Badge>
-      </div>
-      <p role="status" className="pt-3.5 text-xs leading-relaxed text-muted-foreground">
-        Conexión OAuth, metadata del stream y moderación existen en el CTK pero están pendientes de una decisión de
-        producto del owner — todavía no hay nada interactivo acá.
-      </p>
+      </CollapsibleHeader>
+
+      <CollapsibleBody isOpen={isOpen}>
+        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
+          Conexión OAuth, metadata del stream y moderación existen en el CTK pero están pendientes de una decisión de
+          producto del owner — todavía no hay nada interactivo acá.
+        </p>
+      </CollapsibleBody>
     </Card>
   );
 }
+
+// ─── Public export ────────────────────────────────────────────────────────
 
 /**
  * Stream panel — RF3 "Chat en vivo" only. CTK parity:

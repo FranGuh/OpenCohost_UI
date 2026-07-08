@@ -10,6 +10,8 @@ import {
   chatTurnNetworkErrorHandler,
   chatTurnQueueFullHandler,
   chatTurnValidationHandler,
+  defaultAgenda,
+  evolvingAgendaHandler,
   evolvingLastReplyHandler,
   lastReplyHandler
 } from "../test/handlers.js";
@@ -248,5 +250,108 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
 
     await waitFor(() => expect(input.value).toBe(""));
     expect(screen.getAllByText("hola")).toHaveLength(1);
+  });
+});
+
+describe("ConversationPanel transcript accumulation (WU-F)", () => {
+  it("appends each new Kira reply instead of replacing the previous one, and dedupes refetches of the same turn_id", async () => {
+    server.use(
+      evolvingLastReplyHandler({ text: "primera respuesta", turn_id: 1 }, { text: "segunda respuesta", turn_id: 2 }, 1)
+    );
+    renderPanel();
+
+    await screen.findByText("primera respuesta");
+    await waitFor(() => expect(screen.getByText("segunda respuesta")).toBeInTheDocument(), { timeout: 4000 });
+    // The first reply must STILL be visible — this is the actual bug: the
+    // old implementation replaced it instead of appending.
+    expect(screen.getByText("primera respuesta")).toBeInTheDocument();
+
+    // A poll refetch that keeps returning the SAME (already-recorded) turn_id
+    // must not append a duplicate entry.
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    expect(screen.getAllByText("segunda respuesta")).toHaveLength(1);
+  });
+
+  it("does not render a phantom Kira turn before the first reply lands (turn_id: 0, text: null)", async () => {
+    renderPanel();
+    await new Promise((resolve) => setTimeout(resolve, 1700)); // let a poll cycle elapse
+    expect(screen.queryByText("KIRA")).not.toBeInTheDocument();
+  });
+
+  it("resyncs without appending when turn_id regresses (backend restart resets the counter), then appends normally once a genuinely new turn_id lands", async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/chat/last-reply`, () => {
+        calls += 1;
+        if (calls === 1) return HttpResponse.json({ text: "reply five", turn_id: 5 });
+        // Backend restarted — its turn_id counter reset to 1, and the reply
+        // it serves is stale from the new process's perspective.
+        if (calls === 2) return HttpResponse.json({ text: "stale reply one", turn_id: 1 });
+        return HttpResponse.json({ text: "reply two", turn_id: 2 });
+      })
+    );
+    renderPanel();
+
+    await screen.findByText("reply five");
+
+    // The regression (turn_id 1 < 5) must resync silently — no new bubble,
+    // no duplicate key.
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    expect(screen.queryByText("stale reply one")).not.toBeInTheDocument();
+
+    // A genuinely new turn_id relative to the new (post-restart) baseline
+    // appends exactly once.
+    await waitFor(() => expect(screen.getByText("reply two")).toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.getAllByText("reply two")).toHaveLength(1);
+    expect(screen.getByText("reply five")).toBeInTheDocument();
+  });
+
+  it("keeps every operator message visible across multiple sends (they must not be replaced either)", async () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "primer mensaje" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(input.value).toBe(""));
+
+    fireEvent.change(input, { target: { value: "segundo mensaje" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(input.value).toBe(""));
+
+    expect(screen.getByText("primer mensaje")).toBeInTheDocument();
+    expect(screen.getByText("segundo mensaje")).toBeInTheDocument();
+  });
+});
+
+describe("ConversationPanel — agenda events in chat (WU4)", () => {
+  it("renders an agenda divider line when a topic activates on the poll", async () => {
+    // First snapshot seeds the baseline (no active topic); the second poll
+    // activates a topic, which useAgendaEvents diffs into a "turno" event.
+    const before: typeof defaultAgenda = { ...defaultAgenda, active_topic: null };
+    const after: typeof defaultAgenda = {
+      ...defaultAgenda,
+      active_topic: { ...defaultAgenda.active_topic!, turns_spoken: 1 }
+    };
+    server.use(evolvingAgendaHandler(before, after, 1));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/turno 1 · tema: Mods como cultura popular en gaming/)).toBeInTheDocument(), {
+      timeout: 4000
+    });
+    // It renders as an alert divider — visible in the Alertas tab, hidden in Chat.
+    fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
+    expect(screen.queryByText(/turno 1 · tema/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Alertas" }));
+    expect(screen.getByText(/turno 1 · tema/)).toBeInTheDocument();
+  });
+
+  it("tags a Kira reply from an autonomous agenda turn distinctly from a chat reply", async () => {
+    server.use(lastReplyHandler({ text: "arranco con el tema de mods", source: "kira-agenda-topic-now", turn_id: 3 }));
+    renderPanel();
+
+    expect(await screen.findByText("arranco con el tema de mods")).toBeInTheDocument();
+    // The agenda-sourced reply carries a distinct label, not the plain "KIRA".
+    expect(screen.getByText("KIRA · AGENDA")).toBeInTheDocument();
+    expect(screen.queryByText("KIRA")).not.toBeInTheDocument();
   });
 });

@@ -2,17 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Card } from "./ui/Card.js";
 import { Button } from "./ui/Button.js";
-import { useMockCommand } from "../api/mock/useMockCommand.js";
+import {
+  type ProfileUpdateRequest,
+  useCreateProfileMutation,
+  useDeleteProfileMutation,
+  useProfileDetailQuery,
+  useUpdateProfileMutation
+} from "../api/profiles.js";
+import { useMemoriaPurgeMutation } from "../api/memoria.js";
 
 export type ProfileEditorMode = "create" | "edit";
-
-interface ProfileEditorPayload {
-  action: "save" | "delete";
-  mode: ProfileEditorMode;
-  name: string;
-  systemPrompt?: string;
-  purgeMemory?: boolean;
-}
 
 export interface ProfileEditorProps {
   open: boolean;
@@ -29,12 +28,13 @@ const TITLES: Record<ProfileEditorMode, string> = {
 
 /**
  * Profile create / rename / edit-system-prompt / delete(+memoria-purge)
- * dialog — parity target: opencohost/ui/profiles_window.py. MOCK ONLY: the
- * backend exposes no create/rename/edit-prompt/delete endpoint (only
- * GET /api/perfiles + POST /api/perfiles/switch), so submit runs
- * useMockCommand (same accepted != applied contract as the Controles mock
- * cards) and surfaces a role="status" not-wired note — it never mutates the
- * real useProfileSwitch profile list or fabricates a persisted result.
+ * dialog — parity target: opencohost/ui/profiles_window.py. Wired to the
+ * real CRUD routes (opencohost/api/main.py ~606-702): POST/PUT/GET/DELETE
+ * /api/perfiles(/{name}). Edit mode hydrates the prompt from GET so a save
+ * always resends a real value (never the old "empty means unchanged" mock
+ * convention). `use_system` is read-only here (no UI control yet) — an
+ * update never sends it, relying on the backend's partial-update contract
+ * (an omitted field leaves the stored value unchanged).
  */
 export function ProfileEditor({ open, mode, onClose, initialName = "" }: ProfileEditorProps) {
   const [name, setName] = useState(initialName);
@@ -42,13 +42,27 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   const [nameTouched, setNameTouched] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [purgeMemory, setPurgeMemory] = useState(false);
-  const [lastSubmitted, setLastSubmitted] = useState<ProfileEditorPayload | null>(null);
-  const command = useMockCommand<ProfileEditorPayload>();
+  // Set only once the profile itself has already been deleted successfully
+  // but the follow-up memoria purge failed — the profile no longer exists,
+  // so retrying must re-attempt ONLY the purge, never the delete.
+  const [purgeFailedAfterDelete, setPurgeFailedAfterDelete] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const initialNameRef = useRef(initialName);
   initialNameRef.current = initialName;
+
+  // Hydration query — only fetches while the dialog is open in edit mode, so
+  // the always-mounted component never fetches in the background while
+  // closed or while creating a new profile.
+  const profileDetail = useProfileDetailQuery(open && mode === "edit" ? initialName : null);
+  const createMutation = useCreateProfileMutation();
+  const updateMutation = useUpdateProfileMutation();
+  const deleteMutation = useDeleteProfileMutation();
+  // Memoria rows are stored keyed by the profile's stable uuid, not its
+  // display name — target the `id` hydrated from GET /api/perfiles/{name},
+  // never `initialName`.
+  const purgeMutation = useMemoriaPurgeMutation(profileDetail.data?.id ?? "");
 
   // On open: remember the trigger, reset from the open-time initialName (a
   // later activeProfile reconcile must not clobber in-progress input), and
@@ -62,10 +76,26 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
     setNameTouched(false);
     setConfirmDelete(false);
     setPurgeMemory(false);
-    setLastSubmitted(null);
+    setPurgeFailedAfterDelete(false);
+    createMutation.reset();
+    updateMutation.reset();
+    deleteMutation.reset();
+    purgeMutation.reset();
     nameInputRef.current?.focus();
     return () => triggerRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Hydrate the prompt from the real backend once GET /api/perfiles/{name}
+  // resolves. Declared AFTER the reset effect above so, on the same open
+  // transition, this effect's write wins even when profileDetail.data was
+  // already cached from a previous open of the same profile (in which case
+  // its reference — and thus this effect's own dependency — never changes).
+  useEffect(() => {
+    if (!open || mode !== "edit" || !profileDetail.data) return;
+    setSystemPrompt(profileDetail.data.prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, profileDetail.data]);
 
   // Trap Tab within the dialog while open (aria-modal only hides the
   // background from AT; it does not stop keyboard focus escaping).
@@ -99,25 +129,50 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
 
   const trimmedName = name.trim();
   const nameInvalid = nameTouched && trimmedName.length === 0;
+  const savePending = mode === "create" ? createMutation.isPending : updateMutation.isPending;
+  const saveError = mode === "create" ? createMutation.error : updateMutation.error;
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setNameTouched(true);
     if (!trimmedName) return;
-    const payload: ProfileEditorPayload = { action: "save", mode, name: trimmedName, systemPrompt };
-    setLastSubmitted(payload);
-    void command.run(payload);
+
+    if (mode === "create") {
+      createMutation.mutate({ name: trimmedName, prompt: systemPrompt }, { onSuccess: onClose });
+      return;
+    }
+
+    const body: ProfileUpdateRequest = { prompt: systemPrompt };
+    if (trimmedName !== initialName) body.new_name = trimmedName;
+    updateMutation.mutate({ name: initialName, body }, { onSuccess: onClose });
   }
 
+  // Delete and purge run SEQUENTIALLY — the dialog only closes once both
+  // steps that were requested actually succeed. If the purge fails after a
+  // successful delete, the profile is already gone: keep the dialog open
+  // and surface the failure instead of silently losing it (fire-and-forget
+  // was the bug — a lost purge left orphaned memoria rows with no
+  // indication anything went wrong).
   function handleConfirmDelete() {
-    const payload: ProfileEditorPayload = {
-      action: "delete",
-      mode,
-      name: trimmedName || initialName,
-      purgeMemory
-    };
-    setLastSubmitted(payload);
-    void command.run(payload);
+    deleteMutation.mutate(initialName, {
+      onSuccess: () => {
+        if (!purgeMemory) {
+          onClose();
+          return;
+        }
+        purgeMutation.mutate(undefined, {
+          onSuccess: onClose,
+          onError: () => setPurgeFailedAfterDelete(true)
+        });
+      }
+    });
+  }
+
+  function handleRetryPurge() {
+    purgeMutation.mutate(undefined, {
+      onSuccess: onClose,
+      onError: () => setPurgeFailedAfterDelete(true)
+    });
   }
 
   return (
@@ -190,10 +245,9 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 placeholder="Escribí la personalidad de Kira…"
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               />
-              {mode === "edit" && (
-                <p className="text-xs text-dim">
-                  El prompt actual no se puede leer del backend todavía — escribí uno nuevo o dejalo vacío para no
-                  cambiarlo.
+              {mode === "edit" && profileDetail.isError && (
+                <p role="alert" className="text-xs text-danger">
+                  No se pudo cargar el perfil.
                 </p>
               )}
             </section>
@@ -210,30 +264,60 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                   Eliminar perfil
                 </span>
                 {confirmDelete ? (
-                  <div className="flex flex-col gap-2">
-                    <label className="flex items-center gap-2 text-xs text-foreground">
-                      <input
-                        type="checkbox"
-                        checked={purgeMemory}
-                        onChange={(event) => setPurgeMemory(event.target.checked)}
-                        className="h-4 w-4 accent-danger"
-                      />
-                      Purgar memoria asociada a este perfil
-                    </label>
-                    <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                      <p className="text-xs text-danger">
-                        ¿Eliminar «{trimmedName || initialName}»? No se puede deshacer.
+                  purgeFailedAfterDelete ? (
+                    // The profile itself is already gone at this point — only
+                    // the purge can be retried, never the delete again.
+                    <div className="flex flex-col gap-2">
+                      <p role="alert" className="text-xs text-danger">
+                        Se eliminó «{initialName}», pero no se pudo purgar su memoria asociada.
                       </p>
-                      <div className="flex gap-2">
-                        <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
-                          Cancelar
-                        </Button>
-                        <Button type="button" variant="outline" disabled={command.pending} onClick={handleConfirmDelete}>
-                          Confirmar
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={purgeMutation.isPending}
+                          onClick={handleRetryPurge}
+                        >
+                          {purgeMutation.isPending ? "Reintentando…" : "Reintentar purga"}
                         </Button>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center gap-2 text-xs text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={purgeMemory}
+                          onChange={(event) => setPurgeMemory(event.target.checked)}
+                          className="h-4 w-4 accent-danger"
+                        />
+                        Purgar memoria asociada a este perfil
+                      </label>
+                      <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                        <p className="text-xs text-danger">
+                          ¿Eliminar «{initialName}»? No se puede deshacer.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={deleteMutation.isPending}
+                            onClick={handleConfirmDelete}
+                          >
+                            {deleteMutation.isPending ? "Eliminando…" : "Confirmar"}
+                          </Button>
+                        </div>
+                      </div>
+                      {deleteMutation.isError && (
+                        <p role="alert" className="text-xs text-danger">
+                          {deleteMutation.error?.message ?? "No se pudo eliminar el perfil."}
+                        </p>
+                      )}
+                    </div>
+                  )
                 ) : (
                   <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                     <span className="text-[13px] text-foreground">Eliminar este perfil.</span>
@@ -245,11 +329,9 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               </section>
             )}
 
-            {lastSubmitted && (
-              <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-                {command.pending
-                  ? "Aplicando…"
-                  : "La gestión de perfiles se habilitará cuando el backend lo soporte — este cambio no se guardó."}
+            {saveError && (
+              <p role="alert" className="text-xs leading-relaxed text-danger">
+                {saveError.message ?? "No se pudo guardar el perfil."}
               </p>
             )}
 
@@ -257,8 +339,8 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               <Button type="button" variant="ghost" onClick={onClose}>
                 Cancelar
               </Button>
-              <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={command.pending}>
-                {command.pending ? "Guardando…" : "Guardar"}
+              <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={savePending}>
+                {savePending ? "Guardando…" : "Guardar"}
               </Button>
             </div>
           </form>

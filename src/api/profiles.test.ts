@@ -13,7 +13,8 @@ import {
   switchQueueFullHandler
 } from "../test/handlers.js";
 import { useSwitchStore } from "../store/switchStore.js";
-import { useProfilesQuery, useSwitchProfileMutation } from "./profiles.js";
+import { createPerfil, deletePerfil, getPerfil, updatePerfil, useProfilesQuery, useSwitchProfileMutation } from "./profiles.js";
+import { ConflictError, NotFoundError, ValidationError } from "./client.js";
 import { MODELS_QUERY_KEY } from "./models.js";
 import { STATUS_QUERY_KEY, usePollUntilApplied } from "./status.js";
 
@@ -358,5 +359,136 @@ describe("useSwitchProfileMutation (spec R5, R6, R7)", () => {
     });
 
     expect(useSwitchStore.getState().pendingSwitch).toBeNull();
+  });
+});
+
+describe("profiles CRUD (opencohost/api/main.py GET/POST/PUT/DELETE /api/perfiles)", () => {
+  describe("getPerfil", () => {
+    it("parses {name, prompt, use_system} from GET /api/perfiles/:name", async () => {
+      server.use(
+        http.get(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+          HttpResponse.json({ name: "Akira", prompt: "Sos ingeniosa y filosa.", use_system: false })
+        )
+      );
+
+      const result = await getPerfil("Akira");
+
+      expect(result).toEqual({ name: "Akira", prompt: "Sos ingeniosa y filosa.", use_system: false });
+    });
+
+    it("maps 404 to NotFoundError carrying the backend detail", async () => {
+      server.use(
+        http.get(`${API_BASE_URL}/api/perfiles/Ghost`, () =>
+          HttpResponse.json({ detail: "profile not found" }, { status: 404 })
+        )
+      );
+
+      await expect(getPerfil("Ghost")).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe("createPerfil", () => {
+    it("POSTs {name, prompt} and parses the persisted ProfileDetailResponse", async () => {
+      let capturedBody: unknown;
+      server.use(
+        http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ name: "Nueva", prompt: "Personalidad nueva", use_system: false });
+        })
+      );
+
+      const result = await createPerfil({ name: "Nueva", prompt: "Personalidad nueva" });
+
+      expect(capturedBody).toEqual({ name: "Nueva", prompt: "Personalidad nueva" });
+      expect(result).toEqual({ name: "Nueva", prompt: "Personalidad nueva", use_system: false });
+    });
+
+    it("maps 409 to ConflictError when the profile name already exists", async () => {
+      server.use(
+        http.post(`${API_BASE_URL}/api/perfiles`, () =>
+          HttpResponse.json({ detail: "profile already exists" }, { status: 409 })
+        )
+      );
+
+      await expect(createPerfil({ name: "Akira", prompt: "" })).rejects.toThrow(ConflictError);
+    });
+
+    it("maps 422 to ValidationError carrying the backend detail", async () => {
+      server.use(
+        http.post(`${API_BASE_URL}/api/perfiles`, () =>
+          HttpResponse.json({ detail: "invalid profile name" }, { status: 422 })
+        )
+      );
+
+      await expect(createPerfil({ name: "", prompt: "" })).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe("updatePerfil", () => {
+    it("PUTs the partial body to /api/perfiles/:name and parses the updated ProfileDetailResponse (rename)", async () => {
+      let capturedBody: unknown;
+      server.use(
+        http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ name: "Akira 2", prompt: "Prompt actualizado", use_system: false });
+        })
+      );
+
+      const result = await updatePerfil("Akira", { new_name: "Akira 2", prompt: "Prompt actualizado" });
+
+      expect(capturedBody).toEqual({ new_name: "Akira 2", prompt: "Prompt actualizado" });
+      expect(result).toEqual({ name: "Akira 2", prompt: "Prompt actualizado", use_system: false });
+    });
+
+    it("maps 404 to NotFoundError when the source profile does not exist", async () => {
+      server.use(
+        http.put(`${API_BASE_URL}/api/perfiles/Ghost`, () =>
+          HttpResponse.json({ detail: "profile not found" }, { status: 404 })
+        )
+      );
+
+      await expect(updatePerfil("Ghost", { prompt: "x" })).rejects.toThrow(NotFoundError);
+    });
+
+    it("maps 409 to ConflictError when new_name collides with an existing profile", async () => {
+      server.use(
+        http.put(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+          HttpResponse.json({ detail: "profile already exists" }, { status: 409 })
+        )
+      );
+
+      await expect(updatePerfil("Akira", { new_name: "default" })).rejects.toThrow(ConflictError);
+    });
+  });
+
+  describe("deletePerfil", () => {
+    it("DELETEs /api/perfiles/:name and parses {ok: true}", async () => {
+      server.use(http.delete(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json({ ok: true })));
+
+      const result = await deletePerfil("Akira");
+
+      expect(result).toEqual({ ok: true });
+    });
+
+    it("maps the 409 last-profile guard to ConflictError carrying the backend detail", async () => {
+      server.use(
+        http.delete(`${API_BASE_URL}/api/perfiles/default`, () =>
+          HttpResponse.json({ detail: "cannot delete the last profile" }, { status: 409 })
+        )
+      );
+
+      await expect(deletePerfil("default")).rejects.toThrow(ConflictError);
+      await expect(deletePerfil("default")).rejects.toThrow("cannot delete the last profile");
+    });
+
+    it("maps 404 to NotFoundError when the profile does not exist", async () => {
+      server.use(
+        http.delete(`${API_BASE_URL}/api/perfiles/Ghost`, () =>
+          HttpResponse.json({ detail: "profile not found" }, { status: 404 })
+        )
+      );
+
+      await expect(deletePerfil("Ghost")).rejects.toThrow(NotFoundError);
+    });
   });
 });

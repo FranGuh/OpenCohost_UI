@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
-    "predev": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 1420 -State Listen -ErrorAction SilentlyContinue | Select -Expand OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }\"",
+    "predev": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 1420 -State Listen -ErrorAction SilentlyContinue | Select -Expand OwningProcess -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; exit 0\"",
     "dev": "vite",
     "prebuild": "pnpm run gen:api:offline",
     "build": "tsc && vite build",

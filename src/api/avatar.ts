@@ -1,7 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, ValidationError } from "./client.js";
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+import { ApiError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 
 /**
  * GET/PUT /api/avatar/config (opencohost/api/main.py ~705-729) predates
@@ -22,7 +20,7 @@ export type AvatarConfigRequest = Partial<Omit<AvatarConfigResponse, "assets_fol
 export const AVATAR_CONFIG_QUERY_KEY = ["avatar-config"] as const;
 
 export async function getAvatarConfig(): Promise<AvatarConfigResponse> {
-  const res = await fetch(`${BASE_URL}/api/avatar/config`);
+  const res = await fetch(`${getApiBaseUrl()}/api/avatar/config`);
   if (!res.ok) {
     throw new ApiError(`GET /api/avatar/config failed with ${res.status}`, res.status);
   }
@@ -30,7 +28,7 @@ export async function getAvatarConfig(): Promise<AvatarConfigResponse> {
 }
 
 export async function putAvatarConfig(body: AvatarConfigRequest): Promise<AvatarConfigResponse> {
-  const res = await fetch(`${BASE_URL}/api/avatar/config`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/avatar/config`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)

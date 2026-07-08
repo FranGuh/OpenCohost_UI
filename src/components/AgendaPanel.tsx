@@ -8,6 +8,7 @@ import { Input } from "./ui/Input.js";
 import { Select } from "./ui/Select.js";
 import { Segmented } from "./ui/Segmented.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "./ui/Collapsible.js";
+import { useToast } from "./ui/Toast.js";
 import {
   useAddAgendaTopicMutation,
   useAgendaQuery,
@@ -188,7 +189,7 @@ function ProfileSessionCard() {
             options={(profiles.length > 0 ? profiles : [{ name: selectedProfileName }]).map((profile) => ({ value: profile.name, label: profile.name }))}
             value={selectedProfileName}
             disabled={selectProfile.isPending}
-            onChange={(value) => handleSelectProfile(value)}
+            onChange={(value: any) => handleSelectProfile(value)}
           />
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <Input
@@ -846,6 +847,22 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
   );
 }
 
+function TestToastsCard() {
+  const { toast } = useToast();
+  return (
+    <Card className="flex flex-col p-4 gap-3">
+      <h2 className="text-sm font-bold text-foreground">Probar Toasts</h2>
+      <div className="flex gap-2 flex-wrap">
+        <Button onClick={() => toast("¡Perfil guardado con éxito!", { tone: "ok" })}>Éxito</Button>
+        <Button onClick={() => toast("Error de red al intentar conectar", { tone: "danger" })}>Error</Button>
+        <Button onClick={() => toast("La sesión entró en pausa suave", { tone: "warn" })}>Advertencia</Button>
+        <Button onClick={() => toast("Kira sugirió un nuevo tema", { tone: "info" })}>Info</Button>
+        <Button onClick={() => toast("ID copiado al portapapeles", { tone: "neutral" })}>Neutral</Button>
+      </div>
+    </Card>
+  );
+}
+
 /**
  * Agenda panel — CTK parity (opencohost/ui/cohost_agenda_panel.py): profile
  * + session settings, Ahora (active topic), Cola (reorder/remove),
@@ -861,6 +878,7 @@ export function AgendaPanel() {
 
   return (
     <>
+      <TestToastsCard />
       <ProfileSessionCard />
       {getError ? (
         <Card className="flex flex-col p-4">

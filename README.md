@@ -40,8 +40,9 @@ No production Python code is changed by this prototype.
 
 ## Setup
 
-Copy `.env.example` to `.env.local`. The backend runs on `:8765` via `run-api.bat`;
-without this file the app silently targets `:8000` and looks dead.
+Copy `.env.example` to `.env.local`. The backend runs on `:8765` via `run-api.bat`,
+which is also the client's built-in fallback — `.env.local` only matters if your
+local backend listens on a different port.
 
 ## Run later
 
