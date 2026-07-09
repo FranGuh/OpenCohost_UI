@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
-export type AppEventSource = "model" | "profile" | "music" | "obs" | "stream" | "settings" | "ptt" | "agenda";
+export type AppEventSource =
+  "model" | "profile" | "music" | "obs" | "stream" | "settings" | "ptt" | "agenda" | "motor";
 export type AppEventTone = "ok" | "warn" | "danger" | "info" | "neutral"; // mirrors ToastTone
 
 export interface AppEvent {

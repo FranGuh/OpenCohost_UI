@@ -14,6 +14,7 @@ import type {
   MusicStateResponse,
   MusicTrackOut
 } from "../api/music.js";
+import type { EventLogResponse } from "../api/events.js";
 
 // Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
 // handlers always match whatever base URL the app under test actually uses —
@@ -426,6 +427,7 @@ export const defaultMusicLibrary: MusicLibraryResponse = {
 const KNOWN_MOODS = ["normal", "nostalgia", "hype", "tension", "sad", "calm", "comedy", "ending"];
 
 export const defaultMusicState: MusicStateResponse = { active_mood: "normal", fade: null };
+export const defaultEvents: EventLogResponse = { events: [], cursor: 0, boot: 0 };
 
 function musicTracksForMood(library: MusicLibraryResponse, mood: string): MusicTrackOut[] {
   return library.tracks.filter((track) => track.mood === mood && track.status === "ok");
@@ -622,7 +624,8 @@ export const handlers = [
   http.post(`${API_BASE_URL}/api/agenda/cohost-profiles/select`, async ({ request }) => {
     const body = (await request.json()) as { name: string };
     return HttpResponse.json({ selected: body.name });
-  })
+  }),
+  http.get(`${API_BASE_URL}/api/events`, () => HttpResponse.json(defaultEvents))
 ];
 
 /** Per-test override: switch rejected with 409 conflict. */
@@ -1169,5 +1172,17 @@ export function evolvingCurrentModelHandler(oldModel: string, newModel: string, 
       ...defaultStatus,
       current_model: calls > flipAfterCalls ? newModel : oldModel
     });
+  });
+}
+
+/** Per-test override: GET /api/events returns each entry of `responses` in
+ * order (repeating the last one once exhausted) — mirrors evolvingStatusHandler,
+ * used to script a deterministic poll sequence for useServerEventLog. */
+export function eventsHandler(responses: EventLogResponse[]) {
+  let calls = 0;
+  return http.get(`${API_BASE_URL}/api/events`, () => {
+    const body = responses[Math.min(calls, responses.length - 1)];
+    calls += 1;
+    return HttpResponse.json(body);
   });
 }

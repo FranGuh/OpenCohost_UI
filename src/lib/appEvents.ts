@@ -49,7 +49,29 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "stream.disconnect": () => "Stream desconectado",
   "stream.limits": () => "Límites de chat actualizados",
   "agenda.session-action": (d) => (d ? `Agenda: ${d}` : "Agenda actualizada"),
-  "ptt.toggle": (d) => (d === "on" ? "PTT activado" : "PTT desactivado")
+  "ptt.toggle": (d) => (d === "on" ? "PTT activado" : "PTT desactivado"),
+
+  // --- Item B: engine-initiated motor events (feed-only, never toasted).
+  // Deliberate SUBSET of the server's whitelist (engine_host.py) — per-turn
+  // churn (processing/idle/speaking_start/speaking_end) is intentionally
+  // NOT mapped here, so it's dropped by the "unknown key" branch below and
+  // never spams the feed. detail is always null server-side; templates
+  // ignore it. ---
+  "motor.ready": () => "Motor: listo",
+  "motor.model_warming": () => "Motor: cargando modelo",
+  "motor.ollama_unavailable": () => "Motor: Ollama no disponible",
+  "motor.llm_timeout_recovered": () => "Motor: recuperado tras timeout",
+  "motor.model_switch_pending": () => "Motor: cambio de modelo en curso",
+  "motor.model_switch_applied": () => "Motor: modelo cambiado",
+  "motor.model_switch_failed": () => "Motor: fallo al cambiar modelo",
+  "motor.model_changed": () => "Motor: modelo cambiado",
+  "motor.llm_tier_switch_applied": () => "Motor: nivel LLM cambiado",
+  "motor.llm_tier_switch_failed": () => "Motor: fallo al cambiar nivel LLM",
+  "motor.download_start": () => "Motor: descarga iniciada",
+  "motor.download_done": () => "Motor: descarga completa",
+  "motor.download_error": () => "Motor: error de descarga",
+  "motor.ctx_pressure_high": () => "Motor: contexto saturado",
+  "motor.piper_voice_locale_mismatch": () => "Motor: voz TTS no coincide con el idioma"
 };
 
 const MAX_DETAIL_CHARS = 48;
@@ -78,8 +100,10 @@ export function setToastSink(sink: ToastSink | null): void {
 let manualSeq = 0;
 
 /** THE emission point. Everything visible (toast text, feed label) is born
- * here and only here. */
-export function emitAppEvent(input: AppEventInput, id?: string): void {
+ * here and only here. `opts.toast: false` (item B — server-originated engine
+ * events) persists the event to the feed but skips the toast; operator
+ * mutations (item A) keep toasting by default. */
+export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?: boolean }): void {
   const template = EVENT_LABELS[`${input.source}.${input.action}`];
   if (!template) {
     if (import.meta.env.DEV) console.warn(`[appEvents] dropped unknown event ${input.source}.${input.action}`);
@@ -94,7 +118,7 @@ export function emitAppEvent(input: AppEventInput, id?: string): void {
     tone: input.tone ?? "ok"
   };
   useEventStore.getState().append(event);
-  toastSink?.(label, event.tone);
+  if (opts?.toast !== false) toastSink?.(label, event.tone);
 }
 
 /** Global feeder: one subscriber on the shared MutationCache. Queries (all
