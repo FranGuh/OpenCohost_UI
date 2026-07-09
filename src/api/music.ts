@@ -33,11 +33,17 @@ export interface MusicMoodRequest {
 
 /** POST /api/music/mood response. No playback/audio field — the client reads
  * `suggested_track_id` (select_for_mood's mood->normal->any fallback) and the
- * valid `tracks` in the bucket, then plays client-side via `trackAudioUrl`. */
+ * valid `tracks` in the bucket, then plays client-side via `trackAudioUrl`.
+ * `fallback` is true only when the requested mood had no tracks of its own
+ * and the backend populated `tracks` from its normal->any fallback pool
+ * instead (WU1, opencohost/api/models.py::MusicMoodResponse). Optional so
+ * older backend responses (or hand-built test fixtures) without the field
+ * still type-check. */
 export interface MusicMoodResponse {
   active_mood: string;
   tracks: MusicTrackOut[];
   suggested_track_id: string | null;
+  fallback?: boolean;
 }
 
 /** A recorded fade INTENT, carried on MusicStateResponse.fade so a polling

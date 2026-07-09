@@ -44,25 +44,41 @@ function moodLabel(mood: string): string {
   return mood.charAt(0).toUpperCase() + mood.slice(1);
 }
 
+/** Random pick from `bucket` that avoids replaying `currentTrackId`. If the
+ * current track is the only one in the bucket, replaying it is the only
+ * option — avoid-current is best-effort, not a hard guarantee. */
+function rotate(bucket: MusicTrackOut[], currentTrackId: string | null): string {
+  const candidates = bucket.filter((track) => track.id !== currentTrackId);
+  const pool = candidates.length > 0 ? candidates : bucket;
+  return pool[Math.floor(Math.random() * pool.length)].id;
+}
+
 /**
  * Picks which track a mood click should play. When the mood bucket
  * (`result.tracks`, the full set of valid tracks the backend returned for the
- * mood) has entries, rotate over it: a random pick that avoids the currently
- * playing track, mirroring the desktop audio_bed's rotation spirit. Falls back
- * to `suggested_track_id` when the bucket is empty (preserving the backend's
- * mood->normal->any fallback). Stateless — the only "state" is which track is
- * playing right now, passed in as `currentTrackId`.
+ * mood) has entries, rotate over it — mirroring the desktop audio_bed's
+ * rotation spirit. The backend (WU1) already populates `tracks` with its own
+ * normal->any fallback pool when the mood has none, but this stays hardened
+ * in case that invariant ever breaks: if `tracks` is still empty, rotate over
+ * the component's own known-valid ("ok" status) library instead of always
+ * replaying the lone `suggested_track_id`. `suggested_track_id` is the last
+ * resort, only if the library itself has no valid tracks. Stateless — the
+ * only "state" is which track is playing right now, passed in as
+ * `currentTrackId`.
  */
-function pickRotationTrack(result: MusicMoodResponse, currentTrackId: string | null): string | null {
-  const bucket = result.tracks;
-  if (bucket.length === 0) {
-    return result.suggested_track_id;
+function pickRotationTrack(
+  result: MusicMoodResponse,
+  currentTrackId: string | null,
+  libraryTracks: MusicTrackOut[]
+): string | null {
+  if (result.tracks.length > 0) {
+    return rotate(result.tracks, currentTrackId);
   }
-  const candidates = bucket.filter((track) => track.id !== currentTrackId);
-  // If the current track is the only one in the bucket, replaying it is the
-  // only option — avoid-current is best-effort, not a hard guarantee.
-  const pool = candidates.length > 0 ? candidates : bucket;
-  return pool[Math.floor(Math.random() * pool.length)].id;
+  const validLibrary = libraryTracks.filter((track) => track.status === "ok");
+  if (validLibrary.length > 0) {
+    return rotate(validLibrary, currentTrackId);
+  }
+  return result.suggested_track_id;
 }
 
 function sectionLabel(id: string, text: string) {
@@ -85,6 +101,7 @@ interface MoodCardProps {
   pending: boolean;
   isError: boolean;
   errorMessage: string | null;
+  fallbackNotice: boolean;
   nowPlayingLabel: string | null;
   isPlaying: boolean;
   onTogglePlay: () => void;
@@ -99,6 +116,7 @@ function MoodCard({
   pending,
   isError,
   errorMessage,
+  fallbackNotice,
   nowPlayingLabel,
   isPlaying,
   onTogglePlay,
@@ -137,6 +155,11 @@ function MoodCard({
               </Button>
             ))}
           </div>
+          {fallbackNotice && (
+            <p role="status" className="text-xs leading-relaxed text-dim">
+              Sin pistas de esta categoría, sonando de la general.
+            </p>
+          )}
         </section>
 
         <section aria-labelledby="music-now-playing-label" className="space-y-2">
@@ -352,6 +375,7 @@ export function MusicPanel() {
 
   const tracks = data?.tracks ?? [];
   const [activeMood, setActiveMood] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState(false);
 
   const playingTrackId = playback.currentTrackId;
   const isPlaying = playback.playing;
@@ -369,7 +393,8 @@ export function MusicPanel() {
     moodMutation.mutate(mood, {
       onSuccess: (result: MusicMoodResponse) => {
         setActiveMood(result.active_mood);
-        const trackId = pickRotationTrack(result, playingTrackId);
+        setFallbackNotice(Boolean(result.fallback));
+        const trackId = pickRotationTrack(result, playingTrackId, tracks);
         if (trackId) {
           playTrack(trackId);
         }
@@ -401,6 +426,7 @@ export function MusicPanel() {
         pending={moodMutation.isPending}
         isError={moodMutation.isError}
         errorMessage={moodMutation.error?.message ?? null}
+        fallbackNotice={fallbackNotice}
         nowPlayingLabel={nowPlaying?.label ?? null}
         isPlaying={isPlaying}
         onTogglePlay={togglePlay}

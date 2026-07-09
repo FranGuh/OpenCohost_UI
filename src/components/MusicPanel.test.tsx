@@ -204,15 +204,66 @@ describe("MusicPanel mood click rotates over the bucket (random-avoid-current)",
     }
   });
 
-  it("falls back to suggested_track_id when the bucket is empty", async () => {
-    server.use(
-      musicMoodHandler({ active_mood: "sad", tracks: [], suggested_track_id: "track-2" })
-    );
+  it("rotates over the component's known valid library when the bucket is empty (hardened fallback)", async () => {
+    // Hardening: even though WU1 (backend) now populates `tracks` with its own
+    // normal->any fallback pool when a mood bucket is empty, the client no
+    // longer trusts that invariant blindly — an empty `tracks` (e.g. a stale
+    // mock, or a future backend regression) must still rotate across clicks
+    // instead of always replaying the lone `suggested_track_id`. The default
+    // library (renderPanelWithTrackProbe) has two "ok" tracks: track-1, track-2.
+    server.use(musicMoodHandler({ active_mood: "sad", tracks: [], suggested_track_id: "track-2" }));
     renderPanelWithTrackProbe();
     await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
 
+    const calmButton = screen.getByRole("button", { name: "Calm" });
+    const probe = screen.getByTestId("current-track");
+    const played: string[] = [];
+
+    for (let i = 0; i < 6; i += 1) {
+      const previous = probe.textContent ?? "";
+      fireEvent.click(calmButton);
+      await waitFor(() => {
+        expect(probe.textContent).not.toBe("");
+        expect(probe.textContent).not.toBe(previous);
+      });
+      played.push(probe.textContent ?? "");
+    }
+
+    for (let i = 1; i < played.length; i += 1) {
+      expect(played[i]).not.toBe(played[i - 1]);
+    }
+    expect(new Set(played).size).toBeGreaterThan(1);
+    // only ever plays "ok" tracks from the known library — never a
+    // faltante/invalido track, and rotation actually happens (not stuck on
+    // the lone suggested_track_id).
+    for (const id of played) {
+      expect(["track-1", "track-2"]).toContain(id);
+    }
+  });
+
+  it("shows a subtle Spanish note when the backend reports fallback=true", async () => {
+    server.use(
+      musicMoodHandler({
+        active_mood: "sad",
+        tracks: [{ id: "track-2", label: "hype_intro.wav", mood: "hype", status: "ok" }],
+        suggested_track_id: "track-2",
+        fallback: true
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
+
+    fireEvent.click(screen.getByRole("button", { name: "Sad" }));
+    await waitFor(() => expect(screen.getByText(/sin pistas de esta categoría/i)).toBeInTheDocument());
+  });
+
+  it("does not show the fallback note when the mood bucket has its own tracks", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
+
     fireEvent.click(screen.getByRole("button", { name: "Calm" }));
-    await waitFor(() => expect(screen.getByTestId("current-track").textContent).toBe("track-2"));
+    await screen.findByRole("button", { name: "Pausar" });
+    expect(screen.queryByText(/sin pistas de esta categoría/i)).not.toBeInTheDocument();
   });
 });
 
