@@ -75,7 +75,8 @@ export function useServerEventLog() {
         // (not this cast) is what actually gates an unmapped value.
         { source: e.source as AppEventSource, action: e.action, detail: e.detail ?? undefined },
         `srv-${e.seq}`,
-        { toast: false }
+        // Server ts is epoch seconds (Python time.time()); store sorts by JS ms.
+        { toast: false, ts: e.ts * 1000 }
       );
     }
     lastCursor.current = data.cursor;

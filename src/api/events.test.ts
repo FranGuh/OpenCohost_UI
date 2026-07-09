@@ -30,8 +30,12 @@ describe("useServerEventLog", () => {
   it("emits a whitelisted server event through emitAppEvent as srv-<seq>, without toasting", async () => {
     const toast = vi.fn();
     setToastSink(toast);
+    // Server ts is Python time.time() = epoch SECONDS; the client store
+    // interleaves by JS milliseconds, so the hook must convert (* 1000)
+    // instead of stamping Date.now() — cold-start backfill keeps chronology.
+    const serverTsSeconds = 1720000000;
     const batch: EventLogResponse = {
-      events: [{ seq: 1, ts: 0, source: "motor", action: "ready", detail: null }],
+      events: [{ seq: 1, ts: serverTsSeconds, source: "motor", action: "ready", detail: null }],
       cursor: 1,
       boot: 100
     };
@@ -43,6 +47,8 @@ describe("useServerEventLog", () => {
     const events = useEventStore.getState().events;
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ id: "srv-1", label: "Motor: listo", source: "motor" });
+    expect(events[0].ts).toBe(serverTsSeconds * 1000);
+    expect(events[0].ts).not.toBe(Date.now());
     expect(toast).not.toHaveBeenCalled();
   });
 

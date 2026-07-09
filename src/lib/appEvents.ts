@@ -102,8 +102,10 @@ let manualSeq = 0;
 /** THE emission point. Everything visible (toast text, feed label) is born
  * here and only here. `opts.toast: false` (item B — server-originated engine
  * events) persists the event to the feed but skips the toast; operator
- * mutations (item A) keep toasting by default. */
-export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?: boolean }): void {
+ * mutations (item A) keep toasting by default. `opts.ts` (epoch MILLISECONDS)
+ * lets server-originated events keep their real timestamp on backfill;
+ * operator events omit it and get Date.now(). */
+export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?: boolean; ts?: number }): void {
   const template = EVENT_LABELS[`${input.source}.${input.action}`];
   if (!template) {
     if (import.meta.env.DEV) console.warn(`[appEvents] dropped unknown event ${input.source}.${input.action}`);
@@ -112,7 +114,7 @@ export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?:
   const label = template(sanitizeDetail(input.detail));
   const event: AppEvent = {
     id: id ?? `evt-${++manualSeq}-${Date.now()}`,
-    ts: Date.now(),
+    ts: opts?.ts ?? Date.now(),
     source: input.source,
     label,
     tone: input.tone ?? "ok"
