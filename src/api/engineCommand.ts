@@ -72,6 +72,16 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
       const accepted = await postCommand(command, value, key);
       return { accepted, intentKey };
     },
+    // Item A event engine: command NAME is metadata (never the response
+    // body) — see src/lib/appEvents.ts, the single privacy chokepoint.
+    meta: {
+      event: (variables) => {
+        const { command, value } = variables as { command: EngineCommand; value?: unknown };
+        if (command === "switch_model") return { source: "model", action: "switch", detail: String(value ?? "") };
+        if (command === "clear_history") return { source: "settings", action: "clear-history" };
+        return { source: "settings", action: "update", detail: command };
+      }
+    },
     onSuccess: (result: { accepted: CommandAccepted; intentKey: string }, variables) => {
       setTimedOut(false);
       setConvergeValue(variables.value);

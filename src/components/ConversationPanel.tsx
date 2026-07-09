@@ -5,6 +5,7 @@ import { Input } from "./ui/Input.js";
 import { useAgendaEvents } from "../api/agenda.js";
 import { useLastReply, useSendChatTurn } from "../api/chat.js";
 import { cn } from "../lib/cn.js";
+import { selectEvents, useEventStore } from "../store/eventStore.js";
 
 const TABS = ["Todo", "Chat", "Alertas"] as const;
 type Tab = (typeof TABS)[number];
@@ -147,6 +148,10 @@ export function ConversationPanel() {
   // paused, turns spoken) diffed from the agenda poll — interleaved into the
   // stream below as alert dividers, reusing the Alertas tab + mute-notice style.
   const agendaEvents = useAgendaEvents();
+  // Operator-action metadata events (model/profile/music/obs/stream/ptt —
+  // src/lib/appEvents.ts's whitelist is the only source of these labels)
+  // interleaved into the stream the same way agenda events already are.
+  const appEvents = useEventStore(selectEvents);
   // Tracks the operator bubble for the in-flight/retryable send intent, so a
   // retry after a failed send updates that SAME bubble instead of appending
   // a duplicate "Vos" turn. Cleared once the send succeeds.
@@ -256,13 +261,20 @@ export function ConversationPanel() {
     event: event.label,
     ts: event.ts
   }));
+  const appEventTurns: Turn[] = appEvents.map((event) => ({
+    id: event.id,
+    kind: "alert",
+    event: event.label,
+    ts: event.ts
+  }));
   // Order: canned viewer question, then the real stream — operator sends, Kira
-  // replies, and agenda events interleaved by client arrival time (Date.now()
-  // at observe-time). The transcript already used append/arrival order as its
-  // ordering contract; making `ts` explicit lets the two independent streams
-  // (chat poll + agenda poll) merge deterministically. Then the ephemeral
-  // "pensando" indicator and the canned mute-notice divider close it out.
-  const interleaved = [...transcript, ...agendaTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+  // replies, and agenda/app events interleaved by client arrival time
+  // (Date.now() at observe-time). The transcript already used append/arrival
+  // order as its ordering contract; making `ts` explicit lets the three
+  // independent streams (chat poll + agenda poll + operator-action feed)
+  // merge deterministically. Then the ephemeral "pensando" indicator and the
+  // canned mute-notice divider close it out.
+  const interleaved = [...transcript, ...agendaTurns, ...appEventTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
   const orderedTurns = [
     viewerTurn,
     ...interleaved,

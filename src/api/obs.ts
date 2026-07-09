@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 
@@ -86,8 +87,27 @@ export function useObsConfigQuery() {
 
 export function useUpdateObsConfigMutation() {
   const queryClient = useQueryClient();
+  // ObsCard's save() always sends `enabled` (it's the current switch state, not
+  // a "did the user touch this" flag), so `body.enabled !== undefined` alone
+  // can't tell a toggle from a host/port/source-only edit. Snapshot the
+  // pre-mutation `enabled` in onMutate (before the PUT lands and onSuccess
+  // overwrites the cache) so meta.event can diff against it instead. A ref
+  // survives react-query re-binding options to a fresh render's closures.
+  const previousEnabled = useRef<boolean | undefined>(undefined);
   return useMutation({
     mutationFn: putObsConfig,
+    onMutate: () => {
+      previousEnabled.current = queryClient.getQueryData<ObsConfigResponse>(OBS_CONFIG_QUERY_KEY)?.enabled;
+    },
+    meta: {
+      event: (v) => {
+        const body = v as ObsConfigRequest;
+        if (body.enabled !== undefined && body.enabled !== previousEnabled.current) {
+          return { source: "obs", action: "toggle", detail: body.enabled ? "on" : "off" };
+        }
+        return { source: "obs", action: "config", detail: body.source }; // scene/source NAME only; never password
+      }
+    },
     onSuccess: (data) => {
       queryClient.setQueryData(OBS_CONFIG_QUERY_KEY, data);
     }

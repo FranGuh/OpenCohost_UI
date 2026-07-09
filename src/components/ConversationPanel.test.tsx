@@ -1,9 +1,10 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
+import { useEventStore } from "../store/eventStore.js";
 import {
   API_BASE_URL,
   chatTurnConflictHandler,
@@ -21,6 +22,10 @@ function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ConversationPanel)));
 }
+
+beforeEach(() => {
+  useEventStore.setState({ events: [] });
+});
 
 describe("ConversationPanel", () => {
   it("renders Kira's fetched reply, not a canned transcript", async () => {
@@ -353,5 +358,44 @@ describe("ConversationPanel — agenda events in chat (WU4)", () => {
     // The agenda-sourced reply carries a distinct label, not the plain "KIRA".
     expect(screen.getByText("KIRA · AGENDA")).toBeInTheDocument();
     expect(screen.queryByText("KIRA")).not.toBeInTheDocument();
+  });
+});
+
+describe("ConversationPanel — operator-action events (Item A event engine)", () => {
+  it("renders an injected app event as a divider, visible in Todo and Alertas, absent from Chat", () => {
+    act(() => {
+      useEventStore.getState().append({ id: "e1", ts: Date.now(), source: "model", label: "Modelo → qwen3:8b", tone: "ok" });
+    });
+    renderPanel();
+
+    expect(screen.getByText("Modelo → qwen3:8b")).toBeInTheDocument(); // Todo (default tab)
+
+    fireEvent.click(screen.getByRole("tab", { name: "Alertas" }));
+    expect(screen.getByText("Modelo → qwen3:8b")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
+    expect(screen.queryByText("Modelo → qwen3:8b")).not.toBeInTheDocument();
+  });
+
+  it("interleaves an app event between transcript turns by ts, in document order", async () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "primer mensaje" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(input.value).toBe(""));
+
+    act(() => {
+      useEventStore.getState().append({ id: "e-mid", ts: Date.now(), source: "obs", label: "OBS activado", tone: "ok" });
+    });
+
+    fireEvent.change(input, { target: { value: "segundo mensaje" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(input.value).toBe(""));
+
+    const panel = screen.getByRole("tabpanel");
+    const text = panel.textContent ?? "";
+    expect(text.indexOf("primer mensaje")).toBeLessThan(text.indexOf("OBS activado"));
+    expect(text.indexOf("OBS activado")).toBeLessThan(text.indexOf("segundo mensaje"));
   });
 });

@@ -152,7 +152,8 @@ export async function postMusicMood(mood: string): Promise<MusicMoodResponse> {
 
 export function useMusicMoodMutation() {
   return useMutation({
-    mutationFn: postMusicMood
+    mutationFn: postMusicMood,
+    meta: { event: (mood) => ({ source: "music", action: "mood", detail: String(mood) }) }
   });
 }
 
@@ -203,6 +204,7 @@ export function useMusicFadeMutation() {
   return useMutation({
     mutationFn: ({ direction, durationMs }: { direction: "in" | "out"; durationMs?: number }) =>
       postMusicFade(direction, durationMs),
+    meta: { event: (v) => ({ source: "music", action: "fade", detail: (v as { direction: string }).direction }) },
     onSuccess: (data) => {
       queryClient.setQueryData(MUSIC_STATE_QUERY_KEY, data);
     }
@@ -240,6 +242,8 @@ export function useMusicImportMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ path, mood }: { path: string; mood: string }) => postMusicImport(path, mood),
+    // detail is the MOOD, never the filesystem path (path is quasi-identifying — audit-log lens).
+    meta: { event: (v) => ({ source: "music", action: "import", detail: (v as { mood: string }).mood }) },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: MUSIC_LIBRARY_QUERY_KEY });
     }
@@ -275,6 +279,7 @@ export function useDeleteMusicTrackMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (trackId: string) => deleteMusicTrack(trackId),
+    meta: { event: { source: "music", action: "delete" } }, // static — track id is opaque noise
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: MUSIC_LIBRARY_QUERY_KEY });
     }

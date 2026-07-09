@@ -171,6 +171,9 @@ export function useSwitchProfileMutation() {
       const key = getIdempotencyKey(name);
       return switchProfile(name, key);
     },
+    // Item A event engine: detail is the profile NAME only — see
+    // src/lib/appEvents.ts, the single privacy chokepoint.
+    meta: { event: (variables) => ({ source: "profile", action: "switch", detail: (variables as { name: string }).name }) },
     onSuccess: (result, variables) => {
       const currentStatus = queryClient.getQueryData<StatusResponse>(STATUS_QUERY_KEY);
       if (currentStatus?.active_profile === variables.name) {

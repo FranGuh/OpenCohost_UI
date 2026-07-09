@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, NotFoundError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
+import type { AppEventMeta } from "../lib/appEvents.js";
 
 /**
  * GET/POST/PUT /api/agenda* (opencohost/api/main.py ~472-533) predates
@@ -389,10 +390,14 @@ export function useAgendaEvents(): AgendaEvent[] {
  * returns — writing it straight into the query cache keeps Now/Queue in
  * sync without a second round-trip or any local queue/now state to drift.
  */
-function useAgendaMutation<TVariables>(mutationFn: (vars: TVariables) => Promise<AgendaResponse>) {
+function useAgendaMutation<TVariables>(
+  mutationFn: (vars: TVariables) => Promise<AgendaResponse>,
+  event?: AppEventMeta
+) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
+    meta: event ? { event } : undefined,
     onSuccess: (data) => {
       queryClient.setQueryData(AGENDA_QUERY_KEY, data);
     }
@@ -412,7 +417,11 @@ export function useUpdateAgendaSessionMutation() {
 }
 
 export function useAgendaSessionActionMutation() {
-  return useAgendaMutation(postAgendaSessionAction);
+  return useAgendaMutation(postAgendaSessionAction, (v) => ({
+    source: "agenda",
+    action: "session-action",
+    detail: (v as { action: string }).action
+  }));
 }
 
 export function useCohostProfilesQuery() {
@@ -442,6 +451,7 @@ export function useSelectCohostProfileMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: selectCohostProfile,
+    meta: { event: (v) => ({ source: "profile", action: "cohost-select", detail: (v as { name: string }).name }) },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: AGENDA_QUERY_KEY });
     }

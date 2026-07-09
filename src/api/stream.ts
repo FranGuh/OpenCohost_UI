@@ -109,6 +109,7 @@ export function useStreamConnectMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: postStreamConnect,
+    meta: { event: { source: "stream", action: "connect" } }, // NO url — may embed channel identifiers
     onSuccess: (data) => {
       queryClient.setQueryData(STREAM_CHAT_LIVE_QUERY_KEY, data);
     }
@@ -119,6 +120,7 @@ export function useStreamDisconnectMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: postStreamDisconnect,
+    meta: { event: { source: "stream", action: "disconnect", tone: "neutral" } },
     onSuccess: (data) => {
       queryClient.setQueryData(STREAM_CHAT_LIVE_QUERY_KEY, data);
     }
@@ -129,6 +131,7 @@ export function useStreamLimitsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: putStreamLimits,
+    meta: { event: { source: "stream", action: "limits" } },
     onSuccess: (data) => {
       queryClient.setQueryData(STREAM_CHAT_LIVE_QUERY_KEY, data);
     }

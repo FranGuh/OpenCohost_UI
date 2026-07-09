@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card } from "./ui/Card.js";
 import { Switch } from "./ui/Switch.js";
 import { Button } from "./ui/Button.js";
+import { emitAppEvent } from "../lib/appEvents.js";
 
 // P2: wire to backend PTT/LiveAudio config — no endpoint exists yet for the
 // PTT toggle. Local UI state only.
@@ -11,6 +12,15 @@ import { Button } from "./ui/Button.js";
 // shell can. No fake capture, just a clear role="status" note.
 export function PTTCard() {
   const [pttOn, setPttOn] = useState(false);
+
+  // No mutation exists yet for PTT (see the P2 note above) — this is the one
+  // legitimate direct emitAppEvent call (item A blueprint §7), going through
+  // the identical whitelist/sanitizer as every mutation-driven event. Once
+  // PTT grows a real backend mutation, delete this and add meta.event there.
+  function handleToggle(next: boolean) {
+    setPttOn(next);
+    emitAppEvent({ source: "ptt", action: "toggle", detail: next ? "on" : "off", tone: "neutral" });
+  }
 
   return (
     <Card className="flex flex-col p-4">
@@ -29,7 +39,7 @@ export function PTTCard() {
           </span>
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <span className="text-[13px] text-foreground">{pttOn ? "PTT on" : "PTT off"}</span>
-            <Switch checked={pttOn} onChange={setPttOn} aria-label="PTT" />
+            <Switch checked={pttOn} onChange={handleToggle} aria-label="PTT" />
           </div>
         </section>
 
