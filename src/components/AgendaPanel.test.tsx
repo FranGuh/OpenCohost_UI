@@ -23,10 +23,17 @@ import {
   defaultCohostProfiles
 } from "../test/handlers.js";
 import { AgendaPanel } from "./AgendaPanel.js";
+import { ToastProvider } from "./ui/Toast.js";
 
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(AgendaPanel)));
+  return render(
+    React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(ToastProvider, null, React.createElement(AgendaPanel))
+    )
+  );
 }
 
 function selectCustomOption(comboboxName: string | RegExp, optionName: string | RegExp) {

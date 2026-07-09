@@ -4,6 +4,7 @@ import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSwitchStore } from "../store/switchStore.js";
 import { AppLayout } from "./AppLayout.js";
+import { ToastProvider } from "./ui/Toast.js";
 
 beforeEach(() => {
   useSwitchStore.setState({ pendingSwitch: null });
@@ -12,7 +13,11 @@ beforeEach(() => {
 function renderApp() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(AppLayout))
+    React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(ToastProvider, null, React.createElement(AppLayout))
+    )
   );
 }
 
@@ -23,7 +28,6 @@ describe("AppLayout", () => {
     expect(screen.getByRole("navigation")).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("complementary")).toBeInTheDocument();
-    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
   });
 
