@@ -42,9 +42,9 @@ describe("emitAppEvent", () => {
 
     const events = useEventStore.getState().events;
     expect(events).toHaveLength(1);
-    expect(events[0].label).toBe("Modelo → qwen3:8b");
+    expect(events[0].label).toBe("Cambio de modelo enviado → qwen3:8b");
     expect(sink).toHaveBeenCalledTimes(1);
-    expect(sink).toHaveBeenCalledWith("Modelo → qwen3:8b", "ok");
+    expect(sink).toHaveBeenCalledWith("Cambio de modelo enviado → qwen3:8b", "ok");
   });
 
   it("with an unknown source.action: leaves the store untouched and never calls the sink", () => {
@@ -70,9 +70,9 @@ describe("emitAppEvent", () => {
 
     const events = useEventStore.getState().events;
     expect(events).toHaveLength(1);
-    expect(events[0].label).toBe("Modelo → ok");
+    expect(events[0].label).toBe("Cambio de modelo enviado → ok");
     expect(events[0].label).not.toMatch(/dialogue|chat/);
-    expect(sink).toHaveBeenCalledWith("Modelo → ok", "ok");
+    expect(sink).toHaveBeenCalledWith("Cambio de modelo enviado → ok", "ok");
     // @ts-expect-error — AppEventInput has no `label`/`text` field; a hook cannot hand this module a sentence.
     const rejectedAtCompileTime: AppEventInput = { source: "model", action: "switch", label: "nope" };
     void rejectedAtCompileTime;

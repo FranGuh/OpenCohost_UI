@@ -34,8 +34,8 @@ declare module "@tanstack/react-query" {
 /* ------------------------------------------------------------------ */
 
 const EVENT_LABELS: Record<string, (detail?: string) => string> = {
-  "model.switch": (d) => (d ? `Modelo → ${d}` : "Modelo cambiado"),
-  "settings.update": (d) => (d ? `Ajuste aplicado: ${d}` : "Ajustes actualizados"),
+  "model.switch": (d) => (d ? `Cambio de modelo enviado → ${d}` : "Cambio de modelo enviado"),
+  "settings.update": (d) => (d ? `Ajuste enviado: ${d}` : "Ajustes enviados"),
   "settings.clear-history": () => "Historial de conversación borrado",
   "profile.switch": (d) => (d ? `Perfil → ${d}` : "Perfil cambiado"),
   "profile.cohost-select": (d) => (d ? `Perfil cohost → ${d}` : "Perfil cohost aplicado"),
