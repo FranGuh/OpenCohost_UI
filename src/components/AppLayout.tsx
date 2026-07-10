@@ -8,6 +8,7 @@ import { ConversationPanel } from "./ConversationPanel.js";
 import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
 import { PlaybackProvider } from "../state/PlaybackProvider.js";
 import { MusicDuckingWatcher } from "../state/MusicDuckingWatcher.js";
+import { useWelcomeStore } from "../store/welcomeStore.js";
 
 const GRID_STYLE = {
   display: "grid",
@@ -40,6 +41,12 @@ const GRID_STYLE = {
  */
 export function AppLayout() {
   const [activeSection, setActiveSection] = useState<Section>("experiencia");
+  const restoreWelcome = useWelcomeStore((state) => state.restore);
+
+  function handleShowWelcome() {
+    restoreWelcome();
+    setActiveSection("experiencia");
+  }
 
   return (
     <ProfileSwitchProvider>
@@ -47,7 +54,7 @@ export function AppLayout() {
         <MusicDuckingWatcher />
         <div className="min-w-[1180px] text-foreground" style={GRID_STYLE}>
           <div className="grid [grid-area:top]">
-            <TopBar />
+            <TopBar onShowWelcome={handleShowWelcome} />
           </div>
           <div className="grid min-h-0 [grid-area:side]">
             <Sidebar activeSection={activeSection} onSelect={setActiveSection} />

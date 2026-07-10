@@ -34,7 +34,11 @@ const HELP_TOPICS: ReadonlyArray<{ title: string; body: string }> = [
  * backend), and a static Ayuda section (5 CTK help topics ported as
  * <details>/<summary> collapsibles).
  */
-export function SettingsPopover() {
+export interface SettingsPopoverProps {
+  onShowWelcome(): void;
+}
+
+export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   const [open, setOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const { compact, setCompact } = useDensity();
@@ -66,6 +70,11 @@ export function SettingsPopover() {
     } catch {
       // Best-effort: keep the previous selection if the write fails.
     }
+  }
+
+  function handleShowWelcome() {
+    onShowWelcome();
+    setOpen(false);
   }
 
   useEffect(() => {
@@ -159,6 +168,19 @@ export function SettingsPopover() {
               )}
             </section>
           )}
+
+          <section aria-labelledby="settings-welcome-label" className="space-y-2 border-t border-border-soft pt-3.5">
+            <span id="settings-welcome-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Bienvenida
+            </span>
+            <button
+              type="button"
+              onClick={handleShowWelcome}
+              className="w-full rounded-md border border-border px-3 py-2 text-left text-[13px] font-semibold text-foreground transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              Volver a ver bienvenida
+            </button>
+          </section>
 
           <details className="border-t border-border-soft pt-3.5">
             <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">

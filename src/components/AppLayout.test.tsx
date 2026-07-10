@@ -3,11 +3,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSwitchStore } from "../store/switchStore.js";
+import { useWelcomeStore } from "../store/welcomeStore.js";
 import { AppLayout } from "./AppLayout.js";
 import { ToastProvider } from "./ui/Toast.js";
 
 beforeEach(() => {
   useSwitchStore.setState({ pendingSwitch: null });
+  window.localStorage.clear();
+  useWelcomeStore.setState({ dismissed: false });
 });
 
 function renderApp() {
@@ -29,6 +32,19 @@ describe("AppLayout", () => {
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("complementary")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
+  });
+
+  it("restores Welcome from Settings and returns section ownership to Experiencia", () => {
+    useWelcomeStore.setState({ dismissed: true });
+    renderApp();
+    fireEvent.click(screen.getByRole("button", { name: /Controles/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Volver a ver bienvenida" }));
+
+    expect(screen.getByRole("button", { name: /Experiencia/ })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("heading", { name: "Bienvenido a OpenCohost" })).toBeInTheDocument();
+    expect(useWelcomeStore.getState().dismissed).toBe(false);
   });
 
   it("switches to Controles on nav click and marks aria-current", () => {

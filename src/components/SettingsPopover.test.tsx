@@ -1,9 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../test/handlers.js";
-import { SettingsPopover } from "./SettingsPopover.js";
+import {
+  SettingsPopover as SettingsPopoverComponent,
+  type SettingsPopoverProps
+} from "./SettingsPopover.js";
+
+function SettingsPopover({ onShowWelcome = () => {} }: Partial<SettingsPopoverProps>) {
+  return <SettingsPopoverComponent onShowWelcome={onShowWelcome} />;
+}
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -16,6 +23,16 @@ afterEach(() => {
 });
 
 describe("SettingsPopover", () => {
+  it("offers an explicit Welcome restore action", () => {
+    const onShowWelcome = vi.fn();
+    render(<SettingsPopover onShowWelcome={onShowWelcome} />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Volver a ver bienvenida" }));
+
+    expect(onShowWelcome).toHaveBeenCalledOnce();
+  });
+
   it("is closed by default with aria-expanded false and no panel in the DOM", () => {
     render(<SettingsPopover />);
     const trigger = screen.getByRole("button", { name: "Configuración" });

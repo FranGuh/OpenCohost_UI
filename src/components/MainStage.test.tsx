@@ -1,11 +1,17 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
+import { useWelcomeStore } from "../store/welcomeStore.js";
 import { MainStage } from "./MainStage.js";
+
+beforeEach(() => {
+  window.localStorage.clear();
+  useWelcomeStore.setState({ dismissed: false });
+});
 
 function renderStage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -26,6 +32,18 @@ function combinedText(phrase: string) {
 }
 
 describe("MainStage — experiencia stage wired to GET /api/status", () => {
+  it("layers Welcome inline without replacing Kira and dismisses it explicitly", () => {
+    renderStage();
+
+    expect(screen.getByRole("heading", { name: "Bienvenido a OpenCohost" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
+
+    expect(screen.queryByRole("heading", { name: "Bienvenido a OpenCohost" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
+  });
+
   it("shows the real current_model from status, not a hardcoded 'Qwen 3 (1.7B)'", async () => {
     server.use(http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, current_model: "llama3.2:3b" })));
     renderStage();
