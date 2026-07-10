@@ -230,6 +230,7 @@ function ProfileSessionCard() {
                   options={TURN_OPTIONS}
                   value={turns}
                   disabled={updateSession.isPending}
+                  className={"z-20"}
                   onChange={(value) => {
                     updateSession.mutate({ max_turns_per_topic: Number(value) });
                   }}
@@ -242,6 +243,7 @@ function ProfileSessionCard() {
                   options={SAFETY_MODE_OPTIONS}
                   value={safetyMode}
                   disabled={updateSession.isPending}
+                  className={"z-20"}
                   onChange={(value) => {
                     updateSession.mutate({ safety_mode: value });
                   }}
