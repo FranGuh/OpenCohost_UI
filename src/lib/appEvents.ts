@@ -49,7 +49,11 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "stream.disconnect": () => "Stream desconectado",
   "stream.limits": () => "Límites de chat actualizados",
   "agenda.session-action": (d) => (d ? `Agenda: ${d}` : "Agenda actualizada"),
-  "ptt.toggle": (d) => (d === "on" ? "PTT activado" : "PTT desactivado"),
+  // PTT hold gesture (liveaudio_ptt_tauri_20260710) — replaces the retired
+  // "ptt.toggle" stub label now that PTTCard drives real /api/ptt/* mutations.
+  "ptt.started": () => "PTT escuchando",
+  "ptt.stopped": () => "PTT enviado a Kira",
+  "ptt.error": () => "PTT: STT no disponible",
 
   // --- Item B: engine-initiated motor events (feed-only, never toasted).
   // Deliberate SUBSET of the server's whitelist (engine_host.py) — per-turn

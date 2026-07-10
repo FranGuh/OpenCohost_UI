@@ -1,26 +1,131 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Card } from "./ui/Card.js";
-import { Switch } from "./ui/Switch.js";
 import { Button } from "./ui/Button.js";
-import { emitAppEvent } from "../lib/appEvents.js";
+import { cn } from "../lib/cn.js";
+import { usePttHold, type PttErrorCode, type PttUiState } from "../api/ptt.js";
+import { useLastReply } from "../api/chat.js";
 
-// P2: wire to backend PTT/LiveAudio config — no endpoint exists yet for the
-// PTT toggle. Local UI state only.
-//
-// "Mapear atajo" stays permanently disabled (USER-ASSIST decision, flagged):
-// a browser tab cannot register a global hotkey — only the Tauri desktop
-// shell can. No fake capture, just a clear role="status" note.
+const ERROR_COPY: Record<PttErrorCode, string> = {
+  stt_unreachable: "STT (WhisperLive) no disponible — verificá que esté corriendo.",
+  stt_lost: "Se perdió la conexión con el STT — la sesión se cerró sola.",
+  session_not_active: "El servidor cortó la sesión.",
+  start_failed: "No se pudo iniciar PTT."
+};
+
+const STATE_COPY: Record<PttUiState, string> = {
+  idle: "Mantené para hablar",
+  connecting: "Conectando…",
+  listening: "Escuchando…",
+  flushing: "Procesando…"
+};
+
+/** Text-entry focus (chat box, profile/OBS fields, memoria editing, …) must
+ * never be hijacked by the in-app Space/Enter hold shortcut.
+ * ponytail: scoped to text-entry elements only, not every focusable widget —
+ * tighten to "only when nothing/the PTT button is focused" if a stray
+ * Space/Enter on some other button proves noisy in practice. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+}
+
+// GLOBAL SHORTCUT (OS-level hotkey via @tauri-apps/plugin-global-shortcut) is
+// DEFERRED to a follow-up track (ptt_global_shortcut) — see design doc
+// sdd/liveaudio-ptt-tauri-20260710. It's a four-surface native change (Cargo
+// dep, lib.rs registration, capabilities permissions, npm plugin) requiring a
+// full Rust rebuild, and cross-app key-up reliability is exactly the failure
+// class that forced CTK's guillotine. The in-app hold below delivers 100% of
+// the backend value; the shortcut later just calls the same usePttHold
+// start/stop — zero backend change. "Mapear atajo" stays disabled.
 export function PTTCard() {
-  const [pttOn, setPttOn] = useState(false);
+  const { state, error, start, stop } = usePttHold();
+  const lastReply = useLastReply();
+  // Read at render time, not just inside effects/handlers below: react-query
+  // v5's "tracked queries" optimization only re-renders this component for
+  // properties it saw ACCESSED DURING RENDER — touching `.data` only inside
+  // useEffect/handler closures never marks it observed, so a background
+  // refetch would update the cache silently without ever notifying us.
+  const lastReplyTurnId = lastReply.data?.turn_id;
+  const [repliedSinceHold, setRepliedSinceHold] = useState(false);
+  const replyBaselineRef = useRef<number | null>(null);
 
-  // No mutation exists yet for PTT (see the P2 note above) — this is the one
-  // legitimate direct emitAppEvent call (item A blueprint §7), going through
-  // the identical whitelist/sanitizer as every mutation-driven event. Once
-  // PTT grows a real backend mutation, delete this and add meta.event there.
-  function handleToggle(next: boolean) {
-    setPttOn(next);
-    emitAppEvent({ source: "ptt", action: "toggle", detail: next ? "on" : "off", tone: "neutral" });
+  // A NEW turn_id arriving proves Kira replied to the most recently captured
+  // baseline (set in handleStop below, synchronously at release time — not
+  // derived from watching for a "flushing" render, which React 18's batching
+  // can collapse away entirely on a fast round-trip).
+  useEffect(() => {
+    const baseline = replyBaselineRef.current;
+    if (baseline !== null && lastReplyTurnId !== undefined && lastReplyTurnId > baseline) {
+      setRepliedSinceHold(true);
+    }
+  }, [lastReplyTurnId]);
+
+  // Snapshots the current reply turn_id the INSTANT the operator releases
+  // (not when the flush later converges) so a later turn_id proves Kira
+  // replied to THIS hold, not a stale one from before PTT was ever pressed.
+  // Scoped to an actually-active hold so a stray blur/keyup with nothing
+  // held never resets an already-shown "Kira respondió." note.
+  function handleStop() {
+    if (state === "listening" || state === "connecting") {
+      replyBaselineRef.current = lastReplyTurnId ?? 0;
+      setRepliedSinceHold(false);
+    }
+    stop();
   }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLButtonElement>) {
+    e.currentTarget.setPointerCapture?.(e.pointerId); // guarantees the up event even off-button; optional-chained for jsdom, which doesn't implement it
+    start();
+  }
+
+  function handleKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (e.repeat) return;
+    if (e.key !== " " && e.key !== "Enter") return;
+    e.preventDefault(); // suppress the button's own native space-triggers-click
+    start();
+  }
+
+  function handleKeyUp(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (e.key !== " " && e.key !== "Enter") return;
+    handleStop();
+  }
+
+  // In-app keyboard hold works from anywhere (not just while the button has
+  // focus) and alt-tab (window blur) is a release, same as CTK's guillotine
+  // covers a dropped OS key-up. Every missed release here is backstopped by
+  // the server's 3s keepalive watchdog regardless.
+  // No deps array (re-subscribes every render): handleStop is a plain
+  // closure over `state`/`lastReply.data`, not a useCallback — a stale deps
+  // array here would freeze onKeyUp/onWindowBlur on the state that existed
+  // when the effect first ran. Cheap: 3 listener churns per render.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.repeat || isTypingTarget(e.target)) return;
+      if (e.code !== "Space" && e.code !== "Enter") return;
+      e.preventDefault();
+      start();
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code !== "Space" && e.code !== "Enter") return;
+      handleStop();
+    }
+    function onWindowBlur() {
+      handleStop();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  });
+
+  const listening = state === "listening";
+  const note = error ? ERROR_COPY[error] : repliedSinceHold && state === "idle" ? "Kira respondió." : null;
 
   return (
     <Card className="flex flex-col p-4">
@@ -30,18 +135,35 @@ export function PTTCard() {
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Mantené la tecla para hablar; soltá para que Kira procese. Con PTT off, escucha continua (LiveAudio).
+          Mantené el botón (o Espacio/Enter) para hablar; soltá para que Kira procese.
         </p>
 
-        <section aria-labelledby="ptt-toggle-label" className="space-y-2">
-          <span id="ptt-toggle-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Intent
-          </span>
-          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">{pttOn ? "PTT on" : "PTT off"}</span>
-            <Switch checked={pttOn} onChange={handleToggle} aria-label="PTT" />
-          </div>
-        </section>
+        <button
+          type="button"
+          aria-pressed={listening}
+          aria-label={STATE_COPY[state]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handleStop}
+          onPointerCancel={handleStop}
+          onLostPointerCapture={handleStop}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          className={cn(
+            "flex h-16 w-full select-none items-center justify-center rounded-xl border text-sm font-semibold transition-colors touch-none",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+            listening
+              ? "border-danger-bd bg-danger-bg text-danger animate-pulse motion-reduce:animate-none"
+              : "border-border bg-card text-foreground hover:border-primary"
+          )}
+        >
+          {STATE_COPY[state]}
+        </button>
+
+        {note && (
+          <p role="status" className={cn("text-xs leading-relaxed", error ? "text-danger" : "text-muted-foreground")}>
+            {note}
+          </p>
+        )}
 
         <section aria-labelledby="ptt-hotkey-label" className="space-y-2">
           <span id="ptt-hotkey-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">

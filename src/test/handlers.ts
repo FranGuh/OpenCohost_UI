@@ -15,6 +15,7 @@ import type {
   MusicTrackOut
 } from "../api/music.js";
 import type { EventLogResponse } from "../api/events.js";
+import type { PttStartResponse, PttStateResponse, PttStopResponse } from "../api/ptt.js";
 
 // Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
 // handlers always match whatever base URL the app under test actually uses —
@@ -429,6 +430,12 @@ const KNOWN_MOODS = ["normal", "nostalgia", "hype", "tension", "sad", "calm", "c
 export const defaultMusicState: MusicStateResponse = { active_mood: "normal", fade: null };
 export const defaultEvents: EventLogResponse = { events: [], cursor: 0, boot: 0 };
 
+/** POST/GET /api/ptt/* fixtures — mirrors src/api/ptt.ts's hand-typed shapes.
+ * PRIVACY: never a text field, `buffered_chars` is a count only. ponytail: keep in sync manually. */
+export const defaultPttStart: PttStartResponse = { session_id: "ptt-session-1", state: "listening" };
+export const defaultPttStop: PttStopResponse = { state: "flushing" };
+export const defaultPttState: PttStateResponse = { state: "idle", session_id: null, buffered_chars: 0, last_error: null };
+
 function musicTracksForMood(library: MusicLibraryResponse, mood: string): MusicTrackOut[] {
   return library.tracks.filter((track) => track.mood === mood && track.status === "ok");
 }
@@ -625,7 +632,14 @@ export const handlers = [
     const body = (await request.json()) as { name: string };
     return HttpResponse.json({ selected: body.name });
   }),
-  http.get(`${API_BASE_URL}/api/events`, () => HttpResponse.json(defaultEvents))
+  http.get(`${API_BASE_URL}/api/events`, () => HttpResponse.json(defaultEvents)),
+  http.post(`${API_BASE_URL}/api/ptt/start`, () => HttpResponse.json(defaultPttStart)),
+  http.post(`${API_BASE_URL}/api/ptt/keepalive`, async ({ request }) => {
+    const body = (await request.json()) as { session_id: string };
+    return HttpResponse.json({ session_id: body.session_id, state: "listening", buffered_chars: 12 });
+  }),
+  http.post(`${API_BASE_URL}/api/ptt/stop`, () => HttpResponse.json(defaultPttStop)),
+  http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(defaultPttState))
 ];
 
 /** Per-test override: switch rejected with 409 conflict. */
@@ -1185,4 +1199,75 @@ export function eventsHandler(responses: EventLogResponse[]) {
     calls += 1;
     return HttpResponse.json(body);
   });
+}
+
+/** Per-test override: POST /api/ptt/start rejected with 503 stt_unreachable
+ * (WhisperLive connect failed) — the hold must render this honestly and
+ * NEVER show a fake "listening" state. */
+export function pttStartUnreachableHandler(detail = "stt_unreachable") {
+  return http.post(`${API_BASE_URL}/api/ptt/start`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: POST /api/ptt/start rejected with 409 session_active
+ * (a session is already listening/flushing — single slot). */
+export function pttStartConflictHandler(detail = "session_active") {
+  return http.post(`${API_BASE_URL}/api/ptt/start`, () => HttpResponse.json({ detail }, { status: 409 }));
+}
+
+/** Per-test override: POST /api/ptt/keepalive rejected with 409 — the server
+ * watchdog already guillotined this session (missed 3 beats); the client
+ * reads this as "drop to idle". */
+export function pttKeepaliveNotActiveHandler() {
+  return http.post(`${API_BASE_URL}/api/ptt/keepalive`, () =>
+    HttpResponse.json({ state: "idle", detail: "session_not_active" }, { status: 409 })
+  );
+}
+
+/** Per-test override: POST /api/ptt/keepalive fails at the network level (no
+ * response at all) — the watchdog finishes server-side regardless. */
+export function pttKeepaliveNetworkErrorHandler() {
+  return http.post(`${API_BASE_URL}/api/ptt/keepalive`, () => HttpResponse.error());
+}
+
+/** Per-test override: GET /api/ptt/state returns a caller-supplied response
+ * (e.g. a fixed flushing/buffered_chars snapshot). */
+export function pttStateHandler(response: PttStateResponse) {
+  return http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(response));
+}
+
+/**
+ * Per-test override: a stateful PTT session lifecycle across
+ * start/keepalive/stop/state — mirrors commandDispatcherHandlers's
+ * single-source-of-truth approach. GET /api/ptt/state stays "flushing" for
+ * `flushTicks` polls after stop(), then converges to "idle", so a component
+ * test can drive listening -> flushing -> idle without hand-wiring four
+ * independent static handlers.
+ */
+export function pttSessionFlowHandlers(flushTicks = 1) {
+  let flushing = false;
+  let flushPolls = 0;
+  return [
+    http.post(`${API_BASE_URL}/api/ptt/start`, () => {
+      flushing = false;
+      flushPolls = 0;
+      return HttpResponse.json(defaultPttStart);
+    }),
+    http.post(`${API_BASE_URL}/api/ptt/keepalive`, async ({ request }) => {
+      const body = (await request.json()) as { session_id: string };
+      return HttpResponse.json({ session_id: body.session_id, state: "listening", buffered_chars: 12 });
+    }),
+    http.post(`${API_BASE_URL}/api/ptt/stop`, () => {
+      flushing = true;
+      return HttpResponse.json({ state: "flushing" });
+    }),
+    http.get(`${API_BASE_URL}/api/ptt/state`, () => {
+      if (!flushing) return HttpResponse.json(defaultPttState);
+      flushPolls += 1;
+      if (flushPolls >= flushTicks) {
+        flushing = false;
+        return HttpResponse.json(defaultPttState);
+      }
+      return HttpResponse.json({ state: "flushing", session_id: defaultPttStart.session_id, buffered_chars: 12, last_error: null });
+    })
+  ];
 }
