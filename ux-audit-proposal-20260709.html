@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCohost · Auditoría fiel de UI/UX</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05090b;
+      --surface: #0d141d;
+      --surface-2: #101a25;
+      --border: rgba(232, 241, 236, .08);
+      --border-strong: rgba(232, 241, 236, .15);
+      --text: #e8f1ec;
+      --muted: #7c8b85;
+      --dim: #5d7069;
+      --cyan: #35ebe4;
+      --green: #17e39a;
+      --green-soft: rgba(23, 227, 154, .12);
+      --red: #f0616b;
+      --red-soft: rgba(240, 97, 107, .13);
+      --blue: #5fb2f0;
+      --blue-soft: rgba(95, 178, 240, .12);
+      --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-width: 980px; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+    body { border-top: 2px solid var(--green); }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+    .mono { font-family: var(--mono); }
+
+    .review-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 38px; padding: 0 16px; border-bottom: 1px solid var(--border); background: #080e14; color: var(--muted); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .review-bar strong { color: var(--cyan); font-weight: 700; }
+    .review-bar button { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); background: transparent; font: 10px var(--mono); }
+    .review-bar button:hover { color: var(--text); border-color: var(--border-strong); }
+
+    .app-shell { display: grid; grid-template-columns: 248px minmax(0, 1fr) 372px; grid-template-rows: 72px calc(100vh - 110px); min-height: 760px; background: var(--bg); }
+    .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--border); background: #0b121b; }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 210px; }
+    .brand img { width: 34px; height: 34px; object-fit: contain; }
+    .brand-name { color: var(--text); font-size: 15px; font-weight: 800; line-height: 1.1; }
+    .brand-name span { color: var(--cyan); }
+    .brand-sub { color: var(--muted); font: 9px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .status-strip { display: flex; align-items: center; gap: 9px; min-width: 0; margin-left: auto; padding: 9px 12px; border: 1px solid var(--border); border-radius: 25px; background: #0d151f; }
+    .status-strip > .status-led { width: 9px; height: 9px; flex: 0 0 auto; border: 2px solid var(--red); border-radius: 50%; }
+    .status-pill { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: 18px; color: var(--muted); background: #111a24; white-space: nowrap; font: 12px var(--mono); }
+    .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+    .status-pill.danger { border-color: rgba(240, 97, 107, .38); color: var(--red); background: var(--red-soft); }
+    .status-pill.danger::before { background: var(--red); }
+    .status-pill.info { border-color: rgba(95, 178, 240, .35); color: var(--blue); background: var(--blue-soft); }
+    .status-pill.info::before { background: var(--blue); }
+    .status-pill.ok::before { background: var(--green); }
+    .settings-button, .account-button { flex: 0 0 auto; border: 0; color: var(--muted); background: transparent; }
+    .settings-button { width: 32px; height: 32px; font-size: 17px; }
+    .account-button { width: 42px; height: 42px; border-radius: 50%; background: rgba(23, 227, 154, .14); }
+
+    .sidebar { min-height: 0; overflow: hidden; border-right: 1px solid var(--border); background: #0c131c; }
+    .sidebar-inner { height: 100%; overflow: auto; padding: 16px 10px 24px; scrollbar-color: #89918f #0c131c; }
+    .nav-list { display: grid; gap: 4px; padding-bottom: 14px; }
+    .nav-item { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 13px; border: 0; border-radius: 15px; color: var(--muted); background: transparent; text-align: left; font-size: 15px; font-weight: 650; }
+    .nav-item:hover { color: var(--text); background: #101c27; }
+    .nav-item.active { color: var(--cyan); background: rgba(23, 227, 154, .16); }
+    .nav-icon { width: 17px; color: var(--cyan); font: 13px var(--mono); text-align: center; }
+    .separator { height: 1px; margin: 0 0 13px; background: var(--border); }
+    .profile-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 10px 12px; color: var(--muted); font: 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .profile-heading button { border: 0; color: var(--muted); background: transparent; font: 13px var(--sans); }
+    .profile-list { display: grid; gap: 7px; }
+    .profile { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 58px; padding: 8px 10px; border-radius: 14px; }
+    .profile:hover, .profile.active { background: #111c27; }
+    .profile-avatar { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: #dce7e3; background: #142131; font: 18px var(--mono); }
+    .profile.active .profile-avatar { color: var(--cyan); background: rgba(53, 235, 228, .12); }
+    .profile-name { overflow: hidden; color: var(--text); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .profile-meta { color: var(--muted); font: 12px var(--mono); }
+
+    .stage { position: relative; min-width: 0; overflow: hidden; background: radial-gradient(65% 70% at 50% 44%, rgba(23, 227, 154, .055), transparent 72%), #020809; }
+    .stage-inner { display: flex; height: 100%; flex-direction: column; align-items: center; padding-top: 106px; }
+    .live-state { z-index: 1; margin-bottom: 42px; padding: 11px 20px; border: 1px solid var(--border); border-radius: 22px; background: #0c141d; font-size: 16px; }
+    .live-state strong { color: var(--cyan); }
+    .avatar-frame { position: relative; display: grid; place-items: center; width: min(540px, 64%); aspect-ratio: 1; border: 1px solid rgba(23, 227, 154, .82); border-radius: 50%; }
+    .avatar-frame::before { position: absolute; inset: -16px; content: ""; border: 1px solid rgba(23, 227, 154, .45); border-radius: inherit; }
+    .avatar-frame img { width: 92%; height: 92%; object-fit: contain; border-radius: 50%; }
+    .identity { margin-top: 34px; text-align: center; }
+    .identity h1 { margin: 0 0 8px; color: var(--text); font-size: 36px; letter-spacing: -.06em; }
+    .identity p { margin: 0; color: var(--muted); font: 14px var(--mono); }
+
+    .conversation { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: #0b121b; }
+    .tabs { display: flex; gap: 26px; height: 56px; align-items: center; padding: 0 17px; border-bottom: 1px solid var(--border); }
+    .tab { padding: 10px 14px; border: 0; border-radius: 20px; color: var(--muted); background: transparent; font: 700 14px var(--mono); }
+    .tab.active { color: var(--green); background: rgba(23, 227, 154, .16); }
+    .conversation-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 17px 10px; color: var(--muted); font: 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .live-dot { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font: 12px var(--sans); letter-spacing: 0; text-transform: none; }
+    .live-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .transcript { flex: 1; overflow: auto; padding: 0 17px 16px; }
+    .speaker { margin: 10px 0 7px; color: var(--muted); font-size: 12px; text-align: right; }
+    .message { max-width: 88%; margin: 0 0 23px auto; padding: 12px 14px; border: 1px solid rgba(23, 227, 154, .42); border-radius: 14px 4px 14px 14px; color: var(--text); background: rgba(23, 227, 154, .10); font-size: 15px; }
+    .alert-line { display: flex; align-items: center; gap: 10px; margin: 10px 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .alert-line::before, .alert-line::after { height: 1px; flex: 1; content: ""; background: var(--border); }
+    .composer { padding: 16px; border-top: 1px solid var(--border); background: #101923; }
+    .composer-row { display: flex; height: 56px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 14px; background: #05090d; }
+    .composer input { min-width: 0; flex: 1; padding: 0 15px; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 15px; }
+    .composer button { width: 88px; border: 0; color: #04140d; background: linear-gradient(135deg, #1de5b4, #28d8ea); font-weight: 800; }
+
+    .audit-panel { width: min(1120px, calc(100% - 40px)); margin: 28px auto 48px; padding: 20px; border: 1px solid var(--border); background: #0a1118; }
+    .audit-panel[hidden] { display: none; }
+    .audit-panel h2 { margin: 0 0 6px; font-size: 18px; }
+    .audit-panel > p { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+    .audit-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .audit-item { padding: 14px; border: 1px solid var(--border); background: #0d151f; }
+    .audit-item strong { display: block; margin-bottom: 7px; color: var(--cyan); font: 12px var(--mono); }
+    .audit-item p { margin: 0; color: var(--muted); font-size: 13px; }
+    .audit-item code { color: var(--text); font: 11px var(--mono); }
+    .audit-note { margin-top: 14px; padding: 11px 13px; border-left: 3px solid var(--green); color: var(--muted); background: rgba(23, 227, 154, .07); font-size: 13px; }
+
+    .overlay-audit .avatar-frame, .overlay-audit .status-strip, .overlay-audit .sidebar, .overlay-audit .conversation { outline: 1px dashed rgba(53, 235, 228, .8); outline-offset: -5px; }
+    .overlay-audit::after { position: fixed; right: 18px; bottom: 18px; z-index: 5; padding: 7px 10px; border: 1px solid var(--cyan); color: var(--cyan); background: #071116; content: "MODO AUDITORÍA: deltas quirúrgicos"; font: 10px var(--mono); letter-spacing: .08em; }
+
+    @media (max-width: 1200px) {
+      html, body { min-width: 0; }
+      .app-shell { grid-template-columns: 220px minmax(0, 1fr) 330px; }
+      .status-pill { padding: 0 8px; font-size: 11px; }
+      .status-strip { gap: 5px; padding: 7px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+  <div class="review-bar"><span><strong>AUDITORÍA FIEL</strong> · concepto visual · no modifica producción</span><button type="button" data-audit-toggle>Mostrar deltas quirúrgicos</button></div>
+
+  <main class="app-shell" aria-label="Propuesta fiel de OpenCohost">
+    <header class="topbar">
+      <div class="brand"><img src="public/brand/opencohost.png" data-fallback="brand/opencohost.png" alt="" /><div><div class="brand-name">Open<span>Cohost</span></div><div class="brand-sub">focus over panic</div></div></div>
+      <div class="status-strip" aria-label="Estado del sistema actual"><span class="status-led" aria-hidden="true"></span><span class="status-pill danger">Sistema: error · salud</span><span class="status-pill info">Modelo: gemma4:e2b</span><span class="status-pill danger">Health: red</span><span class="status-pill">Voz: en silencio</span><span class="status-pill">Inactivo</span><span class="status-pill">Perfil: default</span></div>
+      <button class="settings-button" type="button" aria-label="Configuración">⚙</button><button class="account-button" type="button" aria-label="Cuenta"></button>
+    </header>
+
+    <aside class="sidebar" aria-label="Perfiles y navegación">
+      <div class="sidebar-inner">
+        <nav class="nav-list" aria-label="Secciones">
+          <button class="nav-item active" type="button" aria-current="page"><span class="nav-icon">◇</span>Experiencia</button>
+          <button class="nav-item" type="button"><span class="nav-icon">▤</span>Agenda</button>
+          <button class="nav-item" type="button"><span class="nav-icon">⊙</span>Stream</button>
+          <button class="nav-item" type="button"><span class="nav-icon">♫</span>Música</button>
+          <button class="nav-item" type="button"><span class="nav-icon">⚙</span>Controles</button>
+        </nav>
+        <div class="separator"></div>
+        <div class="profile-heading"><span>Profiles</span><button type="button">+ Nuevo</button></div>
+        <div class="profile-list">
+          <div class="profile active"><span class="profile-avatar">A</span><div><div class="profile-name">Akira</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">A</span><div><div class="profile-name">Akira (Learn)</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">G</span><div><div class="profile-name">Gemma</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">H</span><div><div class="profile-name">Hagg</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">V</span><div><div class="profile-name">Vacio</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">A</span><div><div class="profile-name">Akira (Uncensored)</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">C</span><div><div class="profile-name">Comunidad</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">C</span><div><div class="profile-name">Calmado</div><div class="profile-meta">perfil</div></div></div>
+          <div class="profile"><span class="profile-avatar">T</span><div><div class="profile-name">Técnico</div><div class="profile-meta">perfil</div></div></div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="stage" aria-label="Experiencia de Kira">
+      <div class="stage-inner">
+        <div class="live-state"><strong>Estado:</strong> en vivo</div>
+        <div class="avatar-frame"><img src="public/avatar/idle.png" data-fallback="avatar/idle.png" alt="Kira en estado en vivo" /></div>
+        <div class="identity"><h1>Kira</h1><p>Akira · co-host local · gemma4:e2b</p></div>
+      </div>
+    </section>
+
+    <aside class="conversation" aria-label="Conversación">
+      <div class="tabs" role="tablist"><button class="tab active" role="tab" aria-selected="true" type="button">Todo</button><button class="tab" role="tab" aria-selected="false" type="button">Chat</button><button class="tab" role="tab" aria-selected="false" type="button">Alertas</button></div>
+      <div class="conversation-heading"><span>Conversación</span><span class="live-dot">sesión en vivo</span></div>
+      <div class="transcript"><div class="speaker">Vos</div><p class="message">¿Cómo viene el stream hoy?</p><div class="alert-line">▣ el chat de viewers está silenciado</div></div>
+      <div class="composer"><div class="composer-row"><input aria-label="Mensaje para Kira" placeholder="Escribí un mensaje para Kira…" /><button type="button">Enviar</button></div></div>
+    </aside>
+  </main>
+
+  <section class="audit-panel" hidden data-audit-panel>
+    <h2>Deltas quirúrgicos propuestos</h2>
+    <p>No rediseño el shell. La base es la UI real de arriba; estas son las únicas áreas que propondría validar antes de tocar producción.</p>
+    <div class="audit-grid">
+      <article class="audit-item"><strong>01 · StatusRail.tsx</strong><p>Conservar el rail actual. Auditar solo el orden de lectura cuando hay error: salud primero, luego modelo, voz y perfil. No esconder información detrás de un dashboard nuevo.</p></article>
+      <article class="audit-item"><strong>02 · Sidebar.tsx</strong><p>Conservar navegación y playlist de perfiles. Validar hit areas, contraste del perfil activo y affordance del scroll. No reemplazar perfiles reales por tarjetas inventadas.</p></article>
+      <article class="audit-item"><strong>03 · KiraCover.tsx</strong><p>Conservar <code>AVATAR_IMAGE</code>, el asset real y el anillo existente. Solo medir escala, espacio vertical y legibilidad de estado/identidad.</p></article>
+      <article class="audit-item"><strong>04 · ConversationPanel.tsx</strong><p>Conservar Todo/Chat/Alertas, composer, polling y alert dividers. Validar la separación visual entre conversación y eventos sin agregar actividad ficticia.</p></article>
+      <article class="audit-item"><strong>05 · tokens.css</strong><p>Conservar cockpit, colores semánticos, radios y tipografía actuales. Ajustar únicamente valores demostrados por screenshot o prueba de contraste.</p></article>
+      <article class="audit-item"><strong>06 · assets reales</strong><p>La propuesta usa <code>public/avatar/idle.png</code> y <code>public/brand/opencohost.png</code>; la implementación debe seguir usando los assets reales ya cableados por <code>kiraState.ts</code> y <code>BrandMark.tsx</code>.</p></article>
+    </div>
+    <div class="audit-note">Regla de este track: si un cambio no puede explicarse como una mejora medible sobre esta composición real, no entra en la propuesta.</div>
+  </section>
+
+  <script>
+    (() => {
+      const fallbackImages = document.querySelectorAll('img[data-fallback]');
+      fallbackImages.forEach((image) => image.addEventListener('error', () => {
+        if (image.dataset.fallback && image.src !== image.dataset.fallback) image.src = image.dataset.fallback;
+      }, { once: true }));
+
+      const auditToggle = document.querySelector('[data-audit-toggle]');
+      const auditPanel = document.querySelector('[data-audit-panel]');
+      auditToggle.addEventListener('click', () => {
+        const open = auditPanel.hidden;
+        auditPanel.hidden = !open;
+        document.body.classList.toggle('overlay-audit', open);
+        auditToggle.textContent = open ? 'Ocultar deltas quirúrgicos' : 'Mostrar deltas quirúrgicos';
+        if (open) auditPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+
+      document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        document.querySelectorAll('.nav-item').forEach((item) => item.removeAttribute('aria-current'));
+        button.setAttribute('aria-current', 'page');
+      }));
+
+      document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((item) => { item.classList.remove('active'); item.setAttribute('aria-selected', 'false'); });
+        button.classList.add('active');
+        button.setAttribute('aria-selected', 'true');
+      }));
+    })();
+  </script>
+</body>
+</html>
