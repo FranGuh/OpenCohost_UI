@@ -6,8 +6,8 @@ import { ToastProvider } from "./components/ui/Toast.js";
 export function App() {
   return (
     <ToastProvider>
-      <EventBridge />
       <BackendGate>
+        <EventBridge />
         <AppLayout />
       </BackendGate>
     </ToastProvider>

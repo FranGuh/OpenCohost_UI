@@ -3,10 +3,28 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL } from "../test/handlers.js";
 import { BackendGate, type BackendGateProps } from "./BackendGate.js";
+
+const bootstrapMocks = vi.hoisted(() => ({
+  bootstrapBackend: vi.fn(),
+  getBackendBootstrapError: vi.fn()
+}));
+
+vi.mock("../lib/backendBootstrap.js", () => ({
+  bootstrapBackend: () => bootstrapMocks.bootstrapBackend(),
+  getBackendBootstrapError: () => bootstrapMocks.getBackendBootstrapError()
+}));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function renderGate(props: Partial<Omit<BackendGateProps, "children">> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -24,86 +42,229 @@ function renderGate(props: Partial<Omit<BackendGateProps, "children">> = {}) {
   );
 }
 
-describe("BackendGate (WU-E: runtime backend health gate)", () => {
-  it("renders children once GET /api/health returns 200", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ status: "ok" })));
+beforeEach(() => {
+  bootstrapMocks.bootstrapBackend.mockReset();
+  bootstrapMocks.getBackendBootstrapError.mockReset();
+  bootstrapMocks.bootstrapBackend.mockResolvedValue({ backendError: null });
+  bootstrapMocks.getBackendBootstrapError.mockReturnValue(null);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("BackendGate startup phases", () => {
+  it("paints an accessible bootstrapping status before IPC settles and does not probe health", async () => {
+    const bootstrap = deferred<{ backendError: string | null }>();
+    let healthRequests = 0;
+    bootstrapMocks.bootstrapBackend.mockReturnValue(bootstrap.promise);
+    server.use(
+      http.get(`${API_BASE_URL}/api/health`, () => {
+        healthRequests += 1;
+        return HttpResponse.json({ engine_alive: true });
+      })
+    );
+
+    renderGate();
+
+    expect(screen.getByRole("status")).toHaveTextContent("Preparando motor local");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(screen.queryByText("app content")).not.toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(healthRequests).toBe(0);
+  });
+
+  it("shows probing status after bootstrap while validated health is pending", async () => {
+    const health = deferred<boolean>();
+    server.use(
+      http.get(`${API_BASE_URL}/api/health`, async () =>
+        HttpResponse.json({ engine_alive: await health.promise })
+      )
+    );
+
+    renderGate();
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Comprobando motor local"));
+    expect(screen.queryByText("app content")).not.toBeInTheDocument();
+    health.resolve(true);
+    await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
+  });
+
+  it("renders children only when GET /api/health returns engine_alive true", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ engine_alive: true })));
 
     renderGate();
 
     await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
   });
 
-  it("shows the splash (not the children) while the backend is not yet healthy", () => {
-    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+  it("rejects a 200 health body with engine_alive false", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ engine_alive: false })));
 
-    renderGate();
+    renderGate({ failureThreshold: 1 });
 
-    expect(screen.getByText("OpenCohost")).toBeInTheDocument();
-    expect(screen.getByText(/Iniciando motor local/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.queryByText("app content")).not.toBeInTheDocument();
   });
 
-  it("switches to the error copy + Reintentar button after failureThreshold consecutive failures", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+  it("rejects a malformed 200 health body", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ status: "ok" })));
 
-    renderGate();
+    renderGate({ failureThreshold: 1 });
 
-    await waitFor(() => expect(screen.getByText(/No se pudo conectar con el motor local/)).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /Reintentar/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByText("app content")).not.toBeInTheDocument();
+  });
+});
+
+describe("BackendGate terminal failure and retry", () => {
+  it("times out a stalled health request, aborts it, and allows retry", async () => {
+    const healthSignals: AbortSignal[] = [];
+    let requestCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      requestCount += 1;
+      const signal = init?.signal as AbortSignal;
+      healthSignals.push(signal);
+      if (requestCount === 1) {
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new DOMException("Aborted", "AbortError")),
+            { once: true }
+          );
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ engine_alive: true })
+      } as Response);
+    });
+
+    renderGate({ failureThreshold: 1, healthTimeoutMs: 20 });
+
+    const retryButton = await screen.findByRole("button", { name: "Reintentar" });
+    expect(healthSignals[0]?.aborted).toBe(true);
+
+    await userEvent.click(retryButton);
+    await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
   });
 
-  it("Reintentar resets the failure counter and re-shows the starting splash copy", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+  it("aborts an in-flight stalled health request when the gate unmounts", async () => {
+    let healthSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      healthSignal = init?.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        healthSignal?.addEventListener(
+          "abort",
+          () => reject(healthSignal?.reason ?? new DOMException("Aborted", "AbortError")),
+          { once: true }
+        );
+      });
+    });
+    const view = renderGate({ failureThreshold: 1, healthTimeoutMs: 1000 });
+    await waitFor(() => expect(healthSignal).toBeDefined());
 
-    renderGate();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Reintentar/ })).toBeInTheDocument());
+    view.unmount();
 
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Reintentar/ }));
-
-    expect(screen.getByText(/Iniciando motor local/)).toBeInTheDocument();
+    await waitFor(() => expect(healthSignal?.aborted).toBe(true));
   });
 
-  it("shows the backend error detail under the generic error copy when provided", async () => {
+  it("announces terminal failure and predictably focuses the native retry button", async () => {
     server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
 
-    renderGate({ backendError: "Failed to spawn backend on port 8765: no such file or directory" });
+    renderGate({ failureThreshold: 1 });
 
-    await waitFor(() => expect(screen.getByText(/No se pudo conectar con el motor local/)).toBeInTheDocument());
-    expect(
-      screen.getByText("Detalle: Failed to spawn backend on port 8765: no such file or directory")
-    ).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("No se pudo conectar con el motor local");
+    expect(screen.getByRole("button", { name: "Reintentar" })).toHaveFocus();
   });
 
-  it("does not render a detail line when there is no backend error", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+  it("retries health and renders children after the engine becomes ready", async () => {
+    let engineAlive = false;
+    server.use(
+      http.get(`${API_BASE_URL}/api/health`, () =>
+        engineAlive
+          ? HttpResponse.json({ engine_alive: true })
+          : HttpResponse.json({ engine_alive: false })
+      )
+    );
+    renderGate({ failureThreshold: 1 });
+    const retryButton = await screen.findByRole("button", { name: "Reintentar" });
 
-    renderGate({ backendError: null });
+    engineAlive = true;
+    await userEvent.click(retryButton);
 
-    await waitFor(() => expect(screen.getByText(/No se pudo conectar con el motor local/)).toBeInTheDocument());
-    expect(screen.queryByText(/Detalle:/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
   });
 
-  it("once healthy, never re-blocks the UI even if the backend later fails a health check", async () => {
+  it("shows only the supplied degraded bootstrap detail", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ engine_alive: false })));
+
+    renderGate({
+      failureThreshold: 1,
+      backendError: "Failed to spawn the managed local backend."
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Detalle: Failed to spawn the managed local backend.");
+    expect(alert).not.toHaveTextContent("engine_alive");
+  });
+
+  it("once ready, never re-blocks the UI after later health failures", async () => {
     let healthy = true;
     server.use(
-      http.get(`${API_BASE_URL}/api/health`, () => {
-        if (healthy) {
-          return HttpResponse.json({ status: "ok" });
-        }
-        return HttpResponse.json({ detail: "boom" }, { status: 500 });
-      })
+      http.get(`${API_BASE_URL}/api/health`, () =>
+        healthy
+          ? HttpResponse.json({ engine_alive: true })
+          : HttpResponse.json({ detail: "boom" }, { status: 500 })
+      )
     );
 
     renderGate();
     await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
 
     healthy = false;
-    // Give the (now-disabled) poll several intervals worth of time to prove
-    // it does NOT re-trigger the gate.
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(screen.getByText("app content")).toBeInTheDocument();
-    expect(screen.queryByText("OpenCohost")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not begin health polling when unmounted during bootstrap", async () => {
+    const bootstrap = deferred<{ backendError: string | null }>();
+    let healthRequests = 0;
+    bootstrapMocks.bootstrapBackend.mockReturnValue(bootstrap.promise);
+    server.use(
+      http.get(`${API_BASE_URL}/api/health`, () => {
+        healthRequests += 1;
+        return HttpResponse.json({ engine_alive: true });
+      })
+    );
+    const view = renderGate();
+
+    view.unmount();
+    bootstrap.resolve({ backendError: null });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(healthRequests).toBe(0);
+  });
+
+  it("cleans up the health polling interval on unmount", async () => {
+    let healthRequests = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/health`, () => {
+        healthRequests += 1;
+        return HttpResponse.json({ engine_alive: false });
+      })
+    );
+    const view = renderGate({ failureThreshold: 100 });
+    await waitFor(() => expect(healthRequests).toBeGreaterThan(0));
+
+    view.unmount();
+    const requestsAtUnmount = healthRequests;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(healthRequests).toBe(requestsAtUnmount);
   });
 });

@@ -1,50 +1,199 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import React from "react";
 
-const invokeMock = vi.fn();
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => invokeMock(...args)
+const mocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  setApiBaseUrl: vi.fn(),
+  bootstrapApiToken: vi.fn()
 }));
 
-import { bootstrapBackend } from "./backendBootstrap.js";
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => mocks.invoke(...args)
+}));
 
-/**
- * agent_context_gateway Phase 4 (ADR-5): the `api_token` Tauri command's
- * retry loop can take up to ~1.2s (or hang entirely on a broken IPC
- * boundary) before `bootstrapApiToken` resolves. `bootstrapBackend` awaits
- * it before first paint (main.tsx), so it must never block startup past the
- * same timeout budget already applied to `backend_info`.
- */
-describe("bootstrapBackend / api_token timeout", () => {
+vi.mock("../api/client.js", () => ({
+  bootstrapApiToken: () => mocks.bootstrapApiToken(),
+  getApiBaseUrl: () => "http://127.0.0.1:8765",
+  setApiBaseUrl: (url: string) => mocks.setApiBaseUrl(url)
+}));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function loadBootstrap() {
+  vi.resetModules();
+  return import("./backendBootstrap.js");
+}
+
+async function flushBootstrapStart() {
+  await vi.advanceTimersByTimeAsync(0);
+  await Promise.resolve();
+}
+
+describe("bootstrapBackend", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mocks.invoke.mockReset();
+    mocks.setApiBaseUrl.mockReset();
+    mocks.bootstrapApiToken.mockReset();
+    mocks.bootstrapApiToken.mockImplementation(() => mocks.invoke("api_token"));
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
   });
 
   afterEach(() => {
-    invokeMock.mockReset();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   });
 
-  it("resolves within the bootstrap timeout even when the api_token invoke never settles", async () => {
-    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
-    invokeMock.mockImplementation((command: string) => {
-      if (command === "backend_info") {
-        return Promise.resolve({ base_url: "http://127.0.0.1:8765", managed: true });
-      }
-      // api_token: never resolves — simulates a stuck/never-returning
-      // main-thread retry (the exact scenario this fix guards against).
-      return new Promise(() => {});
+  it("starts backend_info and api_token concurrently", async () => {
+    const backendInfo = deferred<{ base_url: string; managed: boolean }>();
+    const apiToken = deferred<null>();
+    mocks.invoke.mockImplementation((command: string) =>
+      command === "backend_info" ? backendInfo.promise : apiToken.promise
+    );
+    const { bootstrapBackend } = await loadBootstrap();
+
+    const resultPromise = bootstrapBackend();
+    await flushBootstrapStart();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("backend_info");
+    expect(mocks.invoke).toHaveBeenCalledWith("api_token");
+
+    backendInfo.resolve({ base_url: "http://127.0.0.1:8765", managed: true });
+    apiToken.resolve(null);
+    await expect(resultPromise).resolves.toEqual({ backendError: null });
+  });
+
+  it("settles both stuck IPC operations within one shared two-second deadline", async () => {
+    mocks.invoke.mockImplementation(() => new Promise(() => {}));
+    const { bootstrapBackend } = await loadBootstrap();
+    let result: { backendError: string | null } | undefined;
+    let settledAt: number | undefined;
+    const startedAt = Date.now();
+
+    void bootstrapBackend().then((value) => {
+      result = value;
+      settledAt = Date.now();
     });
+    await flushBootstrapStart();
 
-    let settled = false;
-    const donePromise = bootstrapBackend().then(() => {
-      settled = true;
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(result).toBeUndefined();
+    expect(settledAt).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(result).toEqual({ backendError: "Unable to resolve the local backend." });
+    expect(settledAt).toBeGreaterThanOrEqual(startedAt + 2000);
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares one IPC bootstrap across a real React StrictMode remount and reaches ready", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "backend_info"
+          ? { base_url: "http://127.0.0.1:8765", managed: true }
+          : null
+      )
+    );
+    await loadBootstrap();
+    const { BackendGate } = await import("../components/BackendGate.js");
+    vi.useRealTimers();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ engine_alive: true })
+    } as Response);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      React.createElement(
+        React.StrictMode,
+        null,
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(BackendGate, {
+            pollIntervalMs: 5,
+            failureThreshold: 1,
+            children: React.createElement("main", null, "application shell")
+          })
+        )
+      )
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Preparando motor local");
+    expect(await screen.findByText("application shell")).toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith("backend_info");
+    expect(mocks.invoke).toHaveBeenCalledWith("api_token");
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns one shared promise and invokes each command once for concurrent callers", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "backend_info"
+          ? { base_url: "http://127.0.0.1:8765", managed: true }
+          : null
+      )
+    );
+    const { bootstrapBackend } = await loadBootstrap();
+
+    const first = bootstrapBackend();
+    const second = bootstrapBackend();
+
+    expect(first).toBe(second);
+    await expect(first).resolves.toEqual({ backendError: null });
+    expect(mocks.invoke).toHaveBeenCalledWith("backend_info");
+    expect(mocks.invoke).toHaveBeenCalledWith("api_token");
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies a valid backend URL and preserves Rust degraded detail", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "backend_info"
+          ? {
+              base_url: "http://127.0.0.1:9876",
+              managed: false,
+              error: "Managed backend unavailable; using an existing local engine."
+            }
+          : null
+      )
+    );
+    const { bootstrapBackend, getBackendBootstrapError } = await loadBootstrap();
+
+    await expect(bootstrapBackend()).resolves.toEqual({
+      backendError: "Managed backend unavailable; using an existing local engine."
     });
+    expect(mocks.setApiBaseUrl).toHaveBeenCalledWith("http://127.0.0.1:9876");
+    expect(getBackendBootstrapError()).toBe(
+      "Managed backend unavailable; using an existing local engine."
+    );
+  });
 
-    await vi.advanceTimersByTimeAsync(2100);
-    await donePromise;
+  it("keeps the configured default when backend_info returns an invalid URL", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "backend_info"
+          ? { base_url: "not a URL", managed: true }
+          : null
+      )
+    );
+    const { bootstrapBackend } = await loadBootstrap();
 
-    expect(settled).toBe(true);
-    expect(invokeMock).toHaveBeenCalledWith("api_token");
+    await expect(bootstrapBackend()).resolves.toEqual({
+      backendError: "Unable to resolve the local backend."
+    });
+    expect(mocks.setApiBaseUrl).not.toHaveBeenCalled();
   });
 });
