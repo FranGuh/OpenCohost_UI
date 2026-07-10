@@ -42,6 +42,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function PTTCard() {
   const { state, error, start, stop } = usePttHold();
   const lastReply = useLastReply();
+  const buttonRef = useRef<HTMLButtonElement>(null);
   // Read at render time, not just inside effects/handlers below: react-query
   // v5's "tracked queries" optimization only re-renders this component for
   // properties it saw ACCESSED DURING RENDER — touching `.data` only inside
@@ -101,14 +102,23 @@ export function PTTCard() {
   // array here would freeze onKeyUp/onWindowBlur on the state that existed
   // when the effect first ran. Cheap: 3 listener churns per render.
   useEffect(() => {
+    // Only act when nothing is focused (document.body) or the PTT button
+    // itself is focused — a focused native control (Switch, other Button,
+    // link, checkbox) must keep Space/Enter for its own activation instead
+    // of being hijacked into starting a listening session.
+    function isEligibleFocus(): boolean {
+      return document.activeElement === document.body || document.activeElement === buttonRef.current;
+    }
     function onKeyDown(e: KeyboardEvent) {
       if (e.repeat || isTypingTarget(e.target)) return;
       if (e.code !== "Space" && e.code !== "Enter") return;
+      if (!isEligibleFocus()) return;
       e.preventDefault();
       start();
     }
     function onKeyUp(e: KeyboardEvent) {
       if (e.code !== "Space" && e.code !== "Enter") return;
+      if (!isEligibleFocus()) return;
       handleStop();
     }
     function onWindowBlur() {
@@ -139,6 +149,7 @@ export function PTTCard() {
         </p>
 
         <button
+          ref={buttonRef}
           type="button"
           aria-pressed={listening}
           aria-label={STATE_COPY[state]}
