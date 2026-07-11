@@ -75,11 +75,7 @@ export function MainStage({ activeSection }: MainStageProps) {
         backgroundImage: "radial-gradient(90% 70% at 50% -5%, var(--accent-soft), transparent 80%)"
       }}
     >
-      {!welcomeDismissed && (
-        <div className="shrink-0 px-4 pt-4">
-          <WelcomeCard onDismiss={dismissWelcome} />
-        </div>
-      )}
+      {!welcomeDismissed && <WelcomeCard onDismiss={dismissWelcome} />}
       <div className="min-h-0 flex-1">
         <KiraCover />
       </div>

@@ -43,8 +43,12 @@ describe("AppLayout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Volver a ver bienvenida" }));
 
     expect(screen.getByRole("button", { name: /Experiencia/ })).toHaveAttribute("aria-current", "true");
-    expect(screen.getByRole("heading", { name: "Bienvenido a OpenCohost" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Conocé a Kira" })).toBeInTheDocument();
+    expect(screen.getByText("1 de 5")).toBeInTheDocument();
     expect(useWelcomeStore.getState().dismissed).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar bienvenida" }));
+    expect(screen.getByRole("button", { name: "Configuración" })).toHaveFocus();
   });
 
   it("switches to Controles on nav click and marks aria-current", () => {

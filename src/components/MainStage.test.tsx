@@ -32,15 +32,16 @@ function combinedText(phrase: string) {
 }
 
 describe("MainStage — experiencia stage wired to GET /api/status", () => {
-  it("layers Welcome inline without replacing Kira and dismisses it explicitly", () => {
+  it("layers Welcome as a modal without replacing Kira and persists explicit dismissal", () => {
     renderStage();
 
-    expect(screen.getByRole("heading", { name: "Bienvenido a OpenCohost" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Conocé a Kira" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Entendido" }));
+    fireEvent.click(screen.getByRole("button", { name: "Omitir" }));
 
-    expect(screen.queryByRole("heading", { name: "Bienvenido a OpenCohost" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("oc-welcome-dismissed-v1")).toBe("true");
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
   });
 

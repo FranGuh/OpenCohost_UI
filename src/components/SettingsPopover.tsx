@@ -43,6 +43,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   const [showLogs, setShowLogs] = useState(false);
   const { compact, setCompact } = useDensity();
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   // D6 (kira_bilingual_e2e_20260705): locale switching is next-boot only, so
   // this is plain fetch + local state (no query invalidation elsewhere
   // depends on it) rather than react-query, mirroring this component's
@@ -73,8 +74,9 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   }
 
   function handleShowWelcome() {
-    onShowWelcome();
+    triggerRef.current?.focus();
     setOpen(false);
+    onShowWelcome();
   }
 
   useEffect(() => {
@@ -103,6 +105,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-label="Configuración"
         aria-haspopup="true"
