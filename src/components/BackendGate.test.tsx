@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -248,6 +248,39 @@ describe("BackendGate terminal failure and retry", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(healthRequests).toBe(0);
+  });
+
+  it("mounts the app under a fading splash on ready, then unmounts the splash on transitionend", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ engine_alive: true })));
+
+    const { container } = renderGate();
+
+    // The app is live the instant the gate is ready…
+    await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
+    // …while the splash overlay is still mounted, now closing (opacity-0) and
+    // removed from the a11y tree so the stale boot status isn't announced.
+    const overlay = container.querySelector(".z-50");
+    expect(overlay).not.toBeNull();
+    expect(overlay?.className).toContain("opacity-0");
+    expect(overlay).toHaveAttribute("aria-hidden", "true");
+
+    fireEvent.transitionEnd(overlay as Element);
+
+    await waitFor(() => expect(container.querySelector(".z-50")).toBeNull());
+    expect(screen.getByText("app content")).toBeInTheDocument();
+  });
+
+  it("tears down the splash via the fallback timer when transitionend never fires", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ engine_alive: true })));
+
+    const { container } = renderGate();
+    await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
+    expect(container.querySelector(".z-50")).not.toBeNull();
+
+    // jsdom runs no CSS transition, so no transitionend fires — the
+    // SPLASH_FADE_MS fallback must still unmount the overlay.
+    await waitFor(() => expect(container.querySelector(".z-50")).toBeNull(), { timeout: 1000 });
+    expect(screen.getByText("app content")).toBeInTheDocument();
   });
 
   it("cleans up the health polling interval on unmount", async () => {

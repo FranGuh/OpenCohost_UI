@@ -1,3 +1,4 @@
+import { BootCollage } from "./BootCollage.js";
 import { BrandMark } from "./BrandMark.js";
 
 export interface BootLoaderProps {
@@ -17,6 +18,10 @@ export interface BootLoaderProps {
  * Keeps the gate's a11y contract: role="status" + aria-live="polite" +
  * aria-busy, with the phase label as the accessible text (BrandMark is
  * aria-hidden so it isn't announced twice).
+ *
+ * A faint BootCollage "memory wall" sits behind the mark as a decorative
+ * (aria-hidden) background; overflow-hidden clips its slow Ken Burns drift and
+ * the brand content rides above it via relative z-10.
  */
 export function BootLoader({ statusLabel }: BootLoaderProps) {
   return (
@@ -24,9 +29,10 @@ export function BootLoader({ statusLabel }: BootLoaderProps) {
       role="status"
       aria-live="polite"
       aria-busy={true}
-      className="flex h-full w-full flex-col items-center justify-center gap-7 bg-background text-foreground"
+      className="relative flex h-full w-full flex-col items-center justify-center gap-7 overflow-hidden bg-background text-foreground"
     >
-      <div className="relative flex items-center justify-center">
+      <BootCollage />
+      <div className="relative z-10 flex items-center justify-center">
         {/* Soft accent glow that breathes with the mark. */}
         <span
           aria-hidden="true"
@@ -37,7 +43,7 @@ export function BootLoader({ statusLabel }: BootLoaderProps) {
           <BrandMark size={76} aria-hidden />
         </span>
       </div>
-      <p className="mono text-xs uppercase tracking-[0.14em] text-muted-foreground">{statusLabel}</p>
+      <p className="relative z-10 mono text-xs uppercase tracking-[0.14em] text-muted-foreground">{statusLabel}</p>
     </div>
   );
 }

@@ -219,3 +219,55 @@ select:focus-visible,
 .boot-glow {
   animation: boot-glow 1.8s var(--ease-io) infinite;
 }
+
+/* ===== Boot memory wall + splash fade-out ============================
+   BootCollage (src/components/ui/BootCollage.tsx) paints a faint, slowly
+   drifting grid of Kira art behind the BootLoader mark; BackendGate keeps the
+   whole splash as an absolute overlay that fades out on ready. The overlay
+   anchors to .oc-app-body, so that container needs a positioning context — it
+   stays overflow:hidden and its single flow child is unaffected. */
+.oc-app-body {
+  position: relative;
+}
+
+/* Even rows regardless of tile count (4–6): every row is an equal fraction of
+   the splash height, so tiles always fill 100% with no auto-row gaps. The
+   whole wall is desaturated a touch to keep the cockpit calm. */
+.boot-collage-grid {
+  grid-auto-rows: 1fr;
+  filter: saturate(0.7);
+}
+
+/* Radial veil ABOVE the tiles, BELOW the loader: the app ground (--void) sits
+   solid at the center so the breathing mark + status text stay the hero, fading
+   to transparent at the edges where the faint memory wall shows through, plus a
+   gentle overall darkening wash. */
+.boot-collage-veil {
+  background:
+    radial-gradient(ellipse 65% 58% at 50% 50%, var(--void) 0%, transparent 72%),
+    color-mix(in srgb, var(--void) 42%, transparent);
+}
+
+/* Ken Burns drift — a very slow scale 1↔1.05, alternating origin/direction per
+   tile index so neighbours don't drift in lockstep. Loops infinitely; the
+   global prefers-reduced-motion kill switch above collapses it to a static
+   frame. */
+@keyframes boot-kenburns-a {
+  from { transform: scale(1); }
+  to { transform: scale(1.05); }
+}
+@keyframes boot-kenburns-b {
+  from { transform: scale(1.05); }
+  to { transform: scale(1); }
+}
+.boot-collage-tile {
+  will-change: transform;
+}
+.boot-collage-tile--a {
+  transform-origin: top left;
+  animation: boot-kenburns-a 20s var(--ease-io) infinite alternate;
+}
+.boot-collage-tile--b {
+  transform-origin: bottom right;
+  animation: boot-kenburns-b 20s var(--ease-io) infinite alternate;
+}
