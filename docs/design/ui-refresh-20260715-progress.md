@@ -1196,3 +1196,255 @@ fires **only at stage 3**; Escape/Cancelar at any stage resets. The unrelated
 - Purge opt-in checkbox in ProfileEditor kept as ConfirmFooter `children` rather
   than folded into the acknowledgment — the two are semantically different (an
   optional flag vs. the mandatory gate).
+
+## Confirm unify round (2026-07-15, late night)
+
+Owner live feedback (with screenshots) on the confirm-polish round above. Three
+items. Scope fenced to `ProfileEditor`, `MemoryCard`, `ui/ConfirmFooter` (+tests);
+`PersonalizationCard` audited but needed no change. No backend, no API calls
+changed.
+
+### Item 1 — ProfileEditor modal: remove resize, go wider
+Owner: "¿por qué tiene resize? jaja quitalo" + make it wider.
+- Dropped the `resize` utility, the `min-w-[20rem]`/`min-h-[22rem]` clamps (they
+  only bounded the drag), and the decorative `GripVertical` corner grip + its
+  `lucide-react` import.
+- Width `w-[38rem]` → `w-[44rem]`, `max-w-[90vw]` → `max-w-[92vw]`. Height cap
+  `max-h-[85vh]` stays and the Card still scrolls internally
+  (`overflow-y-auto min-h-0`) when content overflows vertically. Fixed,
+  comfortable size — no drag handle.
+- Pure CSS/markup; no behavior change, so no test delta here (jsdom does no
+  layout — same rationale as the prior round).
+
+### Item 2 — Delete-profile confirm: ONE designed check family
+Owner: "dos check y uno no tiene diseño — se queda el que tiene." The confirm had
+the styled "Sí, entiendo" acknowledgment toggle (good) sitting above a **bare
+native `<input type=checkbox>`** for "Purgar memoria asociada a este perfil" (no
+design).
+- Extracted the acknowledgment's toggle markup into a shared, exported
+  **`ConfirmToggle`** in `ui/ConfirmFooter.tsx` (`aria-pressed` button, box +
+  check glyph). It takes a `tone`: `danger` (the mandatory ack gate — unchanged
+  look) or `neutral` (an optional opt-in — calm surface/foreground accents, no
+  warning red). Same box/glyph/size/padding for both, so the two rows read as one
+  family; only the tone differs, exactly per the owner's "same shape/toggle look,
+  neutral tone".
+- ConfirmFooter now renders its ack via `<ConfirmToggle tone="danger">` (no visual
+  change — existing ConfirmFooter tests pass unchanged, proving the extraction is
+  behavior-neutral). ProfileEditor's purge checkbox became
+  `<ConfirmToggle tone="neutral">`.
+- Order is the family order the owner asked for: **message (Alert) → option row
+  (purge, neutral) → ack row ("Sí, entiendo", danger) → footer buttons** — this is
+  ConfirmFooter's existing layout (message → `children` → ack → footer), so the
+  purge option riding as `children` lands between the message and the ack for
+  free.
+- Purge functionality preserved (still an optional flag wired to the same
+  sequential delete-then-purge flow). **Open question for the owner:** the phrasing
+  "se queda el que tiene [diseño]" could be read as "delete the undesigned one
+  outright". I shipped the restyled-and-kept version (it is a real, useful option,
+  and dropping it would silently orphan memoria rows on delete). Say the word if
+  you actually wanted the purge option removed, not restyled.
+
+### Item 3 — Memoria/personalización confirms must match the modal warning style
+Owner screenshot: "¿Limpiar memoria de Kira? No se puede deshacer." rendered as
+bare red text with plain Cancelar/Confirmar. Audited **every** destructive confirm
+in both cards:
+
+| Card | Confirm | Before | After |
+|---|---|---|---|
+| MemoryCard | **Limpiar memoria** (`clear_history`) | bare red `<p role=alert>` + plain Cancelar/Confirmar | **migrated** → single-stage `ConfirmFooter`, Alert-style danger message + **"Sí, entiendo" ack gate** + footer advance "Limpiar memoria" (severe: wipes ALL conversation history) |
+| MemoryCard | **per-row memoria delete** ("¿Eliminar? No se puede deshacer.") | bare red `<span role=alert>` inline in the action row + plain Cancelar/Confirmar | **migrated** → single-stage `ConfirmFooter`, Alert-style danger message + footer advance "Eliminar memoria", **no ack** (one row = low blast-radius) — the action row swaps to the footer while confirming |
+| MemoryCard | **Purgar memorias** (3-stage) | already `ConfirmFooter` | **kept exactly as is** (per instruction) |
+| PersonalizationCard | **Limpiar / Borrar personalización** | already `ConfirmFooter` (single-stage + ack, from the prior round) | **no change needed** — already the family; file untouched |
+
+Result: every confirm across the two cards now renders through `ConfirmFooter`
+(bordered `Alert tone="danger"` icon+box message, footer-button mutation). The ack
+ladder is coherent by blast-radius: single row (no ack) < clear history (1 ack) <
+purge all (3 stages).
+
+### Files changed
+- `src/components/ui/ConfirmFooter.tsx` — extracted + exported `ConfirmToggle`
+  (`tone: danger|neutral`); ack now renders through it. `ConfirmFooter` API/behavior
+  otherwise unchanged.
+- `src/components/ui/ConfirmFooter.test.tsx` — +1 test (`ConfirmToggle` is an
+  `aria-pressed` button whose label is its accessible name and toggles on click —
+  the contract ProfileEditor's purge test now relies on).
+- `src/components/ProfileEditor.tsx` — item 1 (remove resize/grip/min-clamps,
+  widen) + item 2 (purge checkbox → `ConfirmToggle tone="neutral"`); dropped the
+  `GripVertical` import.
+- `src/components/ProfileEditor.test.tsx` — purge assertions moved from
+  `getByLabelText(...)` (form control) to `getByRole("button", { name: ... })`
+  (the toggle is now a button). 14 tests, unchanged count.
+- `src/components/MemoryCard.tsx` — migrated the two plain-text confirms (item 3).
+- `src/components/MemoryCard.test.tsx` — "Limpiar memoria" flow adapted to the
+  ack-gated footer (click "Sí, entiendo" then the "Limpiar memoria" advance); the
+  old "focus moves to Confirmar / role=alert" case became a "danger message shown +
+  advance gated on the ack" case; per-row delete confirm button renamed
+  "Confirmar" → "Eliminar memoria". 23 tests, unchanged count.
+- `PersonalizationCard.tsx`/test — **not touched** (already the family).
+
+### Checks
+- `pnpm exec tsc --noEmit` — clean.
+- Full `pnpm exec vitest run` — **68 files / 649 tests, 0 failures.** My delta vs
+  the prior round's 67/642 baseline is **+1 test** (`ConfirmToggle`); the remaining
+  +1 file / +6 tests over that come from concurrent writers' work present in the
+  same tree (`TitleBar.tsx`/`test`, `Sidebar` additions, `App.tsx`), not from this
+  round. My edited test files kept their counts (ProfileEditor 14, MemoryCard 23,
+  PersonalizationCard 8 untouched; ConfirmFooter 7→8).
+
+```
+ Test Files  68 passed (68)
+      Tests  649 passed (649)
+   Duration  103.70s
+```
+
+### Judgment calls
+- **clear_history gets an ack gate; single-row delete does not.** The owner's
+  "ack gate where the action is severe" — clear_history wipes all conversation
+  memory irreversibly (severe → ack, matching the profile-delete pattern); one
+  memoria row is low blast-radius (no ack), keeping friction proportional.
+- **Per-row delete swaps the whole action row for the footer** (rather than
+  embedding the footer inline among Fijar/Editar/…), mirroring ProfileEditor's
+  "footer mutates" pattern — the flag buttons hide while confirming a delete.
+- **`ConfirmToggle` extracted rather than duplicated.** Matching the family
+  exactly is the request; a shared component guarantees the ack and the purge
+  option can't drift apart. It stays a thin wrapper (one button + glyph), not a
+  speculative abstraction.
+- **Purge option kept, not deleted** (see item 2 open question).
+- The single TitleBar failure seen on the first full run was a non-deterministic
+  flake (Tauri IPC mock timing race in a concurrent writer's file — passes in
+  isolation and on re-run); nothing in this round touches Tauri IPC.
+- No manual browser/Tauri verification (headless CLI). Behavior covered by the
+  adapted/added vitest cases.
+
+## Sidebar scroll scoping + toggle integration (2026-07-15, late night)
+
+Owner live feedback (screenshot): the WHOLE sidebar was scrolling (scrollbar spanned
+the full rail, nav included), and the collapse toggle floated at the top looking
+tacked-on. Two fixes, both frontend-only, fenced to `Sidebar.tsx` (+test).
+
+### Item 1 — Scroll only the profiles section
+- `src/components/Sidebar.tsx`:
+  - `<nav>` was `flex min-h-0 flex-col overflow-auto … py-3` (the whole rail
+    scrolled). Now `flex min-h-0 flex-col overflow-hidden …` — the nav itself never
+    scrolls. `py-3` dropped (the footer row now owns the bottom edge; the nav block
+    gained `pt-3` to keep its top spacing).
+  - Nav items block + separator gained `shrink-0` so they stay a fixed, pinned
+    header regardless of how long the profiles list grows.
+  - `ProfilesRegion` root div is now the single scroll container:
+    `relative flex-1 min-h-0 overflow-y-auto`. The thin themed scrollbar comes from
+    the existing global `* { scrollbar-width: thin; scrollbar-color: … }` rule
+    (§2.3) automatically — no styles.css change needed, and it only appears when the
+    list overflows the available space. The `AppLayout` grid bounds the rail height
+    (`side` area inside a `height:100vh` grid), so `flex-1 min-h-0` constrains
+    correctly.
+- Hover-preview-card-while-scrolling: I checked the stale-open question the task
+  flagged. The card is `position:fixed`, anchored to a row's `getBoundingClientRect()`
+  at open time, and does NOT track scroll. Confirmed it CAN stay open while the list
+  scrolls under it — specifically the keyboard-focus path (focus shows it immediately;
+  a subsequent wheel/keyboard scroll of the region leaves the fixed card behind while
+  the row moves), and the wheel-over-a-hovered-row path. `pointer-leave`/`blur`/Escape
+  did NOT cover this because none of them fire on a plain scroll. Fix: `onScroll` on
+  the region calls the existing `hide()` (fade-out → unmount), attached only while a
+  card is open (`onScroll={preview ? hide : undefined}`) so idle scrolling schedules
+  no timers.
+
+### Item 2 — Integrate the collapse toggle
+- `src/components/Sidebar.tsx`: the top-floating `PanelLeftClose` button moved to a
+  slim FOOTER row — the nav's last child: `shrink-0 border-t border-border-soft p-2`,
+  a full-width quiet ghost button (`hover:bg-surface-2 hover:text-foreground`). Icon +
+  "Colapsar" label when expanded; icon-only, centered when collapsed. aria-label
+  (`Colapsar/Expandir barra lateral`), title, and persistence (`onToggleCollapse` →
+  AppLayout's `oc-sidebar-collapsed` localStorage) are byte-for-byte unchanged. The
+  rail now reads `[nav (fixed)] · [profiles (scrolls)] · [footer toggle (fixed)]`.
+- Footer was chosen over any other integrated spot; it collides with nothing (the
+  profiles region absorbs all flex-1 space above it).
+
+### Tests
+- `src/components/Sidebar.test.tsx` — new `describe("Sidebar — scroll scoping + footer
+  toggle")` with 4 cases: (a) nav is `overflow-hidden` not `overflow-auto` and the
+  profiles region carries `flex-1 min-h-0 overflow-y-auto` with the fixed nav items
+  outside it; (b) the toggle sits in a `border-t` footer that is the nav's last child
+  and shows its "Colapsar" label when expanded; (c) collapsed hides the visible label
+  (aria-label kept) and keeps the footer as last child; (d) scrolling the profiles
+  region hides an open preview card (no stale fixed card). Existing hover/focus/Escape
+  and collapse cases unchanged and still green.
+
+### Checks
+- `pnpm exec tsc --noEmit` — pass (exit 0).
+- `pnpm exec vitest run` (full) — pass, **67 files / 646 tests** (was 67/642; +4 =
+  the four new Sidebar cases, same file count since Sidebar.test.tsx already existed).
+
+```
+ Test Files  67 passed (67)
+      Tests  646 passed (646)
+   Start at  23:12:07
+   Duration  60.99s
+```
+
+### Judgment calls
+- No `styles.css` change: the scrollbar styling is already global (§2.3); item 1 is
+  purely structural Tailwind classes, so touching CSS would have been a no-op diff.
+- `ProfilePlaylist.tsx` left untouched: the scroll container is the region wrapper in
+  Sidebar, and the "Perfiles" header scrolling with the list is acceptable (it's part
+  of the profiles region the task defined as the scroll box). Pinning a sub-header
+  would have meant restructuring ProfilePlaylist for no owner-stated benefit.
+- Scroll-hide is gated on `preview` being open so idle scroll attaches no handler and
+  schedules no fade timers.
+- No manual browser/Tauri verification (headless CLI session). Behavior covered by the
+  added vitest cases (fake-timer scroll-hide, class assertions, footer placement).
+
+## Custom window chrome (2026-07-15, late night)
+
+Owner ask: *"ver la posibilidad si la ventana de la app puede tener diseño
+personalizado e íntegro con nuestros temas"* — the native OS title bar clashed
+with the dark cockpit. Recipe applied cleanly (Tauri v2, `@tauri-apps/api` ^2
+already installed), so it was implemented.
+
+### What landed
+- `src-tauri/tauri.conf.json` — main window `"decorations": false` (frameless);
+  size / `minWidth` / `minHeight` / `resizable: true` unchanged.
+- `src-tauri/capabilities/default.json` — added the four core window
+  permissions the custom controls need on top of `core:default`:
+  `core:window:allow-minimize`, `allow-toggle-maximize`, `allow-close`,
+  `allow-start-dragging` (the last one is what makes `data-tauri-drag-region`
+  live; the read-only `core:window:default` set does not include these).
+- `src/components/TitleBar.tsx` (+ `.test.tsx`) — h-8 `bg-card` /
+  `border-b border-border-soft` bar, so it re-skins with every theme via tokens.
+  Left: mini `BrandMark` + "OpenCohost" (text-xs, muted). Right: Minimizar /
+  Maximizar / Cerrar (lucide `Minus` / `Square` / `X`) driving
+  `getCurrentWindow().minimize() / toggleMaximize() / close()`. Cerrar hovers
+  `bg-danger-bg text-danger`; the others ghost-hover `bg-surface-2`. The bar is
+  the `data-tauri-drag-region`; the brand lockup is `pointer-events-none` so a
+  drag on the logo falls through to it, and double-click-to-maximize is left to
+  Tauri's native drag-region handling (no JS handler). Buttons are NOT drag
+  regions. Aria-labels + titles in Spanish.
+- `src/App.tsx` — TitleBar mounted ABOVE `BackendGate`/`AppLayout` inside an
+  `.oc-root-shell` flex column, so it stays visible through the boot splash and
+  the window is always draggable/closable.
+- `src/styles.css` (append-only) — `.oc-root-shell` (100vh, clip) +
+  `.oc-app-body` (`calc(100vh - 2rem)`, clip) + `.oc-app-body > * { height:100% !important }`.
+  That one override retargets AppLayout's inline `height:100vh` and BackendGate's
+  `h-screen` at the body row so nothing spills past the bar — done in CSS because
+  AppLayout.tsx belongs to another writer and both intervening providers are
+  DOM-less (`> *` hits the single fill element in both states).
+
+### Tauri-outside safety
+Handlers dynamic-`import("@tauri-apps/api/window")` inside try/catch; the vite
+dev server and jsdom lack `__TAURI_INTERNALS__`, so the IPC call throws and is
+swallowed — no crash, tests stay green (mock asserts the calls).
+
+### Checks
+- `pnpm exec tsc --noEmit` — see report.
+- Full `pnpm exec vitest run` — see report (delta: +1 file / +2 tests, TitleBar).
+
+### Manual runtime pass (owner — not verifiable in headless CLI)
+1. Drag feel: grab the bar (and the logo) to move the window; confirm no lag.
+2. Win11 Snap Layouts: hover the (custom) maximize button / drag to a screen
+   edge — `decorations:false` can drop native snap unless wry keeps the frame.
+   `shadow` defaults to `true` in v2 (not set explicitly), which is what should
+   preserve the resize border + snap on Windows; verify both actually work.
+3. Resize borders: confirm all four edges + corners still resize the frameless
+   window (Tauri provides hit-testing on decorations:false; note any dead edge).
+4. Double-click the bar → toggles maximize (native drag-region behavior).
+5. Maximized state: check the bar/buttons don't sit under the screen edge and
+   that the window still restores from the custom maximize button.
