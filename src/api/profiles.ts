@@ -232,6 +232,26 @@ export function useProfileDetailQuery(name: string | null) {
   });
 }
 
+/**
+ * Hover-preview variant of useProfileDetailQuery: fetches a profile's stored
+ * prompt ONCE and caches it forever (`staleTime: Infinity`, generous `gcTime`)
+ * keyed per profile name. The Sidebar hover card mounts this with `enabled`
+ * true only while a card is open, so the first hover fetches and every later
+ * hover of the same profile is a cache-only read — no repeated backend hit per
+ * hover (owner constraint). Shares the `[perfiles, name]` key with
+ * useProfileDetailQuery so a profile edit (which invalidates PROFILES_QUERY_KEY)
+ * still refreshes the preview.
+ */
+export function usePerfilDetailQuery(name: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...PROFILES_QUERY_KEY, name],
+    queryFn: () => getPerfil(name),
+    enabled: options?.enabled ?? true,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000
+  });
+}
+
 export function useCreateProfileMutation() {
   const queryClient = useQueryClient();
   return useMutation({

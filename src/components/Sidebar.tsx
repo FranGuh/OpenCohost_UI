@@ -1,4 +1,9 @@
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
+import { Info } from "lucide-react";
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
+import { usePerfilDetailQuery } from "../api/profiles.js";
+import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
 import { cn } from "../lib/cn.js";
 
 export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica";
@@ -18,6 +23,199 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: "musica", icon: "♪", label: "Música" },
   { id: "controles", icon: "⚙", label: "Controles" }
 ];
+
+// Hover dwell before the profile preview card appears. Keyboard focus shows it
+// immediately (standard tooltip intent pattern — see ProfilesRegion).
+const HOVER_INTENT_MS = 700;
+// Exit-fade duration before the card unmounts — matches --dur-base (220ms) so
+// the JS unmount lands right as the opacity transition ends. Reduced-motion is
+// globally neutralized in styles.css (transition-duration → 0.01ms), so the
+// card still unmounts on this timer, just without a visible fade.
+const CLOSE_FADE_MS = 220;
+
+interface PreviewState {
+  name: string;
+  /** Viewport px — the card uses position:fixed so it escapes the nav's
+   * `overflow-auto` clip (an absolute card at left-full would be cut off). */
+  left: number;
+  top: number;
+  /** True while the card is fading out — kept mounted (with cached prompt
+   * still visible) until CLOSE_FADE_MS elapses, then unmounted. */
+  closing: boolean;
+}
+
+/**
+ * Wraps the PERFILES list (ProfilePlaylist) and gives its rows a floating
+ * preview card on hover intent / focus, so profiles read as a commodity you can
+ * browse rather than inert text. The row markup lives in ProfilePlaylist (out
+ * of this change's scope), so this attaches via event delegation on a wrapper
+ * instead of editing each row: a hovered/focused element is mapped back to its
+ * profile by the index of its <li> inside ProfilePlaylist's single <ul>, which
+ * renders one <li> per profile in `profiles` order.
+ * ponytail: this index-mapping couples to that render shape; a data-attr on the
+ * row would decouple it, but that file is out of scope here.
+ */
+function ProfilesRegion() {
+  const { profiles } = useProfileSwitchContext();
+  const regionRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNameRef = useRef<string | null>(null);
+  // The row button we imperatively set aria-describedby on (its markup is in
+  // ProfilePlaylist, so the wiring is done at runtime, not at the source).
+  const describedRef = useRef<HTMLElement | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const cardId = useId();
+
+  // Real prompt preview (owner adjust round 3): fetched ONCE per profile and
+  // cached forever (usePerfilDetailQuery — staleTime Infinity). `enabled` only
+  // while a card is open, so the first hover fetches and every later hover of
+  // the same profile is a cache-only read. Stays enabled during the closing
+  // fade (preview is still non-null) so the prompt doesn't blank mid-exit.
+  const detail = usePerfilDetailQuery(preview?.name ?? "", { enabled: preview !== null });
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    pendingNameRef.current = null;
+  }, []);
+
+  // Maps a hovered/focused element to its profile row, or null for the header /
+  // "+ Nuevo" button / anything outside a row.
+  const rowFor = useCallback(
+    (target: EventTarget | null): { name: string; el: HTMLElement } | null => {
+      const el = target as HTMLElement | null;
+      const li = el?.closest("li");
+      const ul = li?.parentElement;
+      if (!li || !ul || ul.tagName !== "UL" || !regionRef.current?.contains(ul)) return null;
+      const index = Array.prototype.indexOf.call(ul.children, li);
+      const name = profiles[index];
+      if (name === undefined) return null;
+      return { name, el: li as HTMLElement };
+    },
+    [profiles]
+  );
+
+  const showFor = useCallback((name: string, el: HTMLElement) => {
+    // Cancel any in-flight exit fade — re-showing must not get unmounted by a
+    // stale close timer scheduled a moment ago.
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    const rect = el.getBoundingClientRect();
+    setPreview({ name, left: rect.right + 8, top: rect.top, closing: false });
+  }, []);
+
+  // Exit path: flip to the closing state (fade out) and delay the actual
+  // unmount + aria-describedby cleanup until CLOSE_FADE_MS elapses, so the card
+  // fades rather than vanishing. Idempotent — a second hide during the fade is
+  // a no-op (the timer is already pending).
+  const hide = useCallback(() => {
+    clearTimer();
+    setPreview((current) => (current && !current.closing ? { ...current, closing: true } : current));
+    if (closeTimerRef.current) return;
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      if (describedRef.current) {
+        describedRef.current.removeAttribute("aria-describedby");
+        describedRef.current = null;
+      }
+      setPreview(null);
+    }, CLOSE_FADE_MS);
+  }, [clearTimer]);
+
+  function handlePointerOver(event: ReactPointerEvent<HTMLDivElement>) {
+    const row = rowFor(event.target);
+    if (!row) return; // over header / card / gap — keep whatever's shown (grace)
+    // Already shown (and not mid-fade), or already the pending dwell → no-op. A
+    // closing card of the same name is NOT skipped, so re-hovering re-opens it.
+    if ((preview?.name === row.name && !preview.closing) || pendingNameRef.current === row.name) return;
+    clearTimer();
+    pendingNameRef.current = row.name;
+    timerRef.current = setTimeout(() => {
+      pendingNameRef.current = null;
+      showFor(row.name, row.el);
+    }, HOVER_INTENT_MS);
+  }
+
+  function handleFocus(event: ReactFocusEvent<HTMLDivElement>) {
+    const row = rowFor(event.target);
+    if (!row) return;
+    clearTimer();
+    const btn = (event.target as HTMLElement).closest("button");
+    if (btn) {
+      btn.setAttribute("aria-describedby", cardId);
+      describedRef.current = btn;
+    }
+    showFor(row.name, row.el); // focus is immediate — no dwell
+  }
+
+  // Escape closes it — mirrors StatusChip's document-level listener so we don't
+  // put a key handler on a non-interactive div. Only active while shown.
+  useEffect(() => {
+    if (!preview) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") hide();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [preview, hide]);
+
+  // Cancel any pending dwell + exit-fade timers on unmount.
+  useEffect(
+    () => () => {
+      clearTimer();
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    },
+    [clearTimer]
+  );
+
+  return (
+    <div
+      ref={regionRef}
+      className="relative"
+      onPointerOver={handlePointerOver}
+      onPointerLeave={hide}
+      onFocus={handleFocus}
+      onBlur={hide}
+    >
+      <ProfilePlaylist />
+      {preview && (
+        <div
+          id={cardId}
+          role="tooltip"
+          style={{ position: "fixed", left: preview.left, top: preview.top }}
+          className={cn(
+            "z-50 w-64 rounded-md border border-border-soft bg-card p-3 shadow-panel transition-opacity duration-base ease-io",
+            // Entry rises + fades in; exit swaps the one-shot animation for a
+            // plain opacity transition so it fades out before unmount (§3b).
+            preview.closing ? "opacity-0" : "animate-rise-in opacity-100"
+          )}
+        >
+          <p className="truncate text-sm font-semibold text-foreground">{preview.name}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-dim">
+            <Info size={11} aria-hidden="true" />
+            Info del perfil — se edita desde Controles
+          </p>
+          <p className="mt-2 line-clamp-5 text-xs text-muted-foreground">
+            {detail.isLoading ? (
+              <span className="text-dim">cargando…</span>
+            ) : detail.isError ? (
+              "no se pudo cargar la vista previa"
+            ) : detail.data?.prompt.trim() ? (
+              detail.data.prompt
+            ) : (
+              <span className="text-dim">sin prompt configurado</span>
+            )}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export interface SidebarProps {
   activeSection: Section;
@@ -39,7 +237,7 @@ export function Sidebar({ activeSection, onSelect }: SidebarProps) {
               aria-current={isActive ? "true" : undefined}
               onClick={() => onSelect(item.id)}
               className={cn(
-                "flex h-9 items-center gap-3 rounded-md px-3 font-mono text-sm font-semibold text-muted-foreground transition-colors",
+                "flex h-9 items-center gap-3 rounded-md px-3 font-mono text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io",
                 "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 "hover:bg-surface-2 hover:text-foreground",
                 isActive && "bg-ok-bg text-[var(--kira-cyan)]"
@@ -54,7 +252,7 @@ export function Sidebar({ activeSection, onSelect }: SidebarProps) {
 
       <div className="mx-2 my-1 border-t border-border-soft" />
 
-      <ProfilePlaylist />
+      <ProfilesRegion />
     </nav>
   );
 }

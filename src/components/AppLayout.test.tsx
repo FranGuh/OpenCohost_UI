@@ -112,7 +112,9 @@ describe("AppLayout", () => {
     await waitFor(() => expect(select.value).toBe("default"));
 
     // Driving the switch from the OTHER consumer (ProfilePlaylist's row)...
-    fireEvent.click(screen.getByRole("button", { name: /Akira/ }));
+    // Anchor the name so it matches the row button ("Akira perfil") only, not
+    // its edit pencil ("Editar perfil Akira").
+    fireEvent.click(screen.getByRole("button", { name: /^Akira/ }));
 
     // ...must be reflected by ProfileSwitcher reading the SAME shared
     // pending state — proof there is exactly one poll owner, not two.
