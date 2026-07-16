@@ -1538,3 +1538,203 @@ does NOT carry the attribute (its children are interactive). A test queries ever
    horizontal scroll; the Modelo chip truncates and tagline/credit show at xl.
 5. Boot: during the "Preparando/Comprobando motor local" splash the bar shows
    brand + window buttons only (no chips/gear), and the window stays draggable.
+
+## Detail round (2026-07-16)
+
+Three owner live-feedback fixes. Frontend-only, scope fenced to `Sidebar.tsx`
+(+test), `ProfilePlaylist.tsx`, `StatusRail.tsx` (+test).
+
+### Item 1 — Profile hover card height clamp
+- `src/components/Sidebar.tsx` (`ProfilesRegion`) — the fixed-position preview
+  card was anchored at the row's `rect.top`, so rows near the viewport bottom
+  (last profiles) rendered low and got cut off. Added `cardRef` + a `clampedTop`
+  state and a `useLayoutEffect` that measures the card's `offsetHeight` after
+  mount and pins `top = min(rowTop, innerHeight - cardHeight - 8)`. Runs pre-paint
+  (no visible jump) and re-runs on `detail.isLoading/isError/data` so the clamp
+  recomputes when the fetched prompt replaces "cargando…" (that changes the
+  height). Card style now reads `top: clampedTop ?? preview.top`. As a
+  last-resort cap for a prompt taller than the viewport, the card gained
+  `max-h-[calc(100vh-16px)] overflow-y-auto` (that bounds `offsetHeight`, so the
+  clamp never yields a negative top).
+- `src/components/Sidebar.test.tsx` — new case (hover card v3): stubs
+  `HTMLElement.prototype.offsetHeight` (jsdom reports 0) to 220, `innerHeight` to
+  600, and the row's `getBoundingClientRect().top` to 560; asserts the tooltip's
+  `style.top` clamps to `600 - 220 - 8 = 372px` (below the row's own top). Global
+  mocks restored in a `finally`.
+
+### Item 2 — Remove the undesigned second (native) hover tooltip
+Grepped both files for `title=`. Four found, all duplicating an aria-label or the
+styled hover card — all removed; every aria-label kept (a11y intact).
+
+Removed:
+- `Sidebar.tsx` nav item — `title={collapsed ? item.label : undefined}` (dup of
+  `aria-label={item.label}`).
+- `Sidebar.tsx` collapse toggle — `title={collapsed ? "Expandir…" : "Colapsar…"}`
+  (dup of the same aria-label).
+- `ProfilePlaylist.tsx` collapsed "+ Nuevo" button — `title="Nuevo perfil"` (dup of
+  `aria-label="Nuevo perfil"`).
+- `ProfilePlaylist.tsx` profile row button — `title={collapsed ? name : undefined}`
+  (dup of `aria-label`, and it was the exact unstyled second tooltip stacking on
+  the styled preview card the owner reported).
+
+Kept: none of the `title` attributes. The edit pencil (`aria-label="Editar perfil
+{name}"`) carries no `title` — nothing to remove there.
+
+### Item 3 — Status rail container border
+- `src/components/StatusRail.tsx` — the rail lives inside the h-10 title bar, so
+  its wrapper read as a bordered pill. Dropped `rounded-xl border
+  border-border-soft bg-surface-1 shadow-soft` from BOTH the main wrapper and the
+  isLoading wrapper; the chips (their own borders/rounding untouched) now sit
+  directly on the bar. Kept `flex min-w-0 items-center gap-2` (+ `px-2.5`); dropped
+  the main wrapper's `py-2` (it made the group taller than the 40px bar —
+  items-center centers the chips) and the loading wrapper's fixed `h-[52px]`.
+- `src/components/StatusRail.test.tsx` — no existing test asserted those container
+  classes; added four `not.toHaveClass` guards (`rounded-xl`/`border`/`shadow-soft`/
+  `bg-surface-1`) to the existing "renders four instrument chips" case to lock it.
+
+### Checks
+- `pnpm exec tsc --noEmit` — clean (exit 0).
+- `pnpm exec vitest run` (full) — **68 files / 654 tests, 0 failures.** Delta from
+  this round: +1 test (the Sidebar clamp case). StatusRail gained 4 assertions
+  inside an existing test (no new `it`); ProfilePlaylist unchanged.
+
+```
+ Test Files  68 passed (68)
+      Tests  654 passed (654)
+```
+
+### Judgment calls
+- **Item 2 nav/toggle titles.** The owner's report framed the double-hover on
+  profile rows, but the directive was "remove every `title` that duplicates an
+  aria-label." The collapsed nav items and collapse toggle only ever showed the
+  native `title` (no styled card there), so removing it drops the sole *mouse*
+  tooltip for those collapsed icons — the screen-reader accessible name stays on
+  aria-label. Removed per the explicit directive; flagging here in case a designed
+  tooltip is wanted for the collapsed icon rail later.
+- **Item 1 clamp state vs. imperative style.** Used a `clampedTop` state read into
+  the style object (`top: clampedTop ?? preview.top`) instead of imperatively
+  mutating `cardRef.current.style.top`. Imperative mutation would be reset by any
+  React re-render whose deps didn't change, silently un-clamping the card; the
+  state approach is deterministic across re-renders.
+- **Item 3 padding.** Only `py-2` (main) and `h-[52px]` (loading) were "off"
+  against the 40px bar, so those were the padding/height adjustments; `px-2.5`
+  and `gap-2` (chip spacing) were kept as instructed.
+
+## Boot experience (2026-07-16)
+
+Owner problem: app start showed (1) a white window flash, (2) an "opencohost
+cargando" text splash, (3) a third loader — "es raro tener 3 loaders y que
+ninguno funcione bien". Wanted: dark from the first frame, ONE loader (a light
+motion-graphics animation of the Kira brand mark), driven by REAL load state,
+never fixed timers.
+
+### What the 3 loaders actually were
+1. **White window flash** — the native Tauri window (no `backgroundColor`) plus
+   the unstyled `index.html` before the CSS bundle loads both paint the default
+   white. Read as one white flash.
+2. **Gate "Preparando motor local…"** — `BackendGate`'s `bootstrapping`-phase
+   splash: a plain `OpenCohost` wordmark + static status text, no animation.
+3. **Gate "Comprobando motor local…"** — the `probing`-phase text swap. With no
+   shared visual between the two phases, the abrupt `Preparando…` → `Comprobando…`
+   change reads as a *second, separate* loader. That is the owner's third loader.
+
+   (Post-gate, in-app data spinners were also inventoried and deliberately LEFT,
+   per scope — they are query states, not boot loaders: `ProfileSwitcher`'s
+   "aplicando…" `animate-spin` ring during a profile switch, and `KiraCover`'s
+   "cargando…" model-name fallback + breathing presence ring while the status
+   query resolves.)
+
+### Portfolio loader — what was ported, what was fixed
+Reference: `E:/Job/Portfolio_Fran/src/components/UI/Loader` (read-only). It is a
+centered mark over a gently pulsing gradient with a looping spin and an
+opacity fade — but its lifecycle is a **fixed `visible` prop / duration `n`**,
+never bound to real readiness (the owner's known flaw). Ported: the visual
+language — a centered brand element, a soft breathing/pulse motion, gentle
+symmetric easing, a quiet caption. Fixed: the lifecycle is fully decoupled from
+duration. `BootLoader` takes NO `visible`/timer prop; its breathing keyframes
+(`boot-breathe`/`boot-glow`) **loop infinitely** so there is no "completion"
+frame, and it is unmounted the instant the gate flips `ready`. Mount = shown,
+unmount = gone. No exit fade was added on purpose: keeping the loader mounted
+for a fade-out would reintroduce exactly the duration floor the owner rejected
+("que carguen on load, no que tengan tiempo").
+
+### Tauri `backgroundColor` verdict
+**Supported.** Installed Tauri is 2.11.x (npm `@tauri-apps/api` 2.11.1, CLI
+2.11.4, crate `tauri` 2.11.5) — past 2.1 where the field landed. The bundled
+`config.schema.json` defines `WindowConfig.backgroundColor` ("Set the window and
+webview background color") accepting a hex string. Set to `#05070b` in
+`tauri.conf.json` — this covers BOTH the native window layer and the webview
+layer (per the schema description), which is the real fix for the white flash;
+the inline `index.html` style is the belt-and-suspenders for the pre-CSS frame.
+(Windows note from the schema: alpha is ignored on the window/webview layers —
+irrelevant here, the color is fully opaque.)
+
+### Kill the white flash
+- `index.html` — inline `<style>` sets `html, body { margin: 0; background-color:
+  #05070b; }` (literal `--void`/`--background` value, hardcoded because CSS vars
+  aren't defined before the bundle loads). A static, branded splash (inline
+  `BrandMark`-motif SVG, hardcoded colors, no bundle/CSS dependency) is placed
+  **inside `#root`**, so `ReactDOM.createRoot().render()` replaces it the instant
+  React mounts and `BootLoader` takes over — no lingering extra loader.
+- `src-tauri/tauri.conf.json` — window `backgroundColor: "#05070b"`.
+
+### The single loader
+- `src/components/ui/BootLoader.tsx` (new) — dark, brand-first: the `BrandMark`
+  breathes (scale + opacity) over a soft `--accent-soft` glow that breathes with
+  it. Keeps the gate's a11y contract: `role="status"` + `aria-live="polite"` +
+  `aria-busy`, with the live phase copy as the accessible caption (`BrandMark`
+  is `aria-hidden` so it isn't announced twice). Reduced-motion is neutralised
+  by the global kill switch in `styles.css` (breathing collapses to a static
+  frame).
+- `src/components/BackendGate.tsx` — the `bootstrapping`/`probing` waiting UI now
+  returns `<BootLoader statusLabel={statusCopy} />`. The **state machine is
+  untouched**: same `bootstrapBackend()` bootstrap, same 1s health poll, same
+  failure-threshold/retry, same abort/cleanup. The `error` branch is split out
+  byte-identical (same `role="alert"`, `OpenCohost` heading, detail line,
+  autofocused `Reintentar`). No `setTimeout` minimum-duration splash existed —
+  confirmed — so nothing artificial gates readiness.
+- `src/styles.css` — appended the looping `boot-breathe`/`boot-glow` keyframes.
+
+### No fixed timers
+Verified the gate has no artificial min-duration timer (its only timers are the
+legit per-fetch health timeout and the poll interval). The loader appears on
+mount and disappears exactly when `phase` flips to `ready`.
+
+### Tests
+- New `src/components/ui/BootLoader.test.tsx` — 2 cases: exposes the polite
+  status region carrying the live phase label; renders the breathing brand mark
+  (`.boot-mark` hook + `aria-hidden` `BrandMark` svg).
+- `BackendGate.test.tsx` / `App.test.tsx` — **no changes needed**: BootLoader
+  preserves `role="status"` + `aria-live="polite"` + the exact phase copy, and
+  the error branch is unchanged, so all 13 + 1 existing assertions pass verbatim
+  (proof of a behavior-preserving swap).
+
+Delta (this round, isolated): **+1 test file, +2 tests**. Files: `index.html`,
+`src-tauri/tauri.conf.json`, `src/components/BackendGate.tsx`, `src/styles.css`,
+`src/components/ui/BootLoader.tsx` (new), `src/components/ui/BootLoader.test.tsx`
+(new).
+
+Checks:
+- `pnpm exec tsc --noEmit` — clean (exit 0).
+- Targeted `pnpm exec vitest run` (BootLoader + BackendGate + App) — 16/16 green.
+- Full `pnpm exec vitest run` — **68 files / 654 tests, 0 failures** (shared
+  working tree also carried a concurrent Sidebar/StatusRail round; the 654 =
+  baseline 651 + that round's +1 + this round's +2).
+
+```
+ Test Files  68 passed (68)
+      Tests  654 passed (654)
+```
+
+Manual checks pending for the owner (headless session — no Tauri shell here):
+- **First-frame color**: launch `pnpm tauri dev` (or the built app) and confirm
+  the window is dark (`#05070b`) from the very first paint — no white flash on
+  the native window, the webview, or the pre-CSS HTML.
+- **Splash → app handoff**: confirm exactly ONE loader — the breathing Kira mark
+  with the "Preparando…/Comprobando…" caption — and that it disappears the moment
+  the engine is ready (no double-brand pop, no lingering spinner). Then flip
+  reduced-motion ON and confirm the mark is static (no breathing) but the boot
+  still completes on readiness.
+- **Error branch**: kill the backend and confirm the informative error card
+  (heading + detail + autofocused "Reintentar") still appears after the failure
+  threshold, unchanged.
