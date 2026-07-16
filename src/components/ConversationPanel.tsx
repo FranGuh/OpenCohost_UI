@@ -323,11 +323,14 @@ export function ConversationPanel() {
     setShowJump(false);
   }
 
-  // Hide the jump button once the operator scrolls back near the bottom.
+  // Show the jump pill whenever the operator is scrolled up past the threshold
+  // (independent of new arrivals — that's the owner's fix), hide it once they're
+  // back near the bottom.
   function handleTimelineScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX) setShowJump(false);
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+    setShowJump(!nearBottom);
   }
 
   const kiraThinkingTurn: Turn | null = isThinking ? { id: "kira-thinking", kind: "chat", role: "kira" } : null;

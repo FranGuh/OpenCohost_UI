@@ -128,33 +128,58 @@ describe("SettingsPopover", () => {
     expect(window.localStorage.getItem("oc-alert-style")).toBe("marcado");
   });
 
-  it("renders the 5 Ayuda topics as collapsibles", () => {
+  it("opens the 5 Ayuda topics in a lateral flyout only after the trigger is toggled", () => {
     render(<SettingsPopover />);
     fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
 
+    const help = screen.getByRole("button", { name: "Ayuda" });
+    expect(help).toHaveAttribute("aria-expanded", "false");
+    // Collapsed: the help content is not rendered (no downward growth).
+    expect(screen.queryByText("Experiencia")).not.toBeInTheDocument();
+
+    fireEvent.click(help);
+
+    expect(help).toHaveAttribute("aria-expanded", "true");
+    expect(help).toHaveAttribute("aria-controls", "settings-help-flyout");
+    const flyout = document.getElementById("settings-help-flyout");
+    expect(flyout).not.toBeNull();
+    // Anchored to the popover's left edge (leftward), not stacked below it.
+    expect(flyout).toHaveClass("right-full");
     for (const title of ["Experiencia", "Controles", "Agenda", "Stream", "Música"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
   });
-});
 
-describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", () => {
-  it("renders a select populated from .available, seeded with the persisted locale", async () => {
+  it("collapses the Ayuda flyout when the trigger is toggled again", () => {
     render(<SettingsPopover />);
     fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
 
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toBeInTheDocument());
-    const select = screen.getByRole("combobox", { name: "Idioma" }) as HTMLSelectElement;
-    expect(select).toHaveValue("es");
-    expect(screen.getByRole("option", { name: "Español" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "English" })).toBeInTheDocument();
+    const help = screen.getByRole("button", { name: "Ayuda" });
+    fireEvent.click(help);
+    expect(screen.getByText("Experiencia")).toBeInTheDocument();
+
+    fireEvent.click(help);
+    expect(help).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Experiencia")).not.toBeInTheDocument();
+  });
+});
+
+describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", () => {
+  it("renders the locales as a segmented row (≤3), with the persisted locale pressed", async () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Español" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "English" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("shows no restart badge when pending_restart is false (default)", async () => {
     render(<SettingsPopover />);
     fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
 
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
     expect(screen.queryByText(/Reinicio requerido/)).not.toBeInTheDocument();
   });
 
@@ -178,12 +203,12 @@ describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", (
     );
     render(<SettingsPopover />);
     fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Idioma" }), { target: { value: "en" } });
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
 
     await waitFor(() => expect(capturedBody).toEqual({ locale: "en" }));
     await waitFor(() => expect(screen.getByText(/Reinicio requerido/)).toBeInTheDocument());
-    expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveValue("en");
+    expect(screen.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true");
   });
 });

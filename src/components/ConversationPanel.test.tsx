@@ -218,6 +218,28 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     });
   }
 
+  // New rule (owner feedback 2026-07-15): the pill shows WHENEVER the operator
+  // is scrolled up past the threshold, not only when new content arrives.
+  it("shows the jump pill whenever scrolled up past the threshold — no new content needed — and hides it near the bottom", async () => {
+    renderPanel();
+    const panel = screen.getByRole("tabpanel");
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+    Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
+
+    // Scrolled up, nothing appended: distance = 1000 - 0 - 300 = 700 > 80.
+    panel.scrollTop = 0;
+    fireEvent.scroll(panel);
+    expect(await screen.findByRole("button", { name: /Ver lo más reciente/ })).toBeInTheDocument();
+    expect(scrollSpy).not.toHaveBeenCalled(); // a scroll gesture must never yank
+
+    // Scrolled back near the bottom: distance = 1000 - 700 - 300 = 0 <= 80.
+    panel.scrollTop = 700;
+    fireEvent.scroll(panel);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument());
+  });
+
   it("smooth-scrolls to the bottom when a turn appends while near the bottom", async () => {
     renderPanel();
     const panel = screen.getByRole("tabpanel");

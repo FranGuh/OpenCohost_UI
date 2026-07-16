@@ -5,6 +5,7 @@ import { useDensity } from "../theme/useDensity.js";
 import { ALERT_STYLES, useAlertStyle } from "../theme/useAlertStyle.js";
 import { Alert } from "./ui/Alert.js";
 import { Segmented } from "./ui/Segmented.js";
+import { Select } from "./ui/Select.js";
 import { Switch } from "./ui/Switch.js";
 
 const ALERT_STYLE_OPTIONS = [
@@ -40,8 +41,8 @@ const HELP_TOPICS: ReadonlyArray<{ title: string; body: string }> = [
  * TopBar gear popover — Tema (ThemeSwitcher) + Wave 1b additions: a real
  * "Compacto" density preference (useDensity, persisted to localStorage), a
  * "Mostrar logs" client-pref stub (no live log data — that needs the
- * backend), and a static Ayuda section (5 CTK help topics ported as
- * <details>/<summary> collapsibles).
+ * backend), and an Ayuda trigger that opens the 5 CTK help topics in a
+ * LATERAL flyout (leftward, so it never grows the popover downward).
  */
 export interface SettingsPopoverProps {
   onShowWelcome(): void;
@@ -49,6 +50,7 @@ export interface SettingsPopoverProps {
 
 export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   const [open, setOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const { compact, setCompact } = useDensity();
   const { alertStyle, setAlertStyle } = useAlertStyle();
@@ -110,6 +112,13 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
+  }, [open]);
+
+  // Collapse the Ayuda flyout whenever the popover closes, so reopening the
+  // gear never starts with a stray flyout. Escape/outside-click close the whole
+  // popover (existing handler above), which flows through here.
+  useEffect(() => {
+    if (!open) setHelpOpen(false);
   }, [open]);
 
   return (
@@ -177,18 +186,28 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
               <span id="settings-language-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
                 Idioma
               </span>
-              <select
-                aria-label="Idioma"
-                value={i18n.persisted_locale}
-                onChange={(event) => void handleLocaleChange(event.target.value)}
-                className="w-full rounded-md border border-border-soft bg-background px-2 py-1.5 text-[13px] text-foreground"
-              >
-                {i18n.available.map((bundle) => (
-                  <option key={bundle.code} value={bundle.code}>
-                    {bundle.display}
-                  </option>
-                ))}
-              </select>
+              {i18n.available.length <= 3 ? (
+                // ≤3 locales (the app ships es+en today): a Segmented row — the
+                // SAME control as Alertas right above — so it matches the design
+                // and adds zero scroll region inside the popover.
+                <Segmented
+                  ariaLabel="Idioma"
+                  options={i18n.available.map((bundle) => ({ value: bundle.code, label: bundle.display }))}
+                  value={i18n.persisted_locale}
+                  onChange={(code: string) => void handleLocaleChange(code)}
+                  className="w-full"
+                />
+              ) : (
+                // ponytail: dead branch until the backend ships a 4th locale.
+                // The app's custom Select opens an absolute/z-50 menu that
+                // escapes the popover with no nested scrollbar.
+                <Select
+                  aria-label="Idioma"
+                  options={i18n.available.map((bundle) => ({ value: bundle.code, label: bundle.display }))}
+                  value={i18n.persisted_locale}
+                  onChange={(code: string) => void handleLocaleChange(code)}
+                />
+              )}
               {i18n.pending_restart && (
                 <p className="text-xs font-semibold text-amber-500">
                   Reinicio requerido — se aplica en el próximo inicio de OpenCohost.
@@ -210,11 +229,33 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
             </button>
           </section>
 
-          <details className="border-t border-border-soft pt-3.5">
-            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+          <div className="border-t border-border-soft pt-3.5">
+            <button
+              type="button"
+              aria-expanded={helpOpen}
+              aria-controls="settings-help-flyout"
+              onClick={() => setHelpOpen((value) => !value)}
+              className="flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.09em] text-dim transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
               Ayuda
-            </summary>
-            <div className="flex flex-col gap-2 pt-2">
+              <span
+                aria-hidden="true"
+                className={`text-dim transition-transform duration-base ease-io ${helpOpen ? "rotate-180" : ""}`}
+              >
+                ▾
+              </span>
+            </button>
+          </div>
+
+          {/* Lateral flyout — the gear sits at the window's right edge, so the
+              help opens LEFTward (right-full) instead of growing the popover
+              downward. Anchored to the popover's left edge, top-aligned, with
+              its own max-h + internal scroll. */}
+          {helpOpen && (
+            <div
+              id="settings-help-flyout"
+              className="absolute right-full top-0 z-20 mr-2 flex max-h-[70vh] w-64 flex-col gap-2 overflow-y-auto rounded-md border border-border-soft bg-card p-3 shadow-panel animate-rise-in"
+            >
               {HELP_TOPICS.map((topic) => (
                 <details key={topic.title} className="rounded-md border border-border-soft bg-background px-3 py-2">
                   <summary className="cursor-pointer text-[13px] font-semibold text-foreground">{topic.title}</summary>
@@ -222,7 +263,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
                 </details>
               ))}
             </div>
-          </details>
+          )}
         </div>
       )}
     </div>
