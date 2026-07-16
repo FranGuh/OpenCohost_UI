@@ -2,7 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { getI18nState, putI18nLocale, type I18nStateResponse } from "../api/i18n.js";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.js";
 import { useDensity } from "../theme/useDensity.js";
+import { ALERT_STYLES, useAlertStyle } from "../theme/useAlertStyle.js";
+import { Alert } from "./ui/Alert.js";
+import { Segmented } from "./ui/Segmented.js";
 import { Switch } from "./ui/Switch.js";
+
+const ALERT_STYLE_OPTIONS = [
+  { value: "sereno", label: "Sereno" },
+  { value: "marcado", label: "Marcado" },
+  { value: "contorno", label: "Contorno" }
+] as const satisfies ReadonlyArray<{ value: (typeof ALERT_STYLES)[number]; label: string }>;
 
 const HELP_TOPICS: ReadonlyArray<{ title: string; body: string }> = [
   {
@@ -42,6 +51,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   const [open, setOpen] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const { compact, setCompact } = useDensity();
+  const { alertStyle, setAlertStyle } = useAlertStyle();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // D6 (kira_bilingual_e2e_20260705): locale switching is next-boot only, so
@@ -112,7 +122,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
         aria-expanded={open}
         aria-controls="settings-popover-panel"
         onClick={() => setOpen((value) => !value)}
-        className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <span aria-hidden="true">⚙</span>
       </button>
@@ -127,6 +137,21 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
               Tema
             </span>
             <ThemeSwitcher />
+          </section>
+
+          <section aria-labelledby="settings-alerts-label" className="space-y-2 border-t border-border-soft pt-3.5">
+            <span id="settings-alerts-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              Alertas
+            </span>
+            <Segmented
+              ariaLabel="Estilo de alertas"
+              options={ALERT_STYLE_OPTIONS}
+              value={alertStyle}
+              onChange={setAlertStyle}
+            />
+            <Alert tone="info" title="Así se ve una alerta">
+              Elegí el estilo que más te acomode.
+            </Alert>
           </section>
 
           <section aria-labelledby="settings-view-label" className="space-y-2 border-t border-border-soft pt-3.5">
@@ -179,7 +204,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
             <button
               type="button"
               onClick={handleShowWelcome}
-              className="w-full rounded-md border border-border px-3 py-2 text-left text-[13px] font-semibold text-foreground transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="w-full rounded-md border border-border px-3 py-2 text-left text-[13px] font-semibold text-foreground transition-colors duration-fast ease-io hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               Volver a ver bienvenida
             </button>

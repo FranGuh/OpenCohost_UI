@@ -15,11 +15,13 @@ function SettingsPopover({ onShowWelcome = () => {} }: Partial<SettingsPopoverPr
 beforeEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.density;
+  delete document.documentElement.dataset.alertStyle;
 });
 
 afterEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.density;
+  delete document.documentElement.dataset.alertStyle;
 });
 
 describe("SettingsPopover", () => {
@@ -103,6 +105,27 @@ describe("SettingsPopover", () => {
 
     expect(logs).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("status")).toHaveTextContent("necesita streaming en vivo desde el backend");
+  });
+
+  it("Alertas section renders the segmented control defaulted to sereno plus a live preview", () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    const group = screen.getByRole("group", { name: "Estilo de alertas" });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sereno" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("Elegí el estilo que más te acomode.");
+  });
+
+  it("switching Alertas style updates data-alert-style and persists it to localStorage", () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Marcado" }));
+
+    expect(screen.getByRole("button", { name: "Marcado" })).toHaveAttribute("aria-pressed", "true");
+    expect(document.documentElement.dataset.alertStyle).toBe("marcado");
+    expect(window.localStorage.getItem("oc-alert-style")).toBe("marcado");
   });
 
   it("renders the 5 Ayuda topics as collapsibles", () => {
