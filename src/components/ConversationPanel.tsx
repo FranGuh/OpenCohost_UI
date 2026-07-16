@@ -13,6 +13,7 @@ import { KiraFace } from "./ui/KiraFace.js";
 import { Markdown } from "./ui/Markdown.js";
 import { useAgendaEvents } from "../api/agenda.js";
 import { useLastReply, useSendChatTurn } from "../api/chat.js";
+import { useLiveTranscript } from "../api/liveTranscript.js";
 import { usePttHold, type PttUiState } from "../api/ptt.js";
 import { ERROR_COPY } from "../api/pttCopy.js";
 import { cn } from "../lib/cn.js";
@@ -44,6 +45,10 @@ interface Turn {
    * (last-reply `source` startsWith "kira-agenda") rather than a reply to
    * operator/viewer chat — drives a distinct KIRA · AGENDA label. */
   fromAgenda?: boolean;
+  /** Marks an operator turn that arrived by voice (PTT hold echoed from
+   * LiveAudio's transcript WS) rather than the composer — drives the
+   * "Vos · voz" label above the bubble. */
+  source?: "voice";
   /** Agenda lifecycle / app-event copy (kind:"alert"). Rendered as a full-width
    * Alert (following the operator's chosen alert style), not a chat bubble. */
   event?: string;
@@ -97,7 +102,14 @@ function ConversationTurn({ turn }: { turn: Turn }) {
   if (turn.text !== undefined) {
     return (
       <div className="flex flex-col items-end gap-1">
-        <span className="text-[11px] font-semibold text-dim">Vos</span>
+        {turn.source === "voice" ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-dim">
+            <Mic size={11} aria-hidden="true" />
+            Vos · voz
+          </span>
+        ) : (
+          <span className="text-[11px] font-semibold text-dim">Vos</span>
+        )}
         <p className="w-full rounded-md rounded-tr-sm border border-ok-bd bg-ok-bg px-3 py-2 text-sm text-foreground">
           {turn.text}
         </p>
@@ -186,6 +198,19 @@ export function ConversationPanel() {
   // transition. Kira's reply lands in the transcript via useLastReply anyway.
   const [voiceSent, setVoiceSent] = useState(false);
   const prevPttStateRef = useRef<PttUiState>(pttState);
+
+  // Transcript echo: while a hold is active (this composer's mic OR the
+  // external F10 bridge — both surface on the polled /api/ptt/state), the
+  // hook consumes LiveAudio's broadcast WS directly and resolves the spoken
+  // text once the backend flushes. PRIVACY: the words arrive over LiveAudio's
+  // own socket, never the OpenCohost HTTP API. Empty/failed echo -> the hook
+  // never fires -> no turn, no alert spam.
+  useLiveTranscript((text) => {
+    setTranscript((turns) => [
+      ...turns,
+      { id: `voice-${crypto.randomUUID()}`, kind: "chat", role: "operator", source: "voice", text, ts: Date.now() }
+    ]);
+  });
 
   // Timeline scroll-follow + jump-to-recent (Item 3). scrollRef is the existing
   // overflow-auto tabpanel; prevTurnCountRef lets the append effect tell a real
@@ -486,7 +511,14 @@ export function ConversationPanel() {
             Turno de voz enviado
           </p>
         )}
-        {pttError && <p role="status" className="mono mt-1 text-[11px] text-danger">{ERROR_COPY[pttError]}</p>}
+        {/* role="alert" (assertive) + icon + rise-in: a live PTT failure must
+            actually register — the old bare 11px line was easy to miss. */}
+        {pttError && (
+          <p role="alert" className="mono mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
+            <MicOff size={12} aria-hidden="true" />
+            {ERROR_COPY[pttError]}
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-2">
           <Input
@@ -513,7 +545,9 @@ export function ConversationPanel() {
                     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                     pttState === "idle" && !micDegraded && "text-muted-foreground hover:text-foreground",
                     showMicOff && "text-muted-foreground opacity-60",
-                    pttState === "connecting" && "text-info animate-pulse",
+                    // connecting: tint the whole button, not just the 16px
+                    // glyph — same treatment family as the listening wash.
+                    pttState === "connecting" && "bg-info-bg text-info animate-pulse",
                     pttState === "listening" && "bg-danger-bg text-danger animate-pulse",
                     pttState === "flushing" && "text-muted-foreground animate-pulse"
                   )}

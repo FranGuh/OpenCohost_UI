@@ -20,6 +20,17 @@ import {
 } from "../test/handlers.js";
 import { ConversationPanel } from "./ConversationPanel.js";
 
+// The LiveAudio WS echo hook is unit-tested in src/api/liveTranscript.test.ts;
+// here it's mocked down to its contract — "fires the callback with the final
+// spoken text at most once per hold" — so panel tests drive the append/render
+// path directly instead of re-mocking WebSocket + the state poll.
+let liveTranscriptCb: ((text: string) => void) | null = null;
+vi.mock("../api/liveTranscript.js", () => ({
+  useLiveTranscript: (cb: (text: string) => void) => {
+    liveTranscriptCb = cb;
+  }
+}));
+
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ConversationPanel)));
@@ -27,6 +38,7 @@ function renderPanel() {
 
 beforeEach(() => {
   useEventStore.setState({ events: [] });
+  liveTranscriptCb = null;
 });
 
 describe("ConversationPanel", () => {
@@ -182,6 +194,29 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
 
     await waitFor(() => expect(screen.getByText(/STT \(WhisperLive\) no disponible/)).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Escuchando… soltá para enviar" })).not.toBeInTheDocument();
+  });
+
+  it("tints the mic button visibly while connecting (start in flight)", () => {
+    server.use(http.post(`${API_BASE_URL}/api/ptt/start`, () => new Promise<never>(() => {}))); // never resolves
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+
+    const connectingMic = screen.getByRole("button", { name: "Conectando…" });
+    expect(connectingMic).toHaveClass("bg-info-bg");
+    expect(connectingMic).toHaveClass("animate-pulse");
+
+    fireEvent.pointerUp(connectingMic, { pointerId: 1 }); // release: don't leave the hold open
+  });
+
+  it("announces the stt_unreachable failure assertively (role=alert), not as a quiet status line", async () => {
+    server.use(pttStartUnreachableHandler());
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+
+    const alertLine = await screen.findByRole("alert");
+    expect(alertLine).toHaveTextContent(/STT \(WhisperLive\) no disponible/);
   });
 
   it("fills the mic while HELD (listening) and drains it on release", async () => {
@@ -662,5 +697,40 @@ describe("ConversationPanel — markdown only on Kira turns", () => {
 
     const bubble = await screen.findByText("**test**");
     expect(bubble.querySelector("strong")).toBeNull();
+  });
+});
+
+describe("ConversationPanel — voice transcript echo (transcript-echo follow-up)", () => {
+  it("appends ONE operator turn with the spoken text and a 'Vos · voz' label above the bubble", () => {
+    renderPanel();
+    expect(liveTranscriptCb).not.toBeNull(); // panel wired the echo hook
+
+    act(() => liveTranscriptCb?.("hola kira como andás"));
+
+    expect(screen.getAllByText("hola kira como andás")).toHaveLength(1);
+    expect(screen.getByText("Vos · voz")).toBeInTheDocument();
+    // A voice turn is a chat turn: the empty-state invitation must be gone.
+    expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
+  });
+
+  it("keeps typed turns labeled plain 'Vos' — the voice label never bleeds onto composer sends", async () => {
+    renderPanel();
+    act(() => liveTranscriptCb?.("turno de voz previo"));
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
+      target: { value: "turno tipeado" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText("turno tipeado");
+
+    expect(screen.getByText("Vos · voz")).toBeInTheDocument();
+    expect(screen.getByText("Vos")).toBeInTheDocument(); // exact-match: the plain label exists separately
+  });
+
+  it("degraded path: no echo resolved -> timeline untouched, no crash, no alert spam", () => {
+    renderPanel();
+    // The hook (mocked to its contract) never fires — LiveAudio WS down.
+    expect(screen.getByText("Empezá a chatear con Kira")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
