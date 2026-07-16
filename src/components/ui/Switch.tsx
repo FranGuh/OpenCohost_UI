@@ -20,7 +20,7 @@ export function Switch({ checked, onChange, disabled, className, ...aria }: Swit
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative h-[26px] w-[46px] shrink-0 rounded-full border border-border bg-card transition-colors",
+        "relative h-[26px] w-[46px] shrink-0 rounded-full border border-border bg-card transition-colors duration-fast ease-io",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         "disabled:cursor-not-allowed disabled:opacity-60",
         checked && "border-transparent bg-[image:var(--accent-grad)]",
@@ -30,7 +30,7 @@ export function Switch({ checked, onChange, disabled, className, ...aria }: Swit
       <span
         aria-hidden="true"
         className={cn(
-          "absolute left-[3px] top-[2px] h-5 w-5 rounded-full bg-muted-foreground transition-transform motion-reduce:transition-none",
+          "absolute left-[3px] top-[2px] h-5 w-5 rounded-full bg-muted-foreground transition-transform duration-fast ease-io motion-reduce:transition-none",
           checked && "translate-x-5 bg-white"
         )}
       />

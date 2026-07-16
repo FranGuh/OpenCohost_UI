@@ -227,7 +227,7 @@ function ToastItem({
         "pointer-events-auto flex w-80 items-start gap-3 rounded-lg border px-4 py-3 shadow-soft",
         "backdrop-blur-md",
         toneClasses[entry.tone],
-        "transition-all duration-300 ease-out",
+        "transition-all duration-slow ease-out",
         translateClass,
       )}
     >
@@ -253,7 +253,7 @@ function ToastItem({
         type="button"
         aria-label="Dismiss"
         onClick={() => onDismiss(entry.id)}
-        className="shrink-0 rounded-md p-1 text-current opacity-60 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+        className="shrink-0 rounded-md p-1 text-current opacity-60 transition-opacity duration-fast ease-io hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

@@ -125,7 +125,7 @@ export function ModelCard() {
                   disabled={tierCommand.pending}
                   onClick={() => handleTierChange(tierId)}
                   className={cn(
-                    "flex h-[42px] items-center justify-between gap-[10px] rounded-md border border-border-soft bg-card px-[14px] text-[13.5px] font-semibold text-muted-foreground transition-colors",
+                    "flex h-[42px] items-center justify-between gap-[10px] rounded-md border border-border-soft bg-card px-[14px] text-[13.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
                     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                     "disabled:cursor-not-allowed disabled:opacity-60",
                     isActive && "border-l-[3px] border-l-primary bg-[var(--accent-soft)] text-foreground"

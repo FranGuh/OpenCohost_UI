@@ -26,7 +26,7 @@ export function Input({
   const fieldClasses = cn(
     "h-11 w-full rounded-md border border-[var(--border)] bg-[var(--background)]",
     "px-3 text-sm text-[var(--foreground)] placeholder:text-[var(--dim)]",
-    "transition-colors",
+    "transition-colors duration-fast ease-io",
     "disabled:cursor-not-allowed disabled:opacity-60",
     // Focus ring — same contract as Button / Select
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]",
@@ -44,7 +44,7 @@ export function Input({
     <div
       className={cn(
         "flex items-stretch overflow-hidden rounded-md border border-[var(--border)]",
-        "bg-[var(--background)] transition-colors",
+        "bg-[var(--background)] transition-colors duration-fast ease-io",
         // Propagate focus-within ring so the whole compound field lights up
         "focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--ring)]",
         wrapperClassName

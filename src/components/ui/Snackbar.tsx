@@ -101,7 +101,7 @@ export function Snackbar({
         // tone
         toneClasses[tone],
         // animation
-        "transition-all duration-300 ease-out",
+        "transition-all duration-slow ease-out",
         translateClass,
         className,
       )}
@@ -126,7 +126,7 @@ export function Snackbar({
           className={cn(
             "ml-2 shrink-0 rounded-md px-3 py-1 text-xs font-bold uppercase tracking-wider",
             "bg-[image:var(--accent-grad)] text-primary-foreground",
-            "transition-colors hover:brightness-110",
+            "transition-colors duration-fast ease-io hover:brightness-110",
             "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           )}
         >
@@ -139,7 +139,7 @@ export function Snackbar({
         type="button"
         aria-label="Dismiss"
         onClick={onClose}
-        className="ml-1 shrink-0 rounded-md p-1 text-current opacity-60 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+        className="ml-1 shrink-0 rounded-md p-1 text-current opacity-60 transition-opacity duration-fast ease-io hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

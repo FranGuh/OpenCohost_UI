@@ -54,7 +54,7 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
         }}
         className={cn(
           "flex h-11 w-full items-center justify-between rounded-md border border-border bg-surface-2 px-3",
-          "text-left text-sm font-semibold text-foreground transition-colors",
+          "text-left text-sm font-semibold text-foreground transition-colors duration-fast ease-io",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           "disabled:cursor-not-allowed disabled:opacity-60",
           open && "border-ring"
@@ -64,7 +64,7 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
         <span>{selected?.label ?? value}</span>
         <span
           aria-hidden="true"
-          className={cn("text-dim transition-transform duration-200", open && "rotate-180")}
+          className={cn("text-dim transition-transform duration-base ease-io", open && "rotate-180")}
         >
           ▾
         </span>
@@ -88,7 +88,7 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
                   if (!opt.disabled) { onChange(opt.value); setOpen(false); }
                 }}
                 className={cn(
-                  "flex cursor-pointer items-center px-3 py-2.5 text-sm transition-colors",
+                  "flex cursor-pointer items-center px-3 py-2.5 text-sm transition-colors duration-fast ease-io",
                   "hover:bg-accent-soft hover:text-primary",
                   isSel ? "bg-accent-soft font-semibold text-primary" : "text-foreground",
                   opt.disabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-foreground"

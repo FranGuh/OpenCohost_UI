@@ -199,7 +199,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               type="button"
               aria-label="Cerrar"
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               ✕
             </button>

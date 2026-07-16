@@ -60,7 +60,7 @@ export function PlayerBar() {
               type="button"
               aria-label={button.label}
               onClick={() => setLastAction(button.label)}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {button.icon}
             </button>
@@ -71,7 +71,7 @@ export function PlayerBar() {
             aria-label="Reproducir"
             onClick={() => setLastAction("Hablar")}
             className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-full text-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+              "flex h-11 w-11 items-center justify-center rounded-full text-lg transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
               isSpeaking
                 ? "bg-[image:var(--accent-grad)] text-primary-foreground"
                 : "bg-surface-2 text-foreground"
@@ -86,7 +86,7 @@ export function PlayerBar() {
               type="button"
               aria-label={button.label}
               onClick={() => setLastAction(button.label)}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {button.icon}
             </button>
