@@ -59,8 +59,9 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // Deliberate SUBSET of the server's whitelist (engine_host.py) — per-turn
   // churn (processing/idle/speaking_start/speaking_end) is intentionally
   // NOT mapped here, so it's dropped by the "unknown key" branch below and
-  // never spams the feed. detail is always null server-side; templates
-  // ignore it. ---
+  // never spams the feed. Those known-but-unmapped keys live in KNOWN_SILENT
+  // so they drop WITHOUT the DEV warn (reserved for genuinely unrecognized
+  // keys). detail is always null server-side; templates ignore it. ---
   "motor.ready": () => "Motor: listo",
   "motor.model_warming": () => "Motor: cargando modelo",
   "motor.ollama_unavailable": () => "Motor: Ollama no disponible",
@@ -77,6 +78,23 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "motor.ctx_pressure_high": () => "Motor: contexto saturado",
   "motor.piper_voice_locale_mismatch": () => "Motor: voz TTS no coincide con el idioma"
 };
+
+/* KNOWN-but-unmapped: valid backend actions (engine_host.py / ptt_session.py)
+ * we deliberately DON'T surface — per-turn engine churn and PTT flush internals
+ * that would spam the feed. They drop silently, without the DEV "unknown event"
+ * warn that flags a genuinely unrecognized key (a real "forgot to map this").
+ * motor.speaking_start/end + motor.idle are ALSO routed to the avatar store in
+ * src/api/events.ts before they reach here — silent in the feed, live for the
+ * avatar. */
+const KNOWN_SILENT = new Set<string>([
+  "motor.processing",
+  "motor.idle",
+  "motor.speaking_start",
+  "motor.speaking_end",
+  "ptt.flushed",
+  "ptt.empty",
+  "ptt.auto_stopped"
+]);
 
 const MAX_DETAIL_CHARS = 48;
 const MAX_DETAIL_WORDS = 6;
@@ -110,9 +128,13 @@ let manualSeq = 0;
  * lets server-originated events keep their real timestamp on backfill;
  * operator events omit it and get Date.now(). */
 export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?: boolean; ts?: number }): void {
-  const template = EVENT_LABELS[`${input.source}.${input.action}`];
+  const key = `${input.source}.${input.action}`;
+  const template = EVENT_LABELS[key];
   if (!template) {
-    if (import.meta.env.DEV) console.warn(`[appEvents] dropped unknown event ${input.source}.${input.action}`);
+    // KNOWN_SILENT keys drop quietly; only genuinely unrecognized keys warn.
+    if (import.meta.env.DEV && !KNOWN_SILENT.has(key)) {
+      console.warn(`[appEvents] dropped unknown event ${key}`);
+    }
     return; // not whitelisted → no event, no toast. Free text cannot enter.
   }
   const label = template(sanitizeDetail(input.detail));
@@ -124,7 +146,12 @@ export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?:
     tone: input.tone ?? "ok"
   };
   useEventStore.getState().append(event);
-  if (opts?.toast !== false) toastSink?.(label, event.tone);
+  // Toast unless suppressed. EXCEPTION: ptt.* server echoes pass toast:false
+  // (feed-only convention for server events), but PTT lifecycle — including the
+  // external F10 bridge, which only emits server events — needs immediate
+  // feedback, so ptt.started/stopped/error always toast. (These are the only
+  // ptt.* keys mapped above; silent ptt actions never reach here.)
+  if (opts?.toast !== false || input.source === "ptt") toastSink?.(label, event.tone);
 }
 
 /** Global feeder: one subscriber on the shared MutationCache. Queries (all

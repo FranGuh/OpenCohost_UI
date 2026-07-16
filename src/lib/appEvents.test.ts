@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEventStore } from "../store/eventStore.js";
+import type { AppEventSource } from "../store/eventStore.js";
 import { emitAppEvent, sanitizeDetail, setToastSink, subscribeMutationEvents } from "./appEvents.js";
 import type { AppEventInput } from "./appEvents.js";
 
@@ -76,6 +77,49 @@ describe("emitAppEvent", () => {
     // @ts-expect-error — AppEventInput has no `label`/`text` field; a hook cannot hand this module a sentence.
     const rejectedAtCompileTime: AppEventInput = { source: "model", action: "switch", label: "nope" };
     void rejectedAtCompileTime;
+  });
+});
+
+describe("emitAppEvent — KNOWN_SILENT drop + ptt toast exception", () => {
+  it("drops KNOWN_SILENT server actions with no store event, no toast, and NO DEV warn", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const key of ["motor.speaking_start", "motor.speaking_end", "motor.idle", "ptt.flushed", "ptt.auto_stopped"]) {
+      const [source, action] = key.split(".");
+      emitAppEvent({ source: source as AppEventSource, action }, "srv-x", { toast: false });
+    }
+    expect(useEventStore.getState().events).toHaveLength(0);
+    expect(sink).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("still DEV-warns for a genuinely unrecognized key (not in KNOWN_SILENT)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    emitAppEvent({ source: "motor" as AppEventSource, action: "totally-made-up" });
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it("toasts ptt.started/stopped/error server echoes even when toast:false", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    emitAppEvent({ source: "ptt", action: "started" }, "srv-7", { toast: false });
+    emitAppEvent({ source: "ptt", action: "stopped" }, "srv-8", { toast: false });
+    emitAppEvent({ source: "ptt", action: "error" }, "srv-9", { toast: false });
+    expect(sink).toHaveBeenCalledTimes(3);
+    expect(sink).toHaveBeenNthCalledWith(1, "PTT escuchando", "ok");
+    expect(sink).toHaveBeenNthCalledWith(2, "PTT enviado a Kira", "ok");
+    expect(useEventStore.getState().events).toHaveLength(3); // also in the feed
+  });
+
+  it("still suppresses the toast for a NON-ptt server echo with toast:false (feed only)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    emitAppEvent({ source: "motor", action: "ready" }, "srv-10", { toast: false });
+    expect(useEventStore.getState().events).toHaveLength(1);
+    expect(sink).not.toHaveBeenCalled();
   });
 });
 

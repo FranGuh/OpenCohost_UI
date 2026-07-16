@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { eventsHandler } from "../test/handlers.js";
 import { useEventStore } from "../store/eventStore.js";
+import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import { setToastSink } from "../lib/appEvents.js";
 import { useServerEventLog } from "./events.js";
 import type { EventLogResponse } from "./events.js";
@@ -19,6 +20,7 @@ function createWrapper() {
 beforeEach(() => {
   vi.useFakeTimers();
   useEventStore.setState({ events: [] });
+  useAvatarLiveState.setState({ speaking: false, lastEventTs: 0 });
   setToastSink(null);
 });
 
@@ -52,7 +54,8 @@ describe("useServerEventLog", () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it("drops an unmapped/per-turn action (idle) — never reaches the feed", async () => {
+  it("drops an unmapped/per-turn action (idle) from the feed, but routes it to the avatar store (speaking=false)", async () => {
+    useAvatarLiveState.setState({ speaking: true, lastEventTs: 1 });
     const batch: EventLogResponse = {
       events: [{ seq: 1, ts: 0, source: "motor", action: "idle", detail: null }],
       cursor: 1,
@@ -64,6 +67,37 @@ describe("useServerEventLog", () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
 
     expect(useEventStore.getState().events).toHaveLength(0);
+    expect(useAvatarLiveState.getState().speaking).toBe(false);
+  });
+
+  it("routes motor.speaking_start to the avatar store (speaking=true) without a feed event", async () => {
+    const batch: EventLogResponse = {
+      events: [{ seq: 1, ts: 0, source: "motor", action: "speaking_start", detail: null }],
+      cursor: 1,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+
+    renderHook(() => useServerEventLog(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(useAvatarLiveState.getState().speaking).toBe(true);
+    expect(useEventStore.getState().events).toHaveLength(0); // KNOWN_SILENT — never in the feed
+  });
+
+  it("routes motor.speaking_end to the avatar store (speaking=false)", async () => {
+    useAvatarLiveState.setState({ speaking: true, lastEventTs: 1 });
+    const batch: EventLogResponse = {
+      events: [{ seq: 1, ts: 0, source: "motor", action: "speaking_end", detail: null }],
+      cursor: 1,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+
+    renderHook(() => useServerEventLog(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(useAvatarLiveState.getState().speaking).toBe(false);
   });
 
   it("does not re-emit an already-seen seq on a later poll", async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getApiBaseUrl } from "./client.js";
 import { emitAppEvent } from "../lib/appEvents.js";
+import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import type { AppEventSource } from "../store/eventStore.js";
 
 /**
@@ -70,6 +71,14 @@ export function useServerEventLog() {
 
     for (const e of data.events) {
       if (e.seq <= lastCursor.current) continue;
+      // Live avatar signal, feed-independent: mirror the engine's speaking edge
+      // into the avatar store so KiraCover reacts at events-poll cadence (1.5s),
+      // ahead of the 2s status poll. These motor actions are KNOWN_SILENT in
+      // emitAppEvent — routed here, never shown in the feed.
+      if (e.source === "motor") {
+        if (e.action === "speaking_start") useAvatarLiveState.getState().setSpeaking(true);
+        else if (e.action === "speaking_end" || e.action === "idle") useAvatarLiveState.getState().setSpeaking(false);
+      }
       emitAppEvent(
         // ServerEvent.source is a plain string; emitAppEvent's own whitelist
         // (not this cast) is what actually gates an unmapped value.
