@@ -1738,3 +1738,75 @@ Manual checks pending for the owner (headless session — no Tauri shell here):
 - **Error branch**: kill the backend and confirm the informative error card
   (heading + detail + autofocused "Reintentar") still appears after the failure
   threshold, unchanged.
+
+## Boot memory wall + fade-out (2026-07-16)
+
+Owner ask: give the boot splash a "memory wall" of Kira art behind the
+breathing mark, and a fade-out on ready ("le falta un fadeout").
+
+### Source-art optimization (`scripts/optimize-boot-art.py`)
+Pillow-based (verified `PIL 12.1.1` in `flux_env`), max-width 960 LANCZOS,
+metadata stripped, flattened onto `--void` (#05070b), saved WebP q70 to
+`public/boot/kira-01.webp … kira-08.webp` in a **stable order** that is the
+contract with `BOOT_COLLAGE_ART`. Re-run on new art (edit `SOURCES` or pass
+paths as argv). Eight source PNGs (2.2–2.4 MB each) → 20–79 KB each, ~97–99%
+smaller (~423 KB total for all eight tiles).
+
+| tile         | source  | webp  | saved |
+|--------------|---------|-------|-------|
+| kira-01.webp | 2.44 MB | 73 KB | 97%   |
+| kira-02.webp | 2.37 MB | 68 KB | 97%   |
+| kira-03.webp | 1.62 MB | 20 KB | 99%   |
+| kira-04.webp | 1.80 MB | 28 KB | 99%   |
+| kira-05.webp | 1.92 MB | 44 KB | 98%   |
+| kira-06.webp | 2.19 MB | 50 KB | 98%   |
+| kira-07.webp | 2.19 MB | 77 KB | 97%   |
+| kira-08.webp | 2.18 MB | 55 KB | 98%   |
+
+### BootCollage (`src/components/ui/BootCollage.tsx`)
+Full-viewport, `aria-hidden`, pointer-inert background layer behind the
+BootLoader mark. At mount it Fisher-Yates-shuffles the eight tiles and takes a
+random 4–6 into a `grid-cols-3` wall (`grid-auto-rows: 1fr`, object-cover).
+Each tile is an eager `<img>` that starts `opacity-0` and fades to `opacity-[0.1]`
+on **its own** load event (`--dur-slow` ease-out, no timers); a tile whose file
+never loads simply stays invisible (no placeholder, never blocks). A slow Ken
+Burns drift (scale 1↔1.05, 20s, `infinite alternate`, alternating origin per
+index) lives in `styles.css` and is killed by the existing reduced-motion
+switch. A radial veil (`.boot-collage-veil`) darkens the center to `--void` so
+the breathing mark + status stay the hero, with a light overall wash and
+`saturate(.7)` desaturation on the wall.
+
+### Splash fade-out (`src/components/BackendGate.tsx`)
+The `phase`/polling/error state machine is untouched. Splash lifetime is now a
+separate `splashOpen` flag: on `ready`, the app mounts **immediately** and the
+splash stays as an `absolute inset-0 z-50` overlay above it, transitioning
+opacity 1→0 (`--dur-slow` ease-out, `pointer-events-none` while closing), then
+unmounting on the overlay's own `transitionend` — guarded with
+`event.target === event.currentTarget` so the collage tiles' opacity transitions
+bubbling up don't tear it down — or a `SPLASH_FADE_MS` (360ms) fallback for
+environments (jsdom, dropped events) that never emit `transitionend`. The
+overlay anchors to `.oc-app-body` (given `position: relative` via an append-only
+rule in `styles.css`, keeping the existing height math intact). The error card
+is unchanged and never carries the splash/collage.
+
+### Verification
+- `pnpm exec tsc --noEmit` — clean (exit 0).
+- Full `pnpm exec vitest run` — **69 files / 660 tests, 0 failures** (baseline
+  68/654; +1 file BootCollage.test.tsx, +6 tests: 4 collage + 2 gate fade).
+- `pnpm build` (`tsc && vite build`) — green; `dist/boot/kira-0*.webp` shipped.
+
+```
+ Test Files  69 passed (69)
+      Tests  660 passed (660)
+```
+
+Manual checks pending for the owner (headless session — no Tauri shell here):
+- **Memory wall**: launch the app and confirm a faint, slowly drifting grid of
+  Kira art sits behind the breathing mark — legible mark + caption over a dark,
+  veiled center; the wall reshuffles (4–6 tiles) each boot.
+- **Fade-out**: confirm the splash fades out (~320ms) the instant the engine is
+  ready, revealing the app underneath (no hard cut, no double-brand pop). Then
+  flip reduced-motion ON and confirm tiles are static, no Ken Burns, and the
+  splash still tears down on readiness.
+- **Error branch**: kill the backend and confirm the error card (no collage)
+  still appears unchanged after the failure threshold.
