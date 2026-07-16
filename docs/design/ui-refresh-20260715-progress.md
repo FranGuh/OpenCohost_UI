@@ -1810,3 +1810,192 @@ Manual checks pending for the owner (headless session — no Tauri shell here):
   splash still tears down on readiness.
 - **Error branch**: kill the backend and confirm the error card (no collage)
   still appears unchanged after the failure threshold.
+
+## Visual round (2026-07-16, morning)
+
+Two owner-feedback items. Frontend-only, no backend touched. Scope fenced to
+`BootCollage.tsx` (+test), `StatusRail.tsx` (+test — no test change needed),
+and `styles.css` (boot-collage rules only).
+
+### Item 1 — Boot collage: more visible + feathered edges
+- `src/components/ui/BootCollage.tsx` — tile load-fade target opacity raised
+  `opacity-[0.1]` → `opacity-[0.35]` (+25 points, "que se vean más"). Pulled it
+  out into a single `TILE_LOADED_OPACITY` module constant so it stays a one-line
+  knob if the owner fine-tunes.
+- `src/styles.css` — `.boot-collage-tile` gained a per-tile radial feather mask
+  so the 3-col grid seams dissolve ("bordes desvanecidos"): tiles read as soft
+  memory patches, not rectangles. Shipped value (twinned `-webkit-mask-image` +
+  `mask-image`):
+  `radial-gradient(ellipse 75% 75% at center, #000 45%, transparent 98%)`.
+  Mask sits on the img (`.boot-collage-tile`); at the 1.05 Ken Burns scale the
+  feather is ~94% complete by the wrapper's `overflow-hidden` clip, so seams
+  vanish during drift too, and it's exact at rest / under reduced-motion.
+- `src/components/ui/BootCollage.test.tsx` — the load-fade assertion updated
+  `opacity-[0.1]` → `opacity-[0.35]` (before/after-load pair).
+- **Caption legibility verified by geometry (headless — no pixel check).** The
+  caption sits ~8–10% below vertical center (gap-7 under the 76px mark). The
+  center veil (`ellipse 65% 58%` solid `--void` → transparent at 72%, plus a 42%
+  void wash) gives ~75–80% void coverage there, and in a 4–6-tile / 3-col grid
+  the vertical center falls on a now-feathered row seam — so effective tile
+  brightness behind the caption is ~7% even at 0.35. Conclusion: 0.35 does NOT
+  fight the caption; the central veil was left untouched (per the task's "only
+  strengthen the veil if it fights").
+
+### Item 2 — Status-rail chips: remove the colored state dots
+- `src/components/StatusRail.tsx` — removed the per-chip tone dot
+  (`h-[6px] w-[6px] rounded-full` + `DOT_CLASSES[tone]` + `animate-pulse` on
+  info) from `StatusChip`; chips are now icon + state text. The escalation
+  styling on the chip surface (`CHIP_ESCALATION`, `data-taxonomy`) is unchanged.
+  Also removed the chip-level dot from the `Conectando con el motor…` loading
+  placeholder for consistency (text-only now).
+  - Dead-code cleanup: dropped the now-unused `TAXONOMY_TONE` map and the local
+    `const tone = TAXONOMY_TONE[taxonomy]` (their only consumer was the removed
+    dot). `DOT_CLASSES` is **kept** — still used by the Motor popover's
+    DetailRow per-row dots, which are untouched.
+- No test change: `StatusRail.test.tsx` never asserted chip dots (it asserts
+  state via `data-taxonomy` text). The detail-row dot assertions (popover
+  content is checked by text) stay intact and green.
+
+Checks:
+- `pnpm exec tsc --noEmit` — clean (exit 0).
+- Focused `pnpm exec vitest run BootCollage.test.tsx StatusRail.test.tsx` —
+  23/23 (BootCollage 4, StatusRail 19).
+- Full `pnpm exec vitest run` — **69 files / 660 tests, 0 failures** (baseline
+  unchanged — no test count delta; both items are visual + dead-code cleanup).
+
+```
+ Test Files  69 passed (69)
+      Tests  660 passed (660)
+```
+
+Judgment calls:
+- **Mask on the img, not the wrapper.** Considered masking the tile wrapper
+  (feather fixed at the cell box, immune to Ken Burns scale) but the img mask is
+  the task's stated shape and — per the ~94%-by-clip math above — feathers seams
+  effectively even under the 1.05 drift, with zero JSX churn. Wrapper is the
+  fallback if the owner ever reports a residual hard edge on the drift's
+  trailing corner.
+- **Opacity kept as a Tailwind arbitrary-value constant** (`opacity-[0.35]`)
+  rather than a CSS var, matching the existing class-based fade + one-line-tweak
+  ask.
+- **Veil untouched** (see Item 1 note) — geometry says the guarantee holds; a
+  headless pixel check was not possible.
+
+## Controles round (2026-07-16, morning)
+
+Owner live feedback: two items in **Controles → Voz y micrófono** and
+**Controles → Memoria**.
+
+### Item 1 — Undesigned selects in Voz y micrófono
+
+`VoiceCard` rendered its **Idioma** and **Motor TTS** selectors through
+`ui/Select`'s *native* variant (`children` = `<option>` elements), which falls
+through to the unstyled OS `<select>`. `ui/Select` already ships a designed
+custom variant, keyed by the presence of the `options` prop (a token-styled
+`role="combobox"` button + `role="listbox"` dropdown with the app's borders,
+chevron and check affordance).
+
+- Swapped both selects to the `options` API. Behaviour is byte-identical:
+  option **values** (`argentina`/`neutral`, `ligero`/`pesado`) unchanged,
+  current-value binding unchanged (`value={voice}` / `value={engine}`), and the
+  change handlers are the *same* functions — the custom variant hands
+  `applyVoice`/`applyEngine` the value string directly instead of an event, so
+  `onChange={applyVoice}` replaces `onChange={(e)=>applyVoice(e.target.value)}`.
+- The Pesado (Heavy) per-option gate (`disabled` when `!heavy_available`) is
+  preserved via `SelectOption.disabled`; the custom variant refuses clicks on a
+  disabled option and marks it `aria-disabled="true"`.
+- **>6 options check:** N/A — both selects have exactly **2** options. Note for
+  future callers: `ui/Select`'s custom dropdown `<ul>` has **no `max-height` /
+  internal scroll cap** — a select with a long option set would let the listbox
+  grow unbounded and could overflow the viewport. Not a problem here; worth a
+  `max-h-*` + `overflow-y-auto` on the listbox if a long catalog ever uses it.
+
+Test idiom migrated to the custom-select shape (matching `Select.test.tsx` /
+`StreamPanel` / `AgendaPanel`): `toHaveValue(...)` → `toHaveTextContent(label)`;
+`fireEvent.change(select, {value})` → open (`click` the combobox) then click the
+`role="option"`. The Motor-change test now seeds `heavy_available:true` so the
+Pesado option is selectable (a native `<select>` let `fireEvent.change` bypass
+the disabled attribute; the custom variant does not) and asserts the real
+`set_motor_tts` dispatch body.
+
+### Item 2 — "Memorias no aparecen" + section polish
+
+**Root-cause investigation (reported before fixing):** this is **not** a
+frontend rendering/query regression. Traced end to end:
+
+- The confirm-flow refactor (`b4f5657`) that the report fingered touched only
+  the per-row/clear `ConfirmFooter`s — it never touched the list query or the
+  list-rendering branches.
+- The list contract matches on every layer: frontend `MemoriaListItem` ↔ backend
+  `GET /api/memoria/list` (`SELECT id,title,created_at,updated_at,revision,
+  pinned,private,inactive ... WHERE profile_id = ?`) ↔ msw fixture — same
+  `{ items: [...] }` shape, same fields. No shape/query-key/toggle/confirm-filter
+  bug in the current code.
+- The **only** list-affecting change in history is **FIX-A** (`da108a0`):
+  `profileId` switched from `useStatusQuery().data?.active_profile` (the display
+  **name**, always present in `/api/status`) to `active_profile_id` (the stable
+  **UUID**). The backend seeds `active_profile_id` from
+  `MotorVocalIA._current_profile_id` and saves memorias under that same UUID, so
+  the FE contract is correct **for a correctly-seeded backend**.
+
+The observed "No hay memorias guardadas" symptom therefore requires a
+**profile_id keying mismatch at runtime** — `active_profile_id` is populated
+(truthy, so it is *not* the "Activá un perfil" branch) but points at a UUID that
+does not match the `profile_id` the memorias were stored under. That happens
+when memorias were saved before the backend keyed by UUID (name-keyed rows) and
+are now queried by UUID: the pre-FIX-A frontend queried by name and listed them,
+so from the user's view they "used to appear". This is a **backend/data-migration
+condition** (re-key legacy memorias to the profile UUID, or have the backend
+resolve both), **not** something the frontend should paper over — reverting to
+name-keying would re-break brand-new UUID-keyed memorias, i.e. re-introduce the
+exact bug FIX-A fixed. **Reported, not hacked around**, per the round's rules.
+
+Why the suite stayed green while runtime broke (the classic): the msw **status**
+fixture hardcodes `active_profile_id: "profile-id-default"` and the **list**
+handler ignored `profile_id` entirely, so every test drove the happy path and no
+test ever proved the frontend forwards the *right* key.
+
+**Regression test added** — `forwards active_profile_id (not the display name) as
+profile_id, so a correctly-keyed list renders`: sets `active_profile_id` to a
+known UUID and makes the list handler mirror the backend's `WHERE profile_id = ?`
+(rows only when the UUID matches). It fails if the FE regresses to sending the
+display name or an empty id. This is the guard the suite was missing.
+
+**UI polish** of the "Memorias guardadas — detalle" section:
+
+- Quiet header row: the label now carries a muted count (`N memorias` /
+  `1 memoria`, `tabular-nums text-dim`) sourced from the loaded list.
+- Chevron affordance on the show/hide toggle (kept the existing `Ver`/`Ocultar`
+  button — stable accessible name so the ~13 existing `getByRole("button",
+  {name:"Ver"})` queries hold — with `aria-expanded` and a `▾` that rotates
+  `-90°` when collapsed, matching `Collapsible`'s idiom).
+- Designed empty state replacing the bare sentence: a dashed-border panel with a
+  `🧠` glyph, **"Kira todavía no guardó memorias."**, and a dim hint line
+  ("Van apareciendo acá a medida que Kira conversa y decide qué vale la pena
+  recordar."). Two existing tests updated to the new copy.
+- Rows left intact — they already use `text-sm` title / `text-[11px] text-dim`
+  meta and carry the per-row confirmed delete from the confirm round.
+
+### Checks
+
+- `pnpm exec tsc --noEmit` — clean (exit 0).
+- Full `pnpm exec vitest run` — **69 files / 661 tests, 0 failures**
+  (baseline 660 + 1 new regression test).
+
+```
+ Test Files  69 passed (69)
+      Tests  661 passed (661)
+```
+
+### Judgment calls
+
+- **Kept `ui/Select`'s native variant.** Did not touch `Select.tsx` — the
+  designed variant already existed behind the `options` prop; the fix was to
+  *use* it, not to rebuild the control.
+- **Show/hide + chevron over a full `Collapsible` swap.** Both were sanctioned;
+  the button-with-chevron keeps the toggle's accessible name stable and avoids
+  churning ~13 unrelated MemoryCard test queries for zero visual gain.
+- **Reported the memoria break instead of coding around it.** The honest cause is
+  a profile_id keying mismatch on the backend/data side; a frontend name-fallback
+  would silently re-break UUID-keyed memorias. Locked the FE half of the contract
+  with the new regression test and left the data migration to the backend owner.
