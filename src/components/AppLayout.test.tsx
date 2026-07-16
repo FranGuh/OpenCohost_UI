@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useSwitchStore } from "../store/switchStore.js";
 import { useWelcomeStore } from "../store/welcomeStore.js";
 import { AppLayout } from "./AppLayout.js";
+import { TitleBar } from "./TitleBar.js";
 import { ToastProvider } from "./ui/Toast.js";
 
 beforeEach(() => {
@@ -15,11 +16,18 @@ beforeEach(() => {
 
 function renderApp() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The status/gear cluster now portals from AppLayout into the merged TitleBar's
+  // slot, so render the bar alongside — it provides the slot and the banner the
+  // header assertions cover, exactly like the real App shell.
   return render(
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(ToastProvider, null, React.createElement(AppLayout))
+      React.createElement(
+        ToastProvider,
+        null,
+        React.createElement(React.Fragment, null, React.createElement(TitleBar), React.createElement(AppLayout))
+      )
     )
   );
 }

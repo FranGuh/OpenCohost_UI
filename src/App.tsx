@@ -7,10 +7,12 @@ import { ToastProvider } from "./components/ui/Toast.js";
 export function App() {
   return (
     <ToastProvider>
-      {/* Frameless window (decorations:false) — TitleBar owns the top 32px and
-          stays visible through the BackendGate splash so the window is always
-          draggable/closable. .oc-app-body carries the height math (styles.css)
-          so the 100vh app grid + gate splash fill below the bar, not past it. */}
+      {/* Frameless window (decorations:false) — the merged TitleBar owns the top
+          40px (brand + status cluster + window controls) and stays mounted above
+          the BackendGate so the window is always draggable/closable, even during
+          boot. AppLayout portals the status/gear cluster into the bar once it
+          mounts past the gate. .oc-app-body carries the height math (styles.css)
+          so the app grid + gate splash fill below the bar, not past it. */}
       <div className="oc-root-shell flex flex-col">
         <TitleBar />
         <div className="oc-app-body">

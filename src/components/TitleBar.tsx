@@ -41,25 +41,66 @@ function WindowButton({ label, icon, onClick, variant = "ghost" }: WindowButtonP
   );
 }
 
+/** Portal target id for the app-side cluster (StatusRail + SettingsPopover).
+ * AppLayout (which lives past the BackendGate) portals its controls in here, so
+ * they appear only once the app is ready — during boot the slot stays empty and
+ * the bar shows brand + window buttons only. */
+export const TITLEBAR_APP_CONTROLS_SLOT_ID = "oc-titlebar-app-controls";
+
 /**
- * Custom window chrome for the frameless (decorations:false) Tauri window. The
- * bar itself is the drag region; the brand lockup is pointer-events-none so a
- * mousedown on the logo falls through to the bar and drags — and a double-click
- * on the drag region toggles maximize natively (Tauri handles it, no JS handler
- * here). The three caption buttons keep pointer events and drive the window over
- * IPC. Colors resolve from theme tokens, so the bar re-skins with the app.
+ * The single merged window bar for the frameless (decorations:false) Tauri
+ * window: brand lockup + tagline/credit on the left, the app-controls slot and
+ * the three caption buttons on the right. The bar background (and the flex
+ * spacer) carry `data-tauri-drag-region` — in Tauri v2 dragging fires ONLY on
+ * the element under the pointer that carries the attribute, so every interactive
+ * child (credit link, status chips, gear, caption buttons) keeps working without
+ * an explicit opt-out. The brand statics are `pointer-events-none` so a mousedown
+ * on the logo/wordmark falls through to the drag region; the credit link
+ * re-enables pointer events so it stays clickable. Double-click-to-maximize is
+ * left to Tauri's native drag-region handling (no JS handler). Colors resolve
+ * from theme tokens, so the bar re-skins with the app.
  */
 export function TitleBar() {
   return (
-    <div
+    <header
       data-tauri-drag-region
-      className="flex h-8 shrink-0 select-none items-center justify-between border-b border-border-soft bg-card"
+      className="flex h-10 shrink-0 select-none items-center gap-3 border-b border-border-soft bg-card pl-3"
     >
-      <div className="pointer-events-none flex items-center gap-2 pl-3">
-        <BrandMark size={16} aria-hidden />
-        <span className="text-xs text-muted-foreground">OpenCohost</span>
+      {/* Brand lockup. The container is pointer-events-none so drags fall
+          through to the bar; the credit link opts back in below. */}
+      <div className="pointer-events-none flex items-center gap-2.5">
+        <BrandMark size={24} aria-hidden />
+        <div className="flex flex-col leading-tight">
+          <span className="font-sans text-sm font-bold text-foreground">
+            Open<span className="text-[var(--kira-cyan)]">Cohost</span>
+          </span>
+          {/* Tagline + credit — hidden below xl so brand + chips + gear + caption
+              buttons never crowd at the 1280 min window width. */}
+          <span className="hidden items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground xl:flex">
+            <span>focus over panic</span>
+            <span aria-hidden="true" className="text-border">/</span>
+            <a
+              href="https://github.com/franguh"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Developed by Franguh"
+              className="pointer-events-auto normal-case tracking-normal transition-colors duration-fast ease-io hover:text-[var(--kira-cyan)] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              Developed by Franguh
+            </a>
+          </span>
+        </div>
       </div>
+
+      {/* Drag space — the big grab zone between brand and controls. */}
+      <div data-tauri-drag-region className="h-full flex-1" />
+
+      {/* App controls (StatusRail + SettingsPopover) portal in here past the
+          gate. NOT a drag region: its interactive children must keep clicks. */}
+      <div id={TITLEBAR_APP_CONTROLS_SLOT_ID} className="flex min-w-0 items-center gap-3" />
+
       <div className="flex h-full items-center">
+        <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-border-soft" />
         <WindowButton
           label="Minimizar"
           icon={<Minus size={15} />}
@@ -77,6 +118,6 @@ export function TitleBar() {
           onClick={() => void runWindowAction("close")}
         />
       </div>
-    </div>
+    </header>
   );
 }

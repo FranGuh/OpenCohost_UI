@@ -1,9 +1,12 @@
-import { useState } from "react";
-import { TopBar } from "./TopBar.js";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Sidebar } from "./Sidebar.js";
 import type { Section } from "./Sidebar.js";
 import { MainStage } from "./MainStage.js";
 import { ConversationPanel } from "./ConversationPanel.js";
+import { StatusRail } from "./StatusRail.js";
+import { SettingsPopover } from "./SettingsPopover.js";
+import { TITLEBAR_APP_CONTROLS_SLOT_ID } from "./TitleBar.js";
 // import { PlayerBar } from "./PlayerBar.js";
 import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
 import { PlaybackProvider } from "../state/PlaybackProvider.js";
@@ -13,8 +16,11 @@ import { useWelcomeStore } from "../store/welcomeStore.js";
 const GRID_STYLE = {
   display: "grid",
   gridTemplateColumns: "248px 1fr 372px",
-  // gridTemplateRows: "60px 1fr 88px",
-  gridTemplateAreas: '"top top top" "side main queue" "player player player"',
+  // The old top/player rows are gone (the merged window bar in App.tsx now owns
+  // the header, PlayerBar is still shelved). One content row fills the body:
+  // minmax(0,1fr) lets the side/main/queue columns shrink and scroll internally.
+  gridTemplateRows: "minmax(0, 1fr)",
+  gridTemplateAreas: '"side main queue"',
   height: "100vh",
   backgroundImage: "var(--app-bg-glow)",
   backgroundColor: "var(--background)"
@@ -35,7 +41,7 @@ function readSidebarCollapsed(): boolean {
 }
 
 /**
- * Theme-independent player grid shell (top/side/main/queue/player). Owns
+ * Theme-independent player grid shell (side/main/queue). Owns
  * the working nav switch (Experiencia / Controles / Agenda) and hands it
  * down to Sidebar + MainStage. Also mounts the single ProfileSwitchProvider
  * above both ProfilePlaylist (Sidebar) and ProfileSwitcher (MainStage) so
@@ -61,6 +67,15 @@ export function AppLayout() {
   // mirroring the oc-collapse-* / oc-density idiom.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const restoreWelcome = useWelcomeStore((state) => state.restore);
+
+  // The status/settings cluster lives in the merged window bar (App.tsx, above
+  // the BackendGate). AppLayout only mounts once past the gate, so portaling the
+  // cluster into the bar's slot is what makes it appear "when ready" — and it
+  // keeps handleShowWelcome (which drives this component's activeSection) local.
+  const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setControlsSlot(document.getElementById(TITLEBAR_APP_CONTROLS_SLOT_ID));
+  }, []);
 
   function handleShowWelcome() {
     restoreWelcome();
@@ -89,10 +104,15 @@ export function AppLayout() {
     <ProfileSwitchProvider>
       <PlaybackProvider>
         <MusicDuckingWatcher />
+        {controlsSlot &&
+          createPortal(
+            <>
+              <StatusRail />
+              <SettingsPopover onShowWelcome={handleShowWelcome} />
+            </>,
+            controlsSlot
+          )}
         <div className="min-w-[1180px] text-foreground" style={gridStyle}>
-          <div className="grid [grid-area:top]">
-            <TopBar onShowWelcome={handleShowWelcome} />
-          </div>
           <div className="grid min-h-0 [grid-area:side]">
             <Sidebar
               activeSection={activeSection}

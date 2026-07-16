@@ -158,15 +158,19 @@ select:focus-visible,
 }
 
 /* ===== Custom window chrome (decorations:false) =====================
-   The frameless Tauri window hands its top 32px to <TitleBar> (App.tsx).
+   The frameless Tauri window hands its top 40px to the merged <TitleBar>
+   (App.tsx) — brand + status cluster + window controls in one bar.
    Everything below lives in .oc-app-body. AppLayout's grid and the BackendGate
    splash were authored as top-level 100vh/h-screen fills; under the bar they
-   must fill the body row instead, or their final 32px spill past the window
+   must fill the body row instead, or their final 40px spill past the window
    bottom (both providers between .oc-app-body and that fill are DOM-less, so
    `> *` is the single fill element in each state). One height override keeps
-   the math correct without touching those components. */
+   the math correct without touching those components. The bar itself is NOT
+   clipped (no overflow-hidden), so the StatusRail chip popovers and the gear
+   panel drop below it into .oc-app-body's region; .oc-root-shell's clip only
+   bounds the viewport box, which the popovers stay well inside. */
 :root {
-  --oc-titlebar-h: 2rem; /* h-8 */
+  --oc-titlebar-h: 2.5rem; /* h-10 */
 }
 .oc-root-shell {
   height: 100vh;
