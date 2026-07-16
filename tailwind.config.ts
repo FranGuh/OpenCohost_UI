@@ -68,14 +68,35 @@ export default {
         soft: "var(--sh-1)",
         panel: "var(--sh-2)"
       },
+      transitionDuration: {
+        fast: "var(--dur-fast)",
+        base: "var(--dur-base)",
+        slow: "var(--dur-slow)"
+      },
+      transitionTimingFunction: {
+        out: "var(--ease-out)",
+        io: "var(--ease-io)"
+      },
+      // `transition-colors` must ALSO animate `filter`, or the §2.5 global hover-brightness
+      // fix is inert on every element carrying the utility (ui/Button.tsx line 21 hardcodes
+      // `transition-colors` on ALL buttons; its transition-property list would otherwise
+      // omit filter and win over the §2.5 element selector).
+      transitionProperty: {
+        colors: "color, background-color, border-color, text-decoration-color, fill, stroke, filter"
+      },
       keyframes: {
         eq: {
           "0%, 100%": { height: "8px" },
           "50%": { height: "26px" }
+        },
+        "rise-in": {
+          from: { opacity: "0", transform: "translateY(4px)" },
+          to: { opacity: "1", transform: "translateY(0)" }
         }
       },
       animation: {
-        eq: "eq 1s ease-in-out infinite"
+        eq: "eq 1s ease-in-out infinite",
+        "rise-in": "rise-in var(--dur-slow) var(--ease-out) both"
       }
     }
   },

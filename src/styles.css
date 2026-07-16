@@ -19,6 +19,7 @@ body {
 
 button {
   cursor: pointer;
+  transition: filter var(--dur-fast) var(--ease-io);
 }
 
 button:hover {
@@ -58,4 +59,100 @@ select:focus-visible,
 
 [data-density="compact"] .gap-3\.5 {
   gap: 0.5rem !important;
+}
+@keyframes welcome-slide-in {
+  from { opacity: 0; transform: translateX(18px) scale(1.015); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.welcome-slide-image {
+  animation: welcome-slide-in var(--dur-slow) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Cockpit scrollbars — thin, quiet, theme-aware. Standard properties ONLY:
+   WebView2 (Chromium ≥121) disables ::-webkit-scrollbar wherever
+   scrollbar-width/scrollbar-color are set, so no hover/track styling exists. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
+}
+
+/* Kira chat markdown (src/components/ui/Markdown.tsx). Inline code only —
+   the :not(pre) selector excludes fenced blocks, which are the styled <pre>,
+   so inline code and code blocks are never double-styled. */
+.oc-md :not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.75rem; /* text-xs */
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius); /* rounded */
+  padding: 0.125rem 0.25rem; /* py-0.5 px-1 */
+}
+
+/* Alert style variants — data-alert-style on <html>, default "sereno" */
+.oc-alert { display: flex; gap: 10px; align-items: flex-start; border-radius: var(--r-md);
+  padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--foreground);
+  animation: rise-in var(--dur-slow) var(--ease-out) both; }
+.oc-alert-title { font-weight: 700; margin: 0 0 2px; }
+.oc-alert-body { margin: 0; color: var(--muted-foreground); }
+.oc-alert-icon { flex-shrink: 0; margin-top: 1px; }
+.oc-alert[data-tone="ok"]      { --alert-tone: var(--ok);      --alert-bd: var(--ok-bd); }
+.oc-alert[data-tone="warn"]    { --alert-tone: var(--warn);    --alert-bd: var(--warn-bd); }
+.oc-alert[data-tone="danger"]  { --alert-tone: var(--danger);  --alert-bd: var(--danger-bd); }
+.oc-alert[data-tone="info"]    { --alert-tone: var(--info);    --alert-bd: var(--info-bd); }
+.oc-alert[data-tone="neutral"] { --alert-tone: var(--muted-foreground); --alert-bd: var(--border); }
+.oc-alert-icon { color: var(--alert-tone); }
+
+/* 1) sereno (default) — quiet panel, hairline border, icon carries the tone */
+:root[data-alert-style="sereno"] .oc-alert,
+:root:not([data-alert-style]) .oc-alert {
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+}
+/* 2) marcado — left accent bar + a softer bottom line for a notch more
+   presence. The bottom line is deliberately fainter than the left bar
+   (35% of the tone) so the alert reads as marked/underlined, not as an
+   actionable button with a full accent border. */
+:root[data-alert-style="marcado"] .oc-alert {
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--alert-tone);
+  border-bottom: 3px solid color-mix(in srgb, var(--alert-tone) 35%, transparent);
+  padding-left: 11px;
+}
+/* 3) contorno — transparent, outlined in the tone's soft border color */
+:root[data-alert-style="contorno"] .oc-alert {
+  background: transparent; border: 1px solid var(--alert-bd);
+}
+
+/* Theme-aware text selection — kira-cyan wash over the theme foreground so
+   selecting text feels like the cockpit, not the browser default blue. */
+::selection {
+  background: color-mix(in srgb, var(--kira-cyan) 28%, transparent);
+  color: var(--foreground);
+}
+
+/* Composer mic hold-to-talk fill (ConversationPanel). While the mic is HELD
+   (listening) an inner layer rises bottom→top on the decelerating ease-out
+   curve over ~8s, so it approaches full without ever implying a hard cutoff;
+   on release it drains fast (~250ms ease-io). It sits UNDER the icon (icon
+   stays legible) and is a stronger mix of the same danger wash the held button
+   already carries. The dual duration lives on the two classes so add = slow
+   fill, remove = fast drain. Reduced-motion is globally neutralized above, so
+   it simply snaps on/off with no motion. */
+.mic-fill {
+  transform: scaleY(0);
+  transform-origin: bottom;
+  background: color-mix(in srgb, var(--danger) 24%, transparent);
+  transition: transform 250ms var(--ease-io);
+}
+.mic-fill--filling {
+  transform: scaleY(1);
+  transition: transform 8000ms var(--ease-out);
 }

@@ -116,6 +116,16 @@
   --r-md: 12px;
   --r-lg: 16px;
   --r-xl: 22px;
+
+  /* motion — one system app-wide. 3 durations, 2 easings.
+     fast  = micro feedback (hover color, opacity, dots)
+     base  = structural (collapse, rotate, popovers, chips)
+     slow  = entrances/exits (toasts, banners, empty states) */
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);   /* expressive settle — already used by welcome-slide-in */
+  --ease-io: cubic-bezier(0.45, 0, 0.25, 1);    /* symmetric in-out for reversible state (collapse, toggle) */
 }
 
 [data-theme="aurora"] {
