@@ -176,9 +176,15 @@ function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
   return (
     <div
       ref={regionRef}
-      className="relative"
+      // Only the profiles list scrolls (flex-1 min-h-0 overflow-y-auto); the nav
+      // above stays fixed. The fixed-position preview card is anchored to a row's
+      // rect at open time and does NOT track scroll, so it would visually detach
+      // if the list scrolled under it — hide it on scroll (onScroll only while a
+      // card is open, so idle scrolling schedules no timers).
+      className="relative flex-1 min-h-0 overflow-y-auto"
       onPointerOver={handlePointerOver}
       onPointerLeave={hide}
+      onScroll={preview ? hide : undefined}
       onFocus={handleFocus}
       onBlur={hide}
     >
@@ -231,20 +237,12 @@ export interface SidebarProps {
  * aria-label (the visible label is what's hidden). */
 export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCollapse }: SidebarProps) {
   return (
-    <nav className="flex min-h-0 flex-col overflow-auto border-r border-border-soft bg-card py-3">
-      <div className={cn("flex px-2 pb-2", collapsed ? "justify-center" : "justify-end")}>
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-          title={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
-        </button>
-      </div>
-
-      <div className="flex flex-col gap-1 px-2 pb-2">
+    // The rail is a fixed-height flex column: [nav (fixed)] · [profiles (scrolls)]
+    // · [footer toggle (fixed)]. overflow-hidden so the nav itself never scrolls —
+    // only the flex-1 profiles region does.
+    <nav className="flex min-h-0 flex-col overflow-hidden border-r border-border-soft bg-card">
+      {/* Primary nav — pinned at the top, never scrolls with the profiles list. */}
+      <div className="flex shrink-0 flex-col gap-1 px-2 pb-2 pt-3">
         {NAV_ITEMS.map((item) => {
           const isActive = item.id === activeSection;
           return (
@@ -272,9 +270,28 @@ export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCo
         })}
       </div>
 
-      <div className="mx-2 my-1 border-t border-border-soft" />
+      <div className="mx-2 my-1 shrink-0 border-t border-border-soft" />
 
       <ProfilesRegion collapsed={collapsed} />
+
+      {/* Collapse toggle — integrated as a slim footer row (bottom, full-width,
+          quiet ghost button) so it reads as part of the rail instead of floating
+          at the top. aria-label + persistence (onToggleCollapse) are unchanged. */}
+      <div className="shrink-0 border-t border-border-soft p-2">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+          title={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+          className={cn(
+            "flex h-9 w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+            collapsed ? "justify-center px-0" : "gap-3 px-3"
+          )}
+        >
+          {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
+          {!collapsed && <span>Colapsar</span>}
+        </button>
+      </div>
     </nav>
   );
 }

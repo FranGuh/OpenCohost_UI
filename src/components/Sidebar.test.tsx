@@ -75,6 +75,58 @@ describe("Sidebar — collapsible icon rail", () => {
   });
 });
 
+describe("Sidebar — scroll scoping + footer toggle", () => {
+  it("scopes scrolling to the profiles region — the nav rail itself does not scroll", () => {
+    renderSidebar();
+    const nav = screen.getByRole("navigation");
+    // The whole rail no longer scrolls as one block...
+    expect(nav).toHaveClass("overflow-hidden");
+    expect(nav).not.toHaveClass("overflow-auto");
+    // ...only the profiles region does (flex-1 min-h-0 overflow-y-auto).
+    const region = screen.getByText("Perfiles").closest("div.overflow-y-auto");
+    expect(region).not.toBeNull();
+    expect(region).toHaveClass("flex-1", "min-h-0", "overflow-y-auto");
+    // The fixed nav items live OUTSIDE that scroll region.
+    const experiencia = screen.getByRole("button", { name: "Experiencia" });
+    expect(region?.contains(experiencia)).toBe(false);
+  });
+
+  it("places the collapse toggle in a slim bordered footer row at the bottom of the rail", () => {
+    renderSidebar();
+    const toggle = screen.getByRole("button", { name: "Colapsar barra lateral" });
+    const footer = toggle.parentElement as HTMLElement;
+    expect(footer).toHaveClass("border-t");
+    // Footer is the rail's last child — below the profiles scroll region.
+    expect(screen.getByRole("navigation").lastElementChild).toBe(footer);
+    // Expanded: the toggle shows its "Colapsar" label.
+    expect(toggle).toHaveTextContent("Colapsar");
+  });
+
+  it("collapses the footer toggle to icon-only (label hidden, aria-label kept) when collapsed", () => {
+    renderSidebar({ collapsed: true });
+    const toggle = screen.getByRole("button", { name: "Expandir barra lateral" });
+    // Accessible name survives via aria-label; the visible "Colapsar" text is gone.
+    expect(toggle).not.toHaveTextContent("Colapsar");
+    expect(screen.getByRole("navigation").lastElementChild).toBe(toggle.parentElement);
+  });
+
+  it("hides an open preview card when the profiles region scrolls (no stale fixed card)", async () => {
+    renderSidebar();
+    const rowButton = (await screen.findByText("Akira")).closest("button") as HTMLButtonElement;
+
+    fireEvent.focus(rowButton); // immediate show
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+
+    const region = screen.getByText("Perfiles").closest("div.overflow-y-auto") as HTMLElement;
+    vi.useFakeTimers();
+    fireEvent.scroll(region);
+    act(() => {
+      vi.advanceTimersByTime(CLOSE_FADE_MS);
+    });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+});
+
 describe("Sidebar — profile hover-intent preview card", () => {
   it("shows the preview card only after a 700ms hover dwell (HOVER_INTENT_MS), naming the profile as info", async () => {
     renderSidebar();
