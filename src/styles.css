@@ -156,3 +156,26 @@ select:focus-visible,
   transform: scaleY(1);
   transition: transform 8000ms var(--ease-out);
 }
+
+/* ===== Custom window chrome (decorations:false) =====================
+   The frameless Tauri window hands its top 32px to <TitleBar> (App.tsx).
+   Everything below lives in .oc-app-body. AppLayout's grid and the BackendGate
+   splash were authored as top-level 100vh/h-screen fills; under the bar they
+   must fill the body row instead, or their final 32px spill past the window
+   bottom (both providers between .oc-app-body and that fill are DOM-less, so
+   `> *` is the single fill element in each state). One height override keeps
+   the math correct without touching those components. */
+:root {
+  --oc-titlebar-h: 2rem; /* h-8 */
+}
+.oc-root-shell {
+  height: 100vh;
+  overflow: hidden;
+}
+.oc-app-body {
+  height: calc(100vh - var(--oc-titlebar-h));
+  overflow: hidden;
+}
+.oc-app-body > * {
+  height: 100% !important;
+}
