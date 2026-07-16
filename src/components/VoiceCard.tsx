@@ -128,14 +128,9 @@ export function VoiceCard() {
             aria-label="Idioma"
             value={voice}
             disabled={voiceCommand.pending}
-            onChange={(event) => applyVoice(event.target.value)}
-          >
-            {VOICE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
+            options={VOICE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+            onChange={applyVoice}
+          />
         </section>
 
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -169,14 +164,13 @@ export function VoiceCard() {
             aria-label="Motor TTS"
             value={engine}
             disabled={engineCommand.pending}
-            onChange={(event) => applyEngine(event.target.value)}
-          >
-            {ENGINE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id} disabled={option.id === "pesado" && !data?.heavy_available}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
+            options={ENGINE_OPTIONS.map((option) => ({
+              value: option.id,
+              label: option.label,
+              disabled: option.id === "pesado" && !data?.heavy_available
+            }))}
+            onChange={applyEngine}
+          />
         </section>
 
         <p className="text-xs leading-relaxed text-muted-foreground">

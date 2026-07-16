@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { cn } from "../lib/cn.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
@@ -338,11 +339,29 @@ export function MemoryCard() {
 
         <section aria-labelledby="memory-list-label" className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <span id="memory-list-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Memorias guardadas — detalle
-            </span>
-            <Button type="button" variant="ghost" onClick={() => setListOpen((open) => !open)}>
+            <div className="flex items-baseline gap-2">
+              <span id="memory-list-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                Memorias guardadas — detalle
+              </span>
+              {listData && (
+                <span className="tabular-nums text-[11px] text-dim">
+                  {listData.items.length} {listData.items.length === 1 ? "memoria" : "memorias"}
+                </span>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-expanded={listOpen}
+              onClick={() => setListOpen((open) => !open)}
+            >
               {listOpen ? "Ocultar" : "Ver"}
+              <span
+                aria-hidden="true"
+                className={cn("text-xs text-dim transition-transform duration-base ease-io", !listOpen && "-rotate-90")}
+              >
+                ▾
+              </span>
             </Button>
           </div>
 
@@ -363,7 +382,15 @@ export function MemoryCard() {
                     </p>
                   )}
                   {listData && listData.items.length === 0 && (
-                    <p className="text-xs text-dim">No hay memorias guardadas.</p>
+                    <div className="flex flex-col items-center gap-1 rounded-md border border-dashed border-border-soft px-4 py-6 text-center">
+                      <span aria-hidden="true" className="text-lg">
+                        🧠
+                      </span>
+                      <p className="text-xs text-foreground">Kira todavía no guardó memorias.</p>
+                      <p className="text-[11px] leading-relaxed text-dim">
+                        Van apareciendo acá a medida que Kira conversa y decide qué vale la pena recordar.
+                      </p>
+                    </div>
                   )}
                   {listData && listData.items.length > 0 && (
                     <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">

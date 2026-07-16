@@ -9,6 +9,7 @@ import {
   commandConflictHandler,
   commandNetworkErrorHandler,
   commandValidationHandler,
+  defaultTtsConfig,
   frozenStatusHandler
 } from "../test/handlers.js";
 import { VoiceCard } from "./VoiceCard.js";
@@ -27,10 +28,12 @@ function defaultCommandHandler() {
 describe("VoiceCard populates from GET /api/tts/config", () => {
   it("shows the live piper_voice, local-only, closest speed preset, and engine", async () => {
     renderCard();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveValue("argentina"));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveTextContent("🇦🇷 Argentina")
+    );
     expect(screen.getByRole("switch", { name: "Solo TTS local (Piper)" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("button", { name: "Media" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("combobox", { name: "Motor TTS" })).toHaveValue("ligero");
+    expect(screen.getByRole("combobox", { name: "Motor TTS" })).toHaveTextContent("Ligero (Edge-TTS)");
   });
 
   it("surfaces a GET error honestly instead of a stale/hardcoded config", async () => {
@@ -43,9 +46,10 @@ describe("VoiceCard populates from GET /api/tts/config", () => {
 
   it("disables the Pesado engine option when heavy_available is false", async () => {
     renderCard();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Motor TTS" })).toHaveValue("ligero"));
-    const pesadoOption = screen.getByRole("option", { name: "Pesado (Heavy)" }) as HTMLOptionElement;
-    expect(pesadoOption.disabled).toBe(true);
+    const motor = await screen.findByRole("combobox", { name: "Motor TTS" });
+    await waitFor(() => expect(motor).toHaveTextContent("Ligero (Edge-TTS)"));
+    fireEvent.click(motor);
+    expect(screen.getByRole("option", { name: "Pesado (Heavy)" })).toHaveAttribute("aria-disabled", "true");
   });
 });
 
@@ -59,9 +63,10 @@ describe("VoiceCard set_piper_voice — accepted -> poll -> applied", () => {
     renderCard();
 
     const select = await screen.findByRole("combobox", { name: "Idioma" });
-    fireEvent.change(select, { target: { value: "neutral" } });
+    fireEvent.click(select);
+    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
 
-    expect((select as HTMLSelectElement).value).toBe("neutral");
+    expect(select).toHaveTextContent("🌎 Neutral");
     expect(select).toBeDisabled();
     expect(screen.getByText("aplicando…")).toBeInTheDocument();
 
@@ -115,12 +120,28 @@ describe("VoiceCard set_tts_speed / set_tts_local_only / set_motor_tts — accep
     // POST, matching the real single-dispatcher counter; convergence here
     // must come from the optimistic timer, not a state_version comparison.
     server.use(frozenStatusHandler(1));
-    server.use(defaultCommandHandler());
+    // heavy_available:true so the Pesado engine option is selectable (the
+    // custom ui/Select refuses clicks on a disabled option, unlike a native
+    // <select> where fireEvent.change bypassed the disabled attribute).
+    server.use(
+      http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json({ ...defaultTtsConfig, heavy_available: true }))
+    );
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "cmd-engine", status: "queued", state_version: 1 });
+      })
+    );
     renderCard();
 
-    const select = (await screen.findByRole("combobox", { name: "Motor TTS" })) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "pesado" } });
-    expect(select.value).toBe("pesado");
+    const select = await screen.findByRole("combobox", { name: "Motor TTS" });
+    await waitFor(() => expect(select).toHaveTextContent("Ligero (Edge-TTS)"));
+    fireEvent.click(select);
+    fireEvent.click(screen.getByRole("option", { name: "Pesado (Heavy)" }));
+
+    expect(select).toHaveTextContent("Pesado (Heavy)");
+    await waitFor(() => expect(capturedBody).toEqual({ command: "set_motor_tts", payload: { value: "pesado" } }));
     await waitFor(() => expect(select).not.toBeDisabled());
   });
 });
@@ -130,7 +151,8 @@ describe("VoiceCard command errors surface honestly", () => {
     server.use(commandConflictHandler());
     renderCard();
     const select = await screen.findByRole("combobox", { name: "Idioma" });
-    fireEvent.change(select, { target: { value: "neutral" } });
+    fireEvent.click(select);
+    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
   });
 

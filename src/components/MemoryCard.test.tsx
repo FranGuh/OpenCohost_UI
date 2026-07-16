@@ -9,6 +9,7 @@ import {
   commandConflictHandler,
   commandNetworkErrorHandler,
   commandValidationHandler,
+  defaultMemoriaList,
   defaultMemoriaRows,
   defaultMemoriaStats,
   frozenStatusHandler,
@@ -142,6 +143,30 @@ describe("MemoryCard memoria row list + purge (F5)", () => {
     expect(screen.queryByText(defaultMemoriaRows.mem_a.content)).not.toBeInTheDocument();
   });
 
+  it("forwards active_profile_id (not the display name) as profile_id, so a correctly-keyed list renders", async () => {
+    // Regression guard for the FIX-A break (da108a0): memoria rows are keyed by
+    // the profile UUID, so MemoryCard must send `active_profile_id` as
+    // profile_id. The default list handler ignores profile_id, which masks any
+    // key mismatch; here we mirror the real backend's `WHERE profile_id = ?`,
+    // so the rows appear ONLY when the correct UUID is forwarded — reverting to
+    // the display name (or sending an empty id) would render the empty state.
+    const activeId = "profile-uuid-under-test";
+    server.use(frozenStatusHandler(1, { active_profile_id: activeId }));
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/list`, ({ request }) => {
+        const profileId = new URL(request.url).searchParams.get("profile_id");
+        return HttpResponse.json({ items: profileId === activeId ? defaultMemoriaList.items : [] });
+      })
+    );
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
+    expect(screen.getByText("Título memoria B")).toBeInTheDocument();
+    // Not the empty state — the rows resolved because the right UUID was sent.
+    expect(screen.queryByText(/Kira todavía no guardó memorias/)).not.toBeInTheDocument();
+  });
+
   it("purges memorias through the three-stage confirm and empties the list", async () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
@@ -161,7 +186,7 @@ describe("MemoryCard memoria row list + purge (F5)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     fireEvent.click(screen.getByRole("button", { name: "Purgar definitivamente" }));
 
-    await waitFor(() => expect(screen.getByText(/No hay memorias guardadas/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Kira todavía no guardó memorias/)).toBeInTheDocument());
   });
 
   it("surfaces a GET /api/memoria/list error honestly", async () => {
@@ -196,7 +221,7 @@ describe("MemoryCard memoria row list + purge (F5)", () => {
 
     expect(await screen.findByText(/Activá un perfil para ver sus memorias/)).toBeInTheDocument();
     // The null branch replaces both the empty-state message and any rows.
-    expect(screen.queryByText(/No hay memorias guardadas/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Kira todavía no guardó memorias/)).not.toBeInTheDocument();
   });
 });
 
