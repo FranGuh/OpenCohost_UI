@@ -232,3 +232,30 @@ describe("Sidebar — profile hover card v2 (owner adjust round 3)", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });
+
+describe("Sidebar — profile hover card v3 (detail round: viewport clamp)", () => {
+  it("clamps the fixed card's top so a bottom-edge row never overflows the viewport", async () => {
+    renderSidebar();
+    const rowButton = (await screen.findByText("Akira")).closest("button") as HTMLButtonElement;
+    const li = rowButton.closest("li") as HTMLLIElement;
+
+    // jsdom reports offsetHeight 0, so stub the measured card height; put the row
+    // low in a short viewport. Clamp math: min(rowTop, innerHeight - height - 8).
+    const originalOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    const originalInnerHeight = window.innerHeight;
+    try {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 220 });
+      li.getBoundingClientRect = () =>
+        ({ top: 560, right: 48, bottom: 590, left: 8, width: 40, height: 30, x: 8, y: 560, toJSON() {} }) as DOMRect;
+
+      fireEvent.focus(rowButton); // immediate show → useLayoutEffect measures + clamps
+
+      // Row's own top is 560, but 600 - 220 - 8 = 372 is higher, so it clamps to 372.
+      expect(screen.getByRole("tooltip")).toHaveStyle({ top: "372px" });
+    } finally {
+      if (originalOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffset);
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    }
+  });
+});

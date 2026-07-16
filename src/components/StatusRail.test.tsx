@@ -36,6 +36,12 @@ describe("StatusRail (spec §3a — calm cockpit readout)", () => {
 
     const rail = screen.getByRole("status", { name: "Estado operativo de OpenCohost" });
     expect(rail).not.toHaveClass("flex-wrap");
+    // Container box was dropped now that the rail lives inside the h-10 title
+    // bar — the chips sit directly on the bar (chips keep their own borders).
+    expect(rail).not.toHaveClass("rounded-xl");
+    expect(rail).not.toHaveClass("border");
+    expect(rail).not.toHaveClass("shadow-soft");
+    expect(rail).not.toHaveClass("bg-surface-1");
     // The deleted Health chip's word "Health" is gone (its data moved into the
     // Motor popover), and no chip says "Sistema" anymore.
     expect(screen.queryByText(/Health:/)).not.toBeInTheDocument();

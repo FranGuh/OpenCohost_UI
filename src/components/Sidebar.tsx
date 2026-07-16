@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Info, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
@@ -64,7 +64,13 @@ function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
   // The row button we imperatively set aria-describedby on (its markup is in
   // ProfilePlaylist, so the wiring is done at runtime, not at the source).
   const describedRef = useRef<HTMLElement | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  // Clamped fixed-position top for the card. null until the first measure — the
+  // card renders at the row's top for a single pre-paint frame, then the
+  // useLayoutEffect below pins it inside the viewport (last-profile rows sit low
+  // and were getting cut off at the bottom edge).
+  const [clampedTop, setClampedTop] = useState<number | null>(null);
   const cardId = useId();
 
   // Real prompt preview (owner adjust round 3): fetched ONCE per profile and
@@ -173,6 +179,18 @@ function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
     [clearTimer]
   );
 
+  // Clamp the fixed card so it always fits above the viewport bottom:
+  // top = min(rowTop, innerHeight - cardHeight - 8). Measured after mount and
+  // re-run when the fetched prompt replaces "cargando…" (that grows the card).
+  // useLayoutEffect measures pre-paint so there's no visible jump. offsetHeight
+  // is post-layout (0 in jsdom — tests stub it). The card's own max-h/overflow
+  // caps a prompt taller than the viewport, so this never yields a negative top.
+  useLayoutEffect(() => {
+    if (!preview || !cardRef.current) return;
+    const height = cardRef.current.offsetHeight;
+    setClampedTop(Math.min(preview.top, window.innerHeight - height - 8));
+  }, [preview, detail.isLoading, detail.isError, detail.data]);
+
   return (
     <div
       ref={regionRef}
@@ -192,10 +210,11 @@ function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
       {preview && (
         <div
           id={cardId}
+          ref={cardRef}
           role="tooltip"
-          style={{ position: "fixed", left: preview.left, top: preview.top }}
+          style={{ position: "fixed", left: preview.left, top: clampedTop ?? preview.top }}
           className={cn(
-            "z-50 w-64 rounded-md border border-border-soft bg-card p-3 shadow-panel transition-opacity duration-base ease-io",
+            "z-50 max-h-[calc(100vh-16px)] w-64 overflow-y-auto rounded-md border border-border-soft bg-card p-3 shadow-panel transition-opacity duration-base ease-io",
             // Entry rises + fades in; exit swaps the one-shot animation for a
             // plain opacity transition so it fades out before unmount (§3b).
             preview.closing ? "opacity-0" : "animate-rise-in opacity-100"
@@ -251,9 +270,10 @@ export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCo
               type="button"
               aria-current={isActive ? "true" : undefined}
               // Accessible name survives collapse: the visible label is hidden,
-              // so aria-label carries it (and title gives a hover tooltip).
+              // so aria-label carries it. No native `title` — the unstyled
+              // browser tooltip it produced was owner-rejected (a11y stays on
+              // aria-label).
               aria-label={item.label}
-              title={collapsed ? item.label : undefined}
               onClick={() => onSelect(item.id)}
               className={cn(
                 "flex h-9 items-center rounded-md font-mono text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io",
@@ -282,7 +302,6 @@ export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCo
           type="button"
           onClick={onToggleCollapse}
           aria-label={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-          title={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
           className={cn(
             "flex h-9 w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             collapsed ? "justify-center px-0" : "gap-3 px-3"

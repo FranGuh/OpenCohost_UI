@@ -337,7 +337,7 @@ export function StatusRail() {
 
   if (isLoading || (!data && !isError)) {
     return (
-      <div className="flex h-[52px] min-w-0 items-center rounded-xl border border-border-soft bg-surface-1 px-2.5 shadow-soft">
+      <div className="flex min-w-0 items-center px-2.5">
         <span className="mono inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground">
           <span aria-hidden="true" className="h-[6px] w-[6px] rounded-full bg-muted-foreground opacity-50" />
           Conectando con el motor…
@@ -386,7 +386,11 @@ export function StatusRail() {
     <div
       role="status"
       aria-label="Estado operativo de OpenCohost"
-      className="flex min-w-0 items-center gap-2 rounded-xl border border-border-soft bg-surface-1 px-2.5 py-2 shadow-soft"
+      // Container is now bare: it lives inside the h-10 title bar, so the old
+      // rounded/border/shadow/bg pill was dropped and the chips sit directly on
+      // the bar. Kept flex/gap-2 (chip spacing) + px-2.5; dropped py-2 (it made
+      // the group taller than the 40px bar — items-center centers the chips).
+      className="flex min-w-0 items-center gap-2 px-2.5"
     >
       <StatusChip
         icon={Activity}

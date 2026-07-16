@@ -26,7 +26,6 @@ export function ProfilePlaylist({ collapsed = false }: { collapsed?: boolean }) 
           type="button"
           onClick={() => setEditor({ mode: "create", name: "" })}
           aria-label="Nuevo perfil"
-          title="Nuevo perfil"
           className="mx-auto flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           ＋
@@ -62,10 +61,11 @@ export function ProfilePlaylist({ collapsed = false }: { collapsed?: boolean }) 
               <button
                 type="button"
                 onClick={() => switchTo(name)}
-                // Collapsed rows hide the name/status text, so aria-label +
-                // title carry the accessible name and hover tooltip.
+                // Collapsed rows hide the name/status text, so aria-label carries
+                // the accessible name. No native `title`: it duplicated the
+                // styled hover-preview card (Sidebar's ProfilesRegion) with an
+                // unstyled second tooltip the owner rejected.
                 aria-label={collapsed ? name : undefined}
-                title={collapsed ? name : undefined}
                 className={cn(
                   "flex w-full items-center rounded-md py-[6px] transition-colors duration-fast ease-io hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                   collapsed ? "justify-center px-1" : "gap-[10px] px-2 pr-9 text-left"
