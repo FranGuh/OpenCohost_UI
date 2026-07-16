@@ -935,3 +935,264 @@ Final lines of full-test run:
   editor, not extend it.
 - No manual browser/Tauri verification (headless CLI session) — covered by the
   added vitest cases.
+
+## Chat scroll + settings layout (2026-07-15, night)
+
+Three owner live-validation fixes. Frontend-only; scope fenced to
+`ConversationPanel.tsx` (+test) and `SettingsPopover.tsx` (+test). No new deps,
+no `styles.css` change (every surface reused existing utilities/components),
+`ui/Select.tsx` untouched (no new prop needed).
+
+### Item 1 — "Ver lo más reciente" pill now shows on scroll-up alone
+- `src/components/ConversationPanel.tsx` — `handleTimelineScroll` rewritten from
+  "hide when near bottom" to a symmetric rule: `setShowJump(!nearBottom)`. The
+  pill now appears WHENEVER the operator is scrolled up past `NEAR_BOTTOM_PX`
+  (80px), independent of new arrivals (the owner scrolled up and saw nothing),
+  and hides once back near the bottom. The append effect's follow-vs-surface
+  branch (smooth-follow near bottom, else surface the pill) is unchanged — it
+  still covers the "content appended while already scrolled up, no scroll event
+  fires" case. `scrollToBottom` (smooth scroll + hide) unchanged.
+- Stacking verified, no z-index change needed: the pill is `z-10` inside the
+  timeline's `relative` wrapper; the composer command panel is `z-50` inside the
+  sibling composer `relative` wrapper. Neither wrapper sets a z-index, so both
+  compare in the aside's root stacking context — `z-50` correctly renders the
+  command palette OVER the pill when they overlap (desired). The pill never needs
+  to sit above the palette, so `z-10` stays.
+- Tests: added one scroll-driven case proving the new rule both ways — scrolled
+  up with NO append shows the pill (and never yanks: `scrollTo` not called), then
+  scrolling back near the bottom hides it. The 3 existing autoscroll tests
+  (near-bottom append → smooth follow; scrolled-up append → pill; click → scroll
+  + hide) remain correct under the new rule (it's a superset) and pass unchanged.
+
+### Item 2 — Ayuda opens as a LATERAL flyout, not a downward expander
+- `src/components/SettingsPopover.tsx` — the inline `<details>`/`<summary>` Ayuda
+  block (which grew the popover downward) is now a controlled trigger `<button>`
+  (`aria-expanded`, `aria-controls="settings-help-flyout"`, chevron rotates) plus
+  an absolutely-positioned flyout sibling rendered only while open. Flyout is
+  anchored to the popover's left edge (`right-full top-0 mr-2`) — the gear lives
+  at the window's right edge, so leftward is safe — same visual family
+  (`rounded-md border border-border-soft bg-card p-3 shadow-panel animate-rise-in`),
+  `w-64`, `max-h-[70vh] overflow-y-auto` for long content. The per-topic
+  `<details>` collapsibles are kept as the flyout's content. New effect resets
+  `helpOpen` to false whenever the popover closes, so Escape/outside-click (the
+  existing handler closes the whole popover) also collapse the flyout, and
+  reopening the gear never starts with a stray flyout.
+- Tests: the old "renders the 5 Ayuda topics as collapsibles" case became
+  "opens the 5 Ayuda topics in a lateral flyout only after the trigger is
+  toggled" (asserts collapsed → no content + `aria-expanded=false`; toggled →
+  `aria-expanded=true`, `aria-controls`, flyout carries `right-full`, all 5
+  topics present). Added a collapse-on-second-toggle case.
+
+### Item 3 — Idioma uses the app's Segmented control, no scroll region
+- `src/components/SettingsPopover.tsx` — the odd native `<select>` is replaced.
+  For `≤3` locales (the backend ships es+en today) it renders a `Segmented` row
+  — the SAME control already used one section above for Alertas — so it matches
+  the design and adds zero dropdown/scroll region inside the popover. A `>3`
+  fallback to the app's custom `Select` (absolute `z-50` menu that escapes the
+  popover cleanly, no nested scrollbar) is included per the task's contract but
+  is currently a dead branch (marked `ponytail:`), since `Segmented` also
+  flex-wraps gracefully. Justification: Segmented is the laziest match — already
+  imported here, visually consistent with the neighbouring Alertas control, and
+  eliminates the scroll region entirely, which was the owner's complaint.
+- Tests: the 3 combobox-based i18n cases were adapted to the segmented row —
+  "renders the locales as a segmented row (≤3), with the persisted locale
+  pressed" (aria-pressed), the pending-restart-false case waits on the
+  `group`/"Idioma" instead of the combobox, and the PUT case now clicks the
+  "English" button (asserts `{locale:"en"}`, the restart badge, and English
+  becoming pressed). The `pending_restart:true` GET case was unchanged.
+
+### Checks
+- `pnpm exec tsc --noEmit` — clean. (Two `onChange` callbacks needed an explicit
+  `(code: string)` annotation: `Segmented`'s generic `T` and `Select`'s union
+  `SelectProps` both block contextual typing of the param.)
+- `pnpm exec vitest run` (full) — 66 files / 635 tests passed, 0 failures.
+  Test delta from this round: +2 (ConversationPanel +1, SettingsPopover +1); the
+  i18n cases were adapted in place (no count change). No new test file, so the
+  file count stayed at 66. (Pre-change suite total was 633; the "626" baseline in
+  the task brief was stale and unrelated to this diff.)
+- No browser/Tauri visual pass (headless CLI session) — behaviour covered by the
+  added/adapted vitest cases.
+
+## Sidebar collapse + agenda order (2026-07-15, night)
+
+Two owner live-validation asks.
+
+### Item 1 — Collapsible sidebar (width → icon rail)
+
+A toggle (lucide `PanelLeftClose`/`PanelLeftOpen`, aria-label "Colapsar/Expandir
+barra lateral" + title) at the top of the sidebar collapses it to a ~60px icon
+rail. Collapsed: nav items show only their icon (accessible name kept via
+`aria-label`, hover tooltip via `title`, visible label hidden); the "Perfiles"
+header hides and "+ Nuevo" becomes an icon-only button; profile rows show only
+the avatar-initial circle (active row keeps its `--spectrum-soft` highlight); the
+edit pencil is dropped (rows still switch on click). Expanded is byte-for-byte
+today's render.
+
+**Shared state — lifted into AppLayout, not a new store.** AppLayout is already
+Sidebar's direct parent and already threads `activeSection`/`onSelect` down, and
+it's the component that sizes the sidebar grid column — so it is the nearest
+shared owner of the collapsed flag. Lifting `useState` there (seeded from
+`localStorage["oc-sidebar-collapsed"]` "1"/"0", persisted on toggle, mirroring the
+`oc-collapse-*`/`oc-density` idiom) is strictly less invasive than adding a
+zustand module (which would also have been a new file outside the allowed set).
+Sidebar/ProfilePlaylist receive `collapsed` + `onToggleCollapse` as props. The
+grid column animates via `transition: grid-template-columns var(--dur-base)
+var(--ease-io)` on the shell (248px ↔ 60px; the `1fr` main + 372px queue tracks
+are untouched, so the track is interpolatable and the width eases). Reduced motion
+is already globally neutralized in styles.css.
+
+The hover-intent preview card (`ProfilesRegion`) needed **no anchor change**: it's
+`position:fixed` at `rect.right + 8` of the hovered `<li>`, so on the narrow rail
+`rect.right ≈ 60` and the card simply lands right against the rail edge. One `<li>`
+per profile still exists collapsed, so the index→profile mapping is intact.
+
+### Item 2 — Agenda "Perfil Co-host" section order
+
+Reordered `ProfileSessionCard` so the **Sesión** group ("se aplica al instante" —
+turnos/modo/ritmo, auto-saving) leads, then the divider, then **Identidad** →
+**Estilo** → **Guardar perfil**. Error placement contracts are preserved and moved
+with their groups: session errors stay atop the Sesión group, profile save errors
+stay under the save button. The `border-t` divider moved off the (formerly last)
+Sesión section onto the Identidad section, rendered only when `data` is present so
+it never floats above an empty first group. Tab order follows the new visual order.
+
+### Files changed
+- `src/components/AppLayout.tsx` — lifted `sidebarCollapsed` state + toggle +
+  localStorage persistence; grid column width now responds to it with an eased
+  transition; passes `collapsed`/`onToggleCollapse` to Sidebar.
+- `src/components/Sidebar.tsx` — collapse toggle button; nav renders icon-only
+  when collapsed (aria-label/title keep names); threads `collapsed` to
+  ProfilePlaylist.
+- `src/components/ProfilePlaylist.tsx` — `collapsed` prop: avatar-only rows,
+  hidden header/pencil, icon-only "+ Nuevo"; aria-label/title carry the row's
+  accessible name on the rail.
+- `src/components/AgendaPanel.tsx` — Sesión-first section order in
+  `ProfileSessionCard`; divider relocated to Identidad (data-gated).
+- Tests: `Sidebar.test.tsx` +3 (toggle fires handler; collapsed hides labels but
+  keeps accessible names + flips toggle; collapsed nav still navigates),
+  `ProfilePlaylist.test.tsx` +2 (avatar-only rows / header+pencil gone; still
+  switches on click collapsed, asserted via `useSwitchStore`),
+  `AppLayout.test.tsx` +2 (hydrates collapsed from localStorage; toggle persists),
+  `AgendaPanel.test.tsx` — the document-order test rewritten in place for the new
+  Sesión-first order (net 0). +7 authored cases.
+
+### Checks
+- `pnpm exec tsc --noEmit` — clean.
+- `pnpm exec vitest run` (full) — **66 files / 635 tests, 0 failures** (no `pnpm
+  build` per task). The stated 626 baseline came from an earlier progress-log
+  snapshot; the actual working-tree pre-count was 628, so +7 authored = 635.
+
+Final lines of full-test run:
+```
+ Test Files  66 passed (66)
+      Tests  635 passed (635)
+   Start at  22:38:48
+   Duration  70.23s
+```
+
+### Judgment calls
+- **State lifted to AppLayout instead of a zustand store.** The task offered
+  either; lifting is less invasive (existing parent, already threading props,
+  already owns the grid) and avoids a new file outside the allowed set. The
+  useDensity/welcomeStore pattern would be the choice *if* a third, non-parent
+  consumer appeared — none does.
+- **Preview-card anchor left untouched.** It already reads the live per-row
+  `getBoundingClientRect().right`, so it self-adjusts to the rail width; adding a
+  collapse-specific offset would be dead complexity.
+- **Nav buttons carry `aria-label` in both states** (not only collapsed) so the
+  accessible name is stable "Experiencia"/"Agenda"/… regardless of mode; the
+  existing AppLayout `getByRole(name: /Experiencia/)` queries still match.
+- **`AgendaPanel` divider is data-gated** (`data ? "border-t …" : ""`) rather than
+  a standalone `<hr>`, so an unloaded agenda (no Sesión group) shows Identidad
+  first with no orphan rule — mirrors the original behavior where the divider only
+  existed alongside the session group.
+- No manual browser/Tauri pass (headless CLI) — covered by the added vitest cases.
+
+## Confirm/modal polish (2026-07-15, night)
+
+Owner runtime feedback on destructive actions + the ProfileEditor modal. Scope
+fenced to `ProfileEditor`, `PersonalizationCard`, `MemoryCard`, one new shared
+primitive `ui/ConfirmFooter`, and their tests. No backend, no API calls changed.
+
+### New primitive — `src/components/ui/ConfirmFooter.tsx` (+ test)
+Reusable destructive-confirmation block: **message-first**, then optional opt-in
+/ acknowledgment controls, then a mutating button row (Cancelar + advance). Owns
+only stage/ack state; the parent owns `active` so it can swap this block in for
+its own footer buttons. Supports **N stages** — intermediate stages advance to
+the next; the last stage fires `onConfirm` and its button is styled filled-danger
+(`bg-danger text-primary-foreground`, theme-legible in all 3 themes). A stage's
+`acknowledgment` renders a styled "Sí, entiendo" toggle (`aria-pressed`, checkbox
+glyph) that gates its advance. Escape + Cancelar both reset via `onCancel`; state
+resets to stage 0 whenever the flow disengages. The danger message renders through
+`Alert tone="danger" role="status"` (status, not alert, so it never collides with
+error `role="alert"` regions in the same card).
+- Acknowledgment control choice: a **toggle button**, not a bare checkbox — it
+  reads as a deliberate affirmative gesture, is visually distinct from ordinary
+  option checkboxes (e.g. ProfileEditor's optional purge checkbox that sits right
+  above it), and carries clean `aria-pressed` state.
+
+### Item 1 — ProfileEditor modal (width + constrained resize + grip)
+- **Wider default:** dialog `max-w-md` → `w-[38rem]` (height stays content-auto,
+  clamped by the min/max below, so create-mode stays compact).
+- **Constrained resize:** the dialog box is now `resize overflow-hidden` clamped
+  to `min-w-[20rem] max-w-[90vw]` and `min-h-[22rem] max-h-[85vh]` — the drag can
+  never escape the viewport. `overflow-hidden` (not `visible`) is what enables the
+  native resize handle; the Card scrolls internally (`overflow-y-auto min-h-0`)
+  when the box is dragged smaller.
+- **Styled grip:** a `GripVertical` (size 14, rotated 45°, `text-dim`) is layered
+  `absolute bottom-1.5 right-1.5`, `aria-hidden` + `pointer-events-none`, over the
+  unstylable native handle. It is a sibling of the scrolling Card so it stays
+  pinned to the box corner.
+
+### Item 2 — Delete-profile confirm redesign (in ProfileEditor)
+The old inline checkbox + Cancelar/Confirmar (which duplicated the footer buttons)
+is gone. Now clicking **Eliminar** enters confirm mode and the **footer buttons
+mutate**: Cancelar/Guardar are replaced by ConfirmFooter's Cancelar (exits confirm)
+and **Eliminar perfil** (destructive, disabled until "Sí, entiendo" is pressed).
+No new buttons appear. The optional "Purgar memoria asociada a este perfil"
+checkbox rides along as ConfirmFooter `children` (functionality + its test label
+preserved). Leaving confirm mode restores Cancelar/Guardar. The delete-failure
+error stays a `role="alert"` `Alert`; the purge-failed-after-delete retry branch
+is unchanged in behavior (now an `Alert`).
+
+### Item 3 + 5a — Save-button uniformity
+Both the ProfileEditor and PersonalizationCard save buttons dropped the
+`variant="primary"` accent-gradient snowflake for the calm flat primary family
+(`rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground
+hover:opacity-90 …`, byte-identical `SAVE_BUTTON_CLASS` in both files).
+- **Finding:** the owner said "chat composer's button family", but the composer's
+  actual **Enviar** button uses the accent **gradient** (`bg-[image:var(--accent-grad)]`).
+  The owner's *written* spec (`bg-primary rounded-lg px-5 py-2.5 …`) matches the
+  **WelcomeCard** primary buttons ("Siguiente"/"Empezar con Kira"), which is the
+  calm flat treatment they described — so I matched the written spec, not the
+  gradient Enviar.
+
+### Item 4 — Purgar memorias → three-stage confirm (MemoryCard)
+"Purgar memorias" now drives a 3-stage ConfirmFooter: (1) danger message +
+Cancelar/Continuar → (2) "Sí, entiendo" acknowledgment that gates → (3) final
+filled-danger **Purgar definitivamente**. The real purge (`purgeMutation.mutate()`)
+fires **only at stage 3**; Escape/Cancelar at any stage resets. The unrelated
+"Limpiar memoria" (`clear_history`) confirm was left untouched — out of scope.
+
+### Item 5b — Personalización "borrar" confirm
+- **Finding:** "borrar personalización" (**Limpiar**) *already* had a one-step
+  confirm. Per the "if it has one, restyle it to the new pattern" branch, it was
+  restyled to a single-stage ConfirmFooter (message-first + "Sí, entiendo" gate +
+  footer mutation → **Borrar personalización**) — matching the profile-delete
+  pattern rather than adding a second stage, so a medium-risk action stays no more
+  frictional than the higher-risk profile delete.
+
+### Checks
+- `pnpm exec tsc --noEmit` — clean.
+- Full `pnpm exec vitest run` — **67 files / 642 tests, 0 failures.** Delta vs the
+  pre-change tree: +1 file / +7 tests (`ConfirmFooter.test.tsx`); ProfileEditor
+  (14), MemoryCard (23) and PersonalizationCard (8) test counts unchanged, their
+  destructive-flow cases adapted in place (message text, "Sí, entiendo" ack,
+  renamed destructive buttons, 3-stage purge walk).
+
+### Judgment calls
+- CSS `resize`/scroll behavior is not exercised by jsdom; the resize clamp + grip
+  are pure CSS authored to the constraints, not screenshot-verified (headless CLI).
+- Purge opt-in checkbox in ProfileEditor kept as ConfirmFooter `children` rather
+  than folded into the acknowledgment — the two are semantically different (an
+  optional flag vs. the mandatory gate).
