@@ -174,61 +174,56 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-border-soft pt-2">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => flagsMutation.mutate({ id: item.id, pinned: !item.pinned })}
-            >
-              {item.pinned ? "Desfijar" : "Fijar"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => flagsMutation.mutate({ id: item.id, private: !item.private })}
-            >
-              {item.private ? "Hacer pública" : "Hacer privada"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => flagsMutation.mutate({ id: item.id, inactive: !item.inactive })}
-            >
-              {item.inactive ? "Reactivar" : "Desactivar"}
-            </Button>
-            <Button type="button" variant="ghost" disabled={busy} onClick={startEdit}>
-              Editar
-            </Button>
-            {confirmingDelete ? (
-              <div className="flex items-center gap-2">
-                <span role="alert" className="text-xs text-danger">
-                  ¿Eliminar? No se puede deshacer.
-                </span>
-                <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  autoFocus
-                  disabled={busy}
-                  onClick={() => {
-                    setConfirmingDelete(false);
-                    deleteMutation.mutate(item.id);
-                  }}
-                >
-                  Confirmar
-                </Button>
-              </div>
-            ) : (
+          {confirmingDelete ? (
+            // Single-row delete — Alert-style danger message + mutating footer
+            // (no ack gate: one row is low blast-radius; the ack ladder is
+            // reserved for the full-wipe actions clear_history / purge).
+            <div className="border-t border-border-soft pt-2">
+              <ConfirmFooter
+                active
+                stages={[{ message: "¿Eliminar esta memoria? No se puede deshacer.", advanceLabel: "Eliminar memoria" }]}
+                onConfirm={() => {
+                  setConfirmingDelete(false);
+                  deleteMutation.mutate(item.id);
+                }}
+                onCancel={() => setConfirmingDelete(false)}
+                busy={deleteMutation.isPending}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 border-t border-border-soft pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => flagsMutation.mutate({ id: item.id, pinned: !item.pinned })}
+              >
+                {item.pinned ? "Desfijar" : "Fijar"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => flagsMutation.mutate({ id: item.id, private: !item.private })}
+              >
+                {item.private ? "Hacer pública" : "Hacer privada"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => flagsMutation.mutate({ id: item.id, inactive: !item.inactive })}
+              >
+                {item.inactive ? "Reactivar" : "Desactivar"}
+              </Button>
+              <Button type="button" variant="ghost" disabled={busy} onClick={startEdit}>
+                Editar
+              </Button>
               <Button type="button" variant="ghost" disabled={busy} onClick={() => setConfirmingDelete(true)}>
                 Eliminar
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
     </li>
@@ -291,25 +286,21 @@ export function MemoryCard() {
             Acciones
           </span>
           {confirming ? (
-            <div className="flex flex-col gap-2">
-              <p role="alert" className="text-xs text-danger">
-                ¿Limpiar memoria de Kira? No se puede deshacer.
-              </p>
-              <div className="flex gap-2">
-                <Button type="button" variant="ghost" onClick={() => setConfirming(false)}>
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  autoFocus
-                  disabled={clearCommand.pending}
-                  onClick={handleConfirmClear}
-                >
-                  Confirmar
-                </Button>
-              </div>
-            </div>
+            // Severe (wipes ALL conversation history, irreversible) — so it gets
+            // the same ack-gated single-stage ConfirmFooter as the profile delete.
+            <ConfirmFooter
+              active
+              stages={[
+                {
+                  message: "¿Limpiar la memoria de conversación de Kira? No se puede deshacer.",
+                  acknowledgment: "Sí, entiendo",
+                  advanceLabel: "Limpiar memoria"
+                }
+              ]}
+              onConfirm={handleConfirmClear}
+              onCancel={() => setConfirming(false)}
+              busy={clearCommand.pending}
+            />
           ) : (
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
               <p className="text-xs leading-relaxed text-warn">

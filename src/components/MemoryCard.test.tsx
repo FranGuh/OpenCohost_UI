@@ -54,26 +54,28 @@ describe("MemoryCard Limpiar memoria — confirm step", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Limpiar memoria" }));
     expect(screen.getByText(/No se puede deshacer/)).toBeInTheDocument();
-    const confirmButton = screen.getByRole("button", { name: "Confirmar" });
 
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(screen.queryByRole("button", { name: "Confirmar" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No se puede deshacer/)).not.toBeInTheDocument();
     expect(calls).toBe(0);
 
-    // re-open and actually confirm this time
+    // re-open and actually confirm this time (ack-gated advance)
     fireEvent.click(screen.getByRole("button", { name: "Limpiar memoria" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
-    expect(confirmButton).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar memoria" }));
     await waitFor(() => expect(calls).toBe(1));
   });
 
-  it("announces the destructive confirm prompt via role=alert and moves focus to Confirmar", async () => {
+  it("shows the danger message and gates the destructive advance on the acknowledgment", async () => {
     renderCard();
 
     fireEvent.click(await screen.findByRole("button", { name: "Limpiar memoria" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/No se puede deshacer/);
-    expect(screen.getByRole("button", { name: "Confirmar" })).toHaveFocus();
+    expect(screen.getByText(/No se puede deshacer/)).toBeInTheDocument();
+    // The advance (also "Limpiar memoria") stays disabled until "Sí, entiendo".
+    expect(screen.getByRole("button", { name: "Limpiar memoria" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    expect(screen.getByRole("button", { name: "Limpiar memoria" })).toBeEnabled();
   });
 
   it("dispatches clear_history with no payload value on confirm — accepted -> poll -> applied", async () => {
@@ -90,7 +92,8 @@ describe("MemoryCard Limpiar memoria — confirm step", () => {
     renderCard();
 
     fireEvent.click(await screen.findByRole("button", { name: "Limpiar memoria" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar memoria" }));
     expect(screen.getByText("aplicando…")).toBeInTheDocument();
 
     await waitFor(() => expect(capturedBody).toEqual({ command: "clear_history", payload: {} }));
@@ -103,7 +106,8 @@ describe("MemoryCard clear_history errors surface honestly", () => {
     server.use(commandConflictHandler());
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Limpiar memoria" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar memoria" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
   });
 
@@ -111,7 +115,8 @@ describe("MemoryCard clear_history errors surface honestly", () => {
     server.use(commandValidationHandler("unknown command"));
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Limpiar memoria" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar memoria" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("unknown command"));
   });
 
@@ -119,7 +124,8 @@ describe("MemoryCard clear_history errors surface honestly", () => {
     server.use(commandNetworkErrorHandler());
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Limpiar memoria" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar memoria" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 });
@@ -338,7 +344,7 @@ describe("MemoryCard redesigned memoria cards (WU2)", () => {
     fireEvent.click(del);
     // No request until the confirm step.
     expect(body).toBeUndefined();
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar memoria" }));
 
     await waitFor(() => expect(body).toEqual({ profile_id: "profile-id-default", id: "mem_a" }));
   });

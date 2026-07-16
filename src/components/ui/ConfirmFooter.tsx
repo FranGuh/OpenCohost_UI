@@ -4,6 +4,62 @@ import { Alert } from "./Alert.js";
 import { Button } from "./Button.js";
 import { cn } from "../../lib/cn.js";
 
+const TOGGLE_TONE = {
+  // The mandatory acknowledgment gate ("Sí, entiendo").
+  danger: {
+    on: "border-danger-bd bg-danger-bg text-danger",
+    box: "border-danger bg-danger text-primary-foreground",
+    hoverOff: "hover:border-danger-bd hover:text-foreground"
+  },
+  // An optional opt-in flag (e.g. the purge-memory option) — calm, not a warning.
+  neutral: {
+    on: "border-border bg-surface-2 text-foreground",
+    box: "border-foreground bg-foreground text-background",
+    hoverOff: "hover:text-foreground"
+  }
+} as const;
+
+export interface ConfirmToggleProps {
+  pressed: boolean;
+  onToggle(): void;
+  children: ReactNode;
+  /** danger = the mandatory acknowledgment gate; neutral = an optional opt-in. */
+  tone?: keyof typeof TOGGLE_TONE;
+}
+
+/**
+ * Shared toggle-row used for BOTH the acknowledgment gate (danger) and optional
+ * opt-in flags (neutral), so every confirm option reads as one designed family —
+ * identical box / check glyph / size, only the tone differs. It is a deliberate
+ * affirmative gesture (an `aria-pressed` button), never a bare form checkbox.
+ */
+export function ConfirmToggle({ pressed, onToggle, children, tone = "danger" }: ConfirmToggleProps) {
+  const t = TOGGLE_TONE[tone];
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onToggle}
+      className={cn(
+        "inline-flex w-fit items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors duration-fast ease-io",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        pressed ? t.on : cn("border-border bg-card text-muted-foreground", t.hoverOff)
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "grid h-4 w-4 place-items-center rounded-[4px] border",
+          pressed ? t.box : "border-border"
+        )}
+      >
+        {pressed && <Check size={12} strokeWidth={3} />}
+      </span>
+      {children}
+    </button>
+  );
+}
+
 export interface ConfirmStage {
   /** Danger message shown FIRST, above every control (message-first contract). */
   message: ReactNode;
@@ -95,29 +151,9 @@ export function ConfirmFooter({
       {children}
 
       {stage.acknowledgment != null && (
-        <button
-          type="button"
-          aria-pressed={acknowledged}
-          onClick={() => setAcknowledged((value) => !value)}
-          className={cn(
-            "inline-flex w-fit items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors duration-fast ease-io",
-            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-            acknowledged
-              ? "border-danger-bd bg-danger-bg text-danger"
-              : "border-border bg-card text-muted-foreground hover:border-danger-bd hover:text-foreground"
-          )}
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "grid h-4 w-4 place-items-center rounded-[4px] border",
-              acknowledged ? "border-danger bg-danger text-primary-foreground" : "border-border"
-            )}
-          >
-            {acknowledged && <Check size={12} strokeWidth={3} />}
-          </span>
+        <ConfirmToggle pressed={acknowledged} onToggle={() => setAcknowledged((value) => !value)}>
           {stage.acknowledgment}
-        </button>
+        </ConfirmToggle>
       )}
 
       <div className="flex items-center justify-end gap-2">

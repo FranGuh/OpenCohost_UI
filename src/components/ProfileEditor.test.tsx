@@ -236,7 +236,7 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
     await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco."));
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
-    fireEvent.click(screen.getByLabelText("Purgar memoria asociada a este perfil"));
+    fireEvent.click(screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
@@ -256,7 +256,7 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
     await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco."));
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
-    fireEvent.click(screen.getByLabelText("Purgar memoria asociada a este perfil"));
+    fireEvent.click(screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 

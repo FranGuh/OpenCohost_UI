@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ConfirmFooter, type ConfirmStage } from "./ConfirmFooter.js";
+import { ConfirmFooter, ConfirmToggle, type ConfirmStage } from "./ConfirmFooter.js";
 
 const SINGLE: ConfirmStage[] = [
   { message: "Peligro absoluto.", acknowledgment: "Sí, entiendo", advanceLabel: "Borrar" }
@@ -122,5 +122,25 @@ describe("ConfirmFooter", () => {
       />
     );
     expect(screen.getByRole("button", { name: "Borrar" })).toBeDisabled();
+  });
+});
+
+describe("ConfirmToggle", () => {
+  function ToggleHarness({ tone }: { tone?: "danger" | "neutral" }) {
+    const [pressed, setPressed] = useState(false);
+    return (
+      <ConfirmToggle tone={tone} pressed={pressed} onToggle={() => setPressed((value) => !value)}>
+        Purgar memoria asociada a este perfil
+      </ConfirmToggle>
+    );
+  }
+
+  it("is an aria-pressed button (not a bare checkbox) whose label is its accessible name, toggling on click", () => {
+    render(<ToggleHarness tone="neutral" />);
+    // getByRole(button, name) is exactly what the ProfileEditor purge test relies on.
+    const toggle = screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 });

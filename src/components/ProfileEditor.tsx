@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { GripVertical } from "lucide-react";
 import { Card } from "./ui/Card.js";
 import { Button } from "./ui/Button.js";
 import { Alert } from "./ui/Alert.js";
-import { ConfirmFooter } from "./ui/ConfirmFooter.js";
+import { ConfirmFooter, ConfirmToggle } from "./ui/ConfirmFooter.js";
 import {
   type ProfileUpdateRequest,
   useCreateProfileMutation,
@@ -197,21 +196,11 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
         aria-modal="true"
         aria-labelledby="profile-editor-title"
         onKeyDown={handleDialogKeyDown}
-        // Wider default + user-resizable, but the resize can never escape the
-        // window: min/max clamp width to 20rem–90vw and height to 22rem–85vh.
-        // overflow-hidden (not visible) is what enables the native resize
-        // handle; the Card scrolls internally when the box is dragged smaller.
-        className="relative flex max-h-[85vh] min-h-[22rem] w-[38rem] min-w-[20rem] max-w-[90vw] resize overflow-hidden rounded-xl"
+        // Fixed comfortable width — no resize. max-h-[85vh] caps height and the
+        // Card scrolls internally when content overflows vertically; max-w-[92vw]
+        // keeps it inside the viewport on narrow windows.
+        className="relative flex max-h-[85vh] w-[44rem] max-w-[92vw] overflow-hidden rounded-xl"
       >
-        {/* Styled grip over the native (unstylable) resize corner — purely
-            decorative, aria-hidden, pointer-events-none so it never blocks the
-            real handle underneath. Sibling of the scrolling Card so it stays
-            pinned to the box corner. */}
-        <GripVertical
-          size={14}
-          aria-hidden="true"
-          className="pointer-events-none absolute bottom-1.5 right-1.5 z-10 rotate-45 text-dim"
-        />
         <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
             <h2 id="profile-editor-title" className="text-sm font-bold text-foreground">
@@ -341,15 +330,13 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                   onCancel={() => setDeleting(false)}
                   busy={deleteMutation.isPending}
                 >
-                  <label className="flex items-center gap-2 text-xs text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={purgeMemory}
-                      onChange={(event) => setPurgeMemory(event.target.checked)}
-                      className="h-4 w-4 accent-danger"
-                    />
+                  <ConfirmToggle
+                    tone="neutral"
+                    pressed={purgeMemory}
+                    onToggle={() => setPurgeMemory((value) => !value)}
+                  >
                     Purgar memoria asociada a este perfil
-                  </label>
+                  </ConfirmToggle>
                 </ConfirmFooter>
               </div>
             ) : (
