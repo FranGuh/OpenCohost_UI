@@ -4,11 +4,11 @@ import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 export interface WelcomeCardProps { onDismiss(): void }
 
 const SLIDES = [
-  { title: "Conocé a Kira", copy: "Tu co-host local para conversaciones naturales durante el stream.", bullets: ["Conversación fluida y contextual", "Presencia central, sin distraerte", "Funciona desde tu propio equipo"] },
-  { title: "Tu agenda, siempre presente", copy: "Dale a Kira el contexto que necesita para acompañar cada momento.", bullets: ["Agenda y temas prioritarios", "Contexto compacto del chat", "Memoria y personalidad configurables"] },
-  { title: "Una voz que se adapta", copy: "Elegí cómo hablar con Kira y cómo querés que suene.", bullets: ["Conversación por voz y Push-to-Talk", "Síntesis de voz local", "Modelos, voces y ritmos ajustables"] },
-  { title: "Tu cockpit de streaming", copy: "Coordiná el show sin sacar a Kira del centro de la experiencia.", bullets: ["Música y ducking automático", "Integración con OBS", "Perfiles y controles de stream"] },
-  { title: "Tu flujo, tus reglas", copy: "OpenCohost prioriza el control local y se adapta a tu manera de trabajar.", bullets: ["Privacidad local-first", "Flujos y proveedores configurables", "Controles claros para cada sesión"] }
+  { title: "Conocé a Kira", copy: "Tu co-host local para conversaciones naturales durante el stream.", image: "/welcome/kira-capabilities.png", imageAlt: "Kira presentando sus capacidades en OpenCohost", bullets: ["Conversación fluida y contextual", "Presencia central, sin distraerte", "Funciona desde tu propio equipo"] },
+  { title: "Tu agenda, siempre presente", copy: "Dale a Kira el contexto que necesita para acompañar cada momento.", image: "/welcome/kira-agenda.png", imageAlt: "Kira organizando la agenda del stream", bullets: ["Agenda y temas prioritarios", "Contexto compacto del chat", "Memoria y personalidad configurables"] },
+  { title: "Una voz que se adapta", copy: "Elegí cómo hablar con Kira y cómo querés que suene.", image: "/welcome/kira-voice.png", imageAlt: "Kira conversando por voz con micrófono y Push-to-Talk", bullets: ["Conversación por voz y Push-to-Talk", "Síntesis de voz local", "Modelos, voces y ritmos ajustables"] },
+  { title: "Tu cockpit de streaming", copy: "Coordiná el show sin sacar a Kira del centro de la experiencia.", image: "/welcome/kira-stream.png", imageAlt: "Kira controlando el cockpit de streaming", bullets: ["Música y ducking automático", "Integración con OBS", "Perfiles y controles de stream"] },
+  { title: "Tu flujo, tus reglas", copy: "OpenCohost prioriza el control local y se adapta a tu manera de trabajar.", image: "/welcome/kira-privacy.png", imageAlt: "Kira configurando privacidad y controles locales", bullets: ["Privacidad local-first", "Flujos y proveedores configurables", "Controles claros para cada sesión"] }
 ] as const;
 
 export function WelcomeCard({ onDismiss }: WelcomeCardProps) {
@@ -17,6 +17,8 @@ export function WelcomeCard({ onDismiss }: WelcomeCardProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const current = SLIDES[slide];
+
+  useEffect(() => setImageVisible(true), [slide]);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -54,20 +56,20 @@ export function WelcomeCard({ onDismiss }: WelcomeCardProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--background)_80%,transparent)] p-6 backdrop-blur-sm">
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="welcome-title" className="relative grid max-h-[calc(100vh-3rem)] w-full max-w-5xl grid-cols-[1.05fr_.95fr] overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl">
-        <button ref={closeRef} type="button" aria-label="Cerrar bienvenida" onClick={onDismiss} className="absolute right-4 top-4 z-10 rounded-lg p-2 text-muted-foreground transition hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><X size={18} /></button>
-        <div className="flex min-h-[560px] flex-col p-10 lg:p-12">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--background)_80%,transparent)] p-4 backdrop-blur-sm">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="welcome-title" className="relative grid h-[min(680px,calc(100dvh-2rem))] w-full max-w-5xl grid-cols-[1.05fr_.95fr] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <button ref={closeRef} type="button" aria-label="Cerrar bienvenida" onClick={onDismiss} className="absolute right-4 top-4 z-10 rounded-lg p-2 text-muted-foreground transition duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><X size={18} /></button>
+        <div className="flex min-h-0 flex-col p-8 lg:p-10">
           <div className="font-mono text-xs font-semibold uppercase tracking-[.18em] text-primary"><span>{slide + 1} de {SLIDES.length}</span><span className="mx-2 text-border">/</span>Bienvenido a OpenCohost</div>
-          <div className="my-auto py-10">
-            <h2 id="welcome-title" className="max-w-md text-4xl font-bold tracking-tight text-foreground">{current.title}</h2>
-            <p className="mt-5 max-w-md text-base leading-7 text-muted-foreground">{current.copy}</p>
-            <ul className="mt-7 space-y-3">
+          <div className="my-auto py-5">
+            <h2 id="welcome-title" className="max-w-md text-3xl font-bold tracking-tight text-foreground lg:text-4xl">{current.title}</h2>
+            <p className="mt-4 max-w-md text-base leading-6 text-muted-foreground">{current.copy}</p>
+            <ul className="mt-5 space-y-2.5">
               {current.bullets.map((bullet) => <li key={bullet} className="flex items-center gap-3 text-sm text-foreground"><span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-primary"><Check size={14} /></span>{bullet}</li>)}
             </ul>
           </div>
           <div>
-            <div className="mb-6 flex gap-1" aria-label="Progreso de bienvenida">{SLIDES.map((item, index) => <button key={item.title} type="button" aria-label={`Ir a la diapositiva ${index + 1}: ${item.title}`} aria-current={index === slide ? "step" : undefined} onClick={() => setSlide(index)} className="rounded-full p-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><span className={`block h-1.5 rounded-full transition-all ${index === slide ? "w-8 bg-primary" : "w-2 bg-border"}`} /></button>)}</div>
+            <div className="mb-4 flex gap-1" aria-label="Progreso de bienvenida">{SLIDES.map((item, index) => <button key={item.title} type="button" aria-label={`Ir a la diapositiva ${index + 1}: ${item.title}`} aria-current={index === slide ? "step" : undefined} onClick={() => setSlide(index)} className="rounded-full p-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><span className={`block h-1.5 rounded-full transition-all duration-fast ease-io ${index === slide ? "w-8 bg-primary" : "w-2 bg-border"}`} /></button>)}</div>
             <div className="flex items-center justify-between">
               <button type="button" onClick={onDismiss} className="rounded-lg px-2 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Omitir</button>
               <div className="flex gap-2">
@@ -77,10 +79,10 @@ export function WelcomeCard({ onDismiss }: WelcomeCardProps) {
             </div>
           </div>
         </div>
-        <div className="relative min-h-[560px] overflow-hidden border-l border-border bg-surface-2">
+        <div className="relative min-h-0 overflow-hidden border-l border-border bg-surface-2">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,var(--accent-soft),transparent_65%)]" />
           <div className="absolute inset-x-8 bottom-8 top-8 rounded-2xl border border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-[color-mix(in_srgb,var(--background)_30%,transparent)] shadow-panel" />
-          {imageVisible && <img src="/welcome/kira-capabilities.png" onError={hideBrokenImage} alt="Kira y sus capacidades en OpenCohost" className="relative h-full w-full object-cover object-center" />}
+          {imageVisible && <img key={current.image} src={current.image} onError={hideBrokenImage} alt={current.imageAlt} className="welcome-slide-image relative h-full w-full object-cover object-center" />}
         </div>
       </section>
     </div>

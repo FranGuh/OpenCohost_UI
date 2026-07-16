@@ -18,12 +18,21 @@ describe("WelcomeCard modal carousel", () => {
 
     await user.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(screen.getByRole("heading", { name: "Tu agenda, siempre presente" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Kira organizando la agenda del stream" })).toHaveAttribute("src", "/welcome/kira-agenda.png");
     await user.click(screen.getByRole("button", { name: "Anterior" }));
     expect(screen.getByRole("heading", { name: "Conocé a Kira" })).toBeInTheDocument();
 
     for (let index = 0; index < 4; index += 1) await user.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(screen.getByRole("heading", { name: "Tu flujo, tus reglas" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Empezar con Kira" })).toBeInTheDocument();
+  });
+
+  it("fits the modal within the viewport without an internal scrollbar", () => {
+    render(<WelcomeCard onDismiss={vi.fn()} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("overflow-hidden");
+    expect(dialog).not.toHaveClass("overflow-y-auto");
+    expect(dialog).toHaveClass("h-[min(680px,calc(100dvh-2rem))]");
   });
 
   it("supports arrow navigation and Escape dismissal", () => {
@@ -110,9 +119,9 @@ describe("WelcomeCard modal carousel", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
-  it("uses the supplied illustration and hides it after a single failed fallback", () => {
+  it("uses the slide illustration and hides it after a single failed fallback", () => {
     render(<WelcomeCard onDismiss={vi.fn()} />);
-    const image = screen.getByRole("img", { name: "Kira y sus capacidades en OpenCohost" });
+    const image = screen.getByRole("img", { name: "Kira presentando sus capacidades en OpenCohost" });
     expect(image).toHaveAttribute("src", "/welcome/kira-capabilities.png");
     fireEvent.error(image);
     expect(image).not.toBeVisible();
