@@ -1,0 +1,183 @@
+import { useState } from "react";
+import { cn } from "../../lib/cn.js";
+import { Button } from "../ui/Button.js";
+import {
+  ActionRow,
+  AnswerChip,
+  SectionHeading,
+  SegmentedStep,
+  SelectStep,
+  SummaryCard,
+  SwitchStep,
+  TagsStep,
+  TextStep,
+  formatChipValue,
+  type StepDef,
+  type StepValue
+} from "./primitives.js";
+import type { Command } from "./registry.js";
+
+/**
+ * Stepper engine — drives a command's `steps` one question at a time. Answered
+ * steps collapse to chips; the flow ends on a SummaryCard (Editar/Descartar)
+ * followed by the inert ActionRow. MOCKUP: no step advances anything real.
+ */
+
+function initialValues(steps: readonly StepDef[]): Record<string, StepValue> {
+  const values: Record<string, StepValue> = {};
+  for (const step of steps) {
+    if (step.kind === "tags") values[step.id] = [];
+    else if (step.kind === "select" || step.kind === "segmented") values[step.id] = step.default;
+    else if (step.kind === "switch") values[step.id] = "off";
+    else values[step.id] = "";
+  }
+  return values;
+}
+
+/** Only a required, still-empty text step blocks advancing. Everything else
+ * (selects have defaults, tags/optional are skippable, switch is inert) is free. */
+function canAdvance(step: StepDef, value: StepValue): boolean {
+  if (step.kind === "text" && !step.optional) return (value as string).trim().length > 0;
+  return true;
+}
+
+function isFirstOfSection(steps: readonly StepDef[], index: number): boolean {
+  const section = steps[index].section;
+  if (!section) return false;
+  const previous = steps[index - 1]?.section;
+  return previous?.label !== section.label;
+}
+
+function ProgressDots({ index, total }: { index: number; total: number }) {
+  return (
+    <div className="mt-1 flex gap-1" aria-hidden="true">
+      {Array.from({ length: total }, (_, dot) => (
+        <span
+          key={dot}
+          className={cn(
+            "block h-1.5 rounded-full transition-all duration-fast ease-io",
+            dot === index ? "w-6 bg-primary" : "w-1.5 bg-border"
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StepControl({
+  step,
+  value,
+  onChange,
+  onAdvance
+}: {
+  step: StepDef;
+  value: StepValue;
+  onChange: (value: StepValue) => void;
+  onAdvance: () => void;
+}) {
+  switch (step.kind) {
+    case "text":
+      return <TextStep step={step} value={value as string} onChange={onChange} onAdvance={onAdvance} />;
+    case "select":
+      return <SelectStep step={step} value={value as string} onChange={onChange} />;
+    case "segmented":
+      return <SegmentedStep step={step} value={value as string} onChange={onChange} />;
+    case "tags":
+      return <TagsStep step={step} value={value as string[]} onChange={onChange} />;
+    case "switch":
+      return <SwitchStep step={step} />;
+  }
+}
+
+export function Stepper({
+  command,
+  onDiscard,
+  onCancel
+}: {
+  command: Command;
+  /** Back to the command list (Descartar). */
+  onDiscard: () => void;
+  /** Close the whole palette (Cancelar). */
+  onCancel: () => void;
+}) {
+  const steps = command.steps ?? [];
+  const [values, setValues] = useState<Record<string, StepValue>>(() => initialValues(steps));
+  const [cursor, setCursor] = useState(0);
+
+  // Steps whose `when` gate passes for the current answers. Commands without any
+  // `when` yield the full list unchanged (their flow stays byte-identical).
+  const visible = steps.filter((step) => !step.when || step.when(values));
+
+  const atSummary = cursor >= visible.length;
+  const activeStep = atSummary ? null : visible[cursor];
+
+  function advance() {
+    setCursor((current) => Math.min(visible.length, current + 1));
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Answered steps collapse to chips so the flow reads one-at-a-time. */}
+      {cursor > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {visible.slice(0, cursor).map((step) => (
+            <AnswerChip key={step.id} label={step.chipLabel} value={formatChipValue(step, values[step.id])} />
+          ))}
+        </div>
+      )}
+
+      {activeStep ? (
+        <div key={activeStep.id} className="flex flex-col gap-2">
+          {isFirstOfSection(visible, cursor) && activeStep.section && <SectionHeading section={activeStep.section} />}
+          <p className="text-sm font-semibold text-foreground">{activeStep.question}</p>
+          <StepControl
+            step={activeStep}
+            value={values[activeStep.id]}
+            onChange={(value) => setValues((prev) => ({ ...prev, [activeStep.id]: value }))}
+            onAdvance={() => {
+              if (canAdvance(activeStep, values[activeStep.id])) advance();
+            }}
+          />
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!canAdvance(activeStep, values[activeStep.id])}
+              onClick={advance}
+              className="disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {cursor === visible.length - 1 ? "Revisar" : "Siguiente"}
+            </Button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              Cancelar
+            </button>
+          </div>
+          <ProgressDots index={cursor} total={visible.length} />
+        </div>
+      ) : (
+        <>
+          <SummaryCard
+            title={command.summaryTitle ?? "Resumen"}
+            steps={visible}
+            values={values}
+            onEdit={() => setCursor(0)}
+            onDiscard={onDiscard}
+          />
+          <ActionRow
+            primaryLabel={
+              typeof command.primaryLabel === "function"
+                ? command.primaryLabel(values)
+                : command.primaryLabel ?? "Confirmar"
+            }
+            note={command.actionNote ?? "maquetado — todavía no envía"}
+            onCancel={onCancel}
+          />
+        </>
+      )}
+    </div>
+  );
+}
