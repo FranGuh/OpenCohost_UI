@@ -190,8 +190,11 @@ describe("ProfileEditor edit (GET/PUT/DELETE /api/perfiles/:name)", () => {
     renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
-    expect(screen.getByText(/¿Eliminar «Akira»\?/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    expect(screen.getByText(/Esta acción borra el perfil «Akira»/)).toBeInTheDocument();
+    // Destructive button is gated on the acknowledgment.
+    expect(screen.getByRole("button", { name: "Eliminar perfil" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(deleteCalled).toBe(true);
@@ -203,7 +206,8 @@ describe("ProfileEditor edit (GET/PUT/DELETE /api/perfiles/:name)", () => {
     renderEditor({ open: true, mode: "edit", initialName: "default", onClose });
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("cannot delete the last profile"));
     expect(onClose).not.toHaveBeenCalled();
@@ -233,7 +237,8 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
     fireEvent.click(screen.getByLabelText("Purgar memoria asociada a este perfil"));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(deleteCalled).toBe(true);
@@ -252,7 +257,8 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
     fireEvent.click(screen.getByLabelText("Purgar memoria asociada a este perfil"));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("Se eliminó «Akira», pero no se pudo purgar su memoria asociada.")

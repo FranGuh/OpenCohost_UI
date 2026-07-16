@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import { GripVertical } from "lucide-react";
 import { Card } from "./ui/Card.js";
 import { Button } from "./ui/Button.js";
+import { Alert } from "./ui/Alert.js";
+import { ConfirmFooter } from "./ui/ConfirmFooter.js";
 import {
   type ProfileUpdateRequest,
   useCreateProfileMutation,
@@ -26,6 +29,12 @@ const TITLES: Record<ProfileEditorMode, string> = {
   edit: "Editar perfil"
 };
 
+// Calm primary-button family (matches the WelcomeCard primary buttons —
+// flat bg-primary, not the accent gradient). Kept byte-identical in
+// PersonalizationCard so the two save buttons stay uniform.
+const SAVE_BUTTON_CLASS =
+  "inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-[filter] duration-fast ease-io hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-60";
+
 /**
  * Profile create / rename / edit-system-prompt / delete(+memoria-purge)
  * dialog — parity target: opencohost/ui/profiles_window.py. Wired to the
@@ -40,7 +49,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   const [name, setName] = useState(initialName);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [purgeMemory, setPurgeMemory] = useState(false);
   // Set only once the profile itself has already been deleted successfully
   // but the follow-up memoria purge failed — the profile no longer exists,
@@ -74,7 +83,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
     setName(initialNameRef.current);
     setSystemPrompt("");
     setNameTouched(false);
-    setConfirmDelete(false);
+    setDeleting(false);
     setPurgeMemory(false);
     setPurgeFailedAfterDelete(false);
     createMutation.reset();
@@ -188,9 +197,22 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
         aria-modal="true"
         aria-labelledby="profile-editor-title"
         onKeyDown={handleDialogKeyDown}
-        className="w-full max-w-md"
+        // Wider default + user-resizable, but the resize can never escape the
+        // window: min/max clamp width to 20rem–90vw and height to 22rem–85vh.
+        // overflow-hidden (not visible) is what enables the native resize
+        // handle; the Card scrolls internally when the box is dragged smaller.
+        className="relative flex max-h-[85vh] min-h-[22rem] w-[38rem] min-w-[20rem] max-w-[90vw] resize overflow-hidden rounded-xl"
       >
-        <Card className="flex flex-col p-4">
+        {/* Styled grip over the native (unstylable) resize corner — purely
+            decorative, aria-hidden, pointer-events-none so it never blocks the
+            real handle underneath. Sibling of the scrolling Card so it stays
+            pinned to the box corner. */}
+        <GripVertical
+          size={14}
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-1.5 right-1.5 z-10 rotate-45 text-dim"
+        />
+        <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
             <h2 id="profile-editor-title" className="text-sm font-bold text-foreground">
               {TITLES[mode]}
@@ -252,82 +274,43 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               )}
             </section>
 
-            {mode === "edit" && (
+            {mode === "edit" && purgeFailedAfterDelete ? (
+              // The profile itself is already gone at this point — only the
+              // purge can be retried, never the delete again.
+              <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
+                <Alert tone="danger">
+                  Se eliminó «{initialName}», pero no se pudo purgar su memoria asociada.
+                </Alert>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={purgeMutation.isPending}
+                    onClick={handleRetryPurge}
+                  >
+                    {purgeMutation.isPending ? "Reintentando…" : "Reintentar purga"}
+                  </Button>
+                </div>
+              </section>
+            ) : mode === "edit" && !deleting ? (
               <section
                 aria-labelledby="profile-editor-delete-label"
-                className="space-y-2 border-t border-border-soft pt-3.5"
+                className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
               >
-                <span
-                  id="profile-editor-delete-label"
-                  className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-                >
-                  Eliminar perfil
-                </span>
-                {confirmDelete ? (
-                  purgeFailedAfterDelete ? (
-                    // The profile itself is already gone at this point — only
-                    // the purge can be retried, never the delete again.
-                    <div className="flex flex-col gap-2">
-                      <p role="alert" className="text-xs text-danger">
-                        Se eliminó «{initialName}», pero no se pudo purgar su memoria asociada.
-                      </p>
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={purgeMutation.isPending}
-                          onClick={handleRetryPurge}
-                        >
-                          {purgeMutation.isPending ? "Reintentando…" : "Reintentar purga"}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      <label className="flex items-center gap-2 text-xs text-foreground">
-                        <input
-                          type="checkbox"
-                          checked={purgeMemory}
-                          onChange={(event) => setPurgeMemory(event.target.checked)}
-                          className="h-4 w-4 accent-danger"
-                        />
-                        Purgar memoria asociada a este perfil
-                      </label>
-                      <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                        <p className="text-xs text-danger">
-                          ¿Eliminar «{initialName}»? No se puede deshacer.
-                        </p>
-                        <div className="flex gap-2">
-                          <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
-                            Cancelar
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={deleteMutation.isPending}
-                            onClick={handleConfirmDelete}
-                          >
-                            {deleteMutation.isPending ? "Eliminando…" : "Confirmar"}
-                          </Button>
-                        </div>
-                      </div>
-                      {deleteMutation.isError && (
-                        <p role="alert" className="text-xs text-danger">
-                          {deleteMutation.error?.message ?? "No se pudo eliminar el perfil."}
-                        </p>
-                      )}
-                    </div>
-                  )
-                ) : (
-                  <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                    <span className="text-[13px] text-foreground">Eliminar este perfil.</span>
-                    <Button type="button" variant="outline" onClick={() => setConfirmDelete(true)}>
-                      Eliminar
-                    </Button>
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <span
+                    id="profile-editor-delete-label"
+                    className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+                  >
+                    Eliminar perfil
+                  </span>
+                  <span className="text-[13px] text-foreground">Eliminá este perfil de forma permanente.</span>
+                </div>
+                <Button type="button" variant="outline" onClick={() => setDeleting(true)}>
+                  Eliminar
+                </Button>
               </section>
-            )}
+            ) : null}
 
             {saveError && (
               <p role="alert" className="text-xs leading-relaxed text-danger">
@@ -335,14 +318,50 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               </p>
             )}
 
-            <div className="flex items-center justify-end gap-3 border-t border-border-soft pt-3.5">
-              <Button type="button" variant="ghost" onClick={onClose}>
-                Cancelar
-              </Button>
-              <Button type="submit" variant="primary" className="bg-[image:var(--spectrum)]" disabled={savePending}>
-                {savePending ? "Guardando…" : "Guardar"}
-              </Button>
-            </div>
+            {/* Footer buttons MUTATE while confirming a delete: Cancelar/Guardar
+                are replaced by ConfirmFooter's Cancelar/Eliminar perfil (no new
+                buttons appear). Leaving confirm mode restores Cancelar/Guardar. */}
+            {purgeFailedAfterDelete ? null : deleting ? (
+              <div className="flex flex-col gap-3 border-t border-border-soft pt-3.5">
+                {deleteMutation.isError && (
+                  <Alert tone="danger">
+                    {deleteMutation.error?.message ?? "No se pudo eliminar el perfil."}
+                  </Alert>
+                )}
+                <ConfirmFooter
+                  active
+                  stages={[
+                    {
+                      message: <>Esta acción borra el perfil «{initialName}» y no se puede deshacer.</>,
+                      acknowledgment: "Sí, entiendo",
+                      advanceLabel: "Eliminar perfil"
+                    }
+                  ]}
+                  onConfirm={handleConfirmDelete}
+                  onCancel={() => setDeleting(false)}
+                  busy={deleteMutation.isPending}
+                >
+                  <label className="flex items-center gap-2 text-xs text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={purgeMemory}
+                      onChange={(event) => setPurgeMemory(event.target.checked)}
+                      className="h-4 w-4 accent-danger"
+                    />
+                    Purgar memoria asociada a este perfil
+                  </label>
+                </ConfirmFooter>
+              </div>
+            ) : (
+              <div className="flex items-center justify-end gap-3 border-t border-border-soft pt-3.5">
+                <Button type="button" variant="ghost" onClick={onClose}>
+                  Cancelar
+                </Button>
+                <button type="submit" className={SAVE_BUTTON_CLASS} disabled={savePending}>
+                  {savePending ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            )}
           </form>
         </Card>
       </div>

@@ -121,7 +121,8 @@ describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalizat
     server.use(http.get(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json(defaultPersonalization)));
 
     fireEvent.click(screen.getByRole("button", { name: "Limpiar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Borrar personalización" }));
 
     await waitFor(() => expect(screen.getByLabelText("Apodo")).toHaveValue(""));
   });
@@ -136,7 +137,8 @@ describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalizat
     await waitFor(() => expect(screen.getByLabelText("Apodo")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Limpiar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Borrar personalización" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("personalization_write_failed"));
   });

@@ -4,6 +4,7 @@ import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
 import { Input } from "./ui/Input.js";
 import { Switch } from "./ui/Switch.js";
+import { ConfirmFooter } from "./ui/ConfirmFooter.js";
 import {
   PERSONALIZATION_INSTRUCTIONS_MAX,
   PERSONALIZATION_INTERESTS_MAX,
@@ -29,6 +30,11 @@ const EMPTY_FORM: PersonalizationForm = {
   interests: "",
   custom_instructions: ""
 };
+
+// Kept byte-identical to ProfileEditor's SAVE_BUTTON_CLASS so the two save
+// buttons stay uniform (calm flat bg-primary, matching the WelcomeCard family).
+const SAVE_BUTTON_CLASS =
+  "inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-[filter] duration-fast ease-io hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-60";
 
 /**
  * Personalization card — sibling settings card to MemoryCard, wired to
@@ -146,15 +152,14 @@ export function PersonalizationCard() {
             </label>
 
             <div className="flex items-center justify-end gap-2 border-t border-border-soft pt-3">
-              <Button
+              <button
                 type="button"
-                variant="primary"
-                className="bg-[image:var(--spectrum)]"
+                className={SAVE_BUTTON_CLASS}
                 disabled={updateMutation.isPending}
                 onClick={() => updateMutation.mutate(form)}
               >
                 {updateMutation.isPending ? "Guardando…" : "Guardar"}
-              </Button>
+              </button>
             </div>
 
             <section
@@ -168,25 +173,20 @@ export function PersonalizationCard() {
                 Borrar personalización
               </span>
               {confirmingClear ? (
-                <div className="flex flex-col gap-2">
-                  <p role="alert" className="text-xs text-danger">
-                    ¿Borrar apodo, ocupación, intereses e instrucciones guardados? No se puede deshacer.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="ghost" onClick={() => setConfirmingClear(false)}>
-                      Cancelar
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      autoFocus
-                      disabled={clearMutation.isPending}
-                      onClick={handleConfirmClear}
-                    >
-                      Confirmar
-                    </Button>
-                  </div>
-                </div>
+                <ConfirmFooter
+                  active
+                  stages={[
+                    {
+                      message:
+                        "Esto borra el apodo, ocupación, intereses e instrucciones guardados. No se puede deshacer.",
+                      acknowledgment: "Sí, entiendo",
+                      advanceLabel: "Borrar personalización"
+                    }
+                  ]}
+                  onConfirm={handleConfirmClear}
+                  onCancel={() => setConfirmingClear(false)}
+                  busy={clearMutation.isPending}
+                />
               ) : (
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <p className="text-xs leading-relaxed text-warn">

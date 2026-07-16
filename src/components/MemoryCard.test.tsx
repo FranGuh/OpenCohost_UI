@@ -136,19 +136,24 @@ describe("MemoryCard memoria row list + purge (F5)", () => {
     expect(screen.queryByText(defaultMemoriaRows.mem_a.content)).not.toBeInTheDocument();
   });
 
-  it("purges memorias through the confirm/cancel pattern and empties the list", async () => {
+  it("purges memorias through the three-stage confirm and empties the list", async () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
     await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
 
+    // Stage 1 opens the danger message; Cancelar backs fully out to the trigger.
     fireEvent.click(screen.getByRole("button", { name: "Purgar memorias" }));
     expect(screen.getByText(/No se puede deshacer/)).toBeInTheDocument();
-
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(screen.getByText("Título memoria A")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Purgar memorias" })).toBeInTheDocument();
 
+    // Re-open and walk all three stages: message -> acknowledge -> final purge.
     fireEvent.click(screen.getByRole("button", { name: "Purgar memorias" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Purgar definitivamente" }));
 
     await waitFor(() => expect(screen.getByText(/No hay memorias guardadas/)).toBeInTheDocument());
   });

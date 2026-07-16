@@ -3,6 +3,7 @@ import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
 import { Input } from "./ui/Input.js";
+import { ConfirmFooter } from "./ui/ConfirmFooter.js";
 import type { MemoriaListItem } from "../api/client.js";
 import {
   useMemoriaDeleteMutation,
@@ -389,25 +390,30 @@ export function MemoryCard() {
                 </p>
               )}
               {confirmingPurge ? (
-                <div className="flex flex-col gap-2">
-                  <p role="alert" className="text-xs text-danger">
-                    ¿Purgar todas las memorias guardadas? No se puede deshacer.
-                  </p>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="ghost" onClick={() => setConfirmingPurge(false)}>
-                      Cancelar
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      autoFocus
-                      disabled={purgeMutation.isPending}
-                      onClick={handleConfirmPurge}
-                    >
-                      Confirmar
-                    </Button>
-                  </div>
-                </div>
+                // Three-stage gate — this wipes every saved memory, so it needs
+                // more friction than a single confirm click. Stage 3 (last) is
+                // the only one that fires the purge.
+                <ConfirmFooter
+                  active
+                  stages={[
+                    {
+                      message: "Vas a borrar TODAS las memorias de Kira. No se puede deshacer.",
+                      advanceLabel: "Continuar"
+                    },
+                    {
+                      message: "Confirmá que entendés: se eliminan todas las memorias guardadas de este perfil.",
+                      acknowledgment: "Sí, entiendo",
+                      advanceLabel: "Continuar"
+                    },
+                    {
+                      message: "Última confirmación. Esto es permanente y no se puede deshacer.",
+                      advanceLabel: "Purgar definitivamente"
+                    }
+                  ]}
+                  onConfirm={handleConfirmPurge}
+                  onCancel={() => setConfirmingPurge(false)}
+                  busy={purgeMutation.isPending}
+                />
               ) : (
                 <Button
                   type="button"
