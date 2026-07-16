@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query";
 import { getApiBaseUrl } from "../api/client.js";
 import { bootstrapBackend, type BootstrapResult } from "../lib/backendBootstrap.js";
+import { BootLoader } from "./ui/BootLoader.js";
 
 const HEALTH_QUERY_KEY = ["backend-gate-health"] as const;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
@@ -131,36 +132,34 @@ export function BackendGate({
     return <>{children}</>;
   }
 
-  const isError = phase === "error";
+  // Error branch: informative, unchanged — the state machine, retry, and copy
+  // are exactly as before. Only the waiting (bootstrapping/probing) visuals
+  // move to the single BootLoader below.
+  if (phase === "error") {
+    return (
+      <div
+        role="alert"
+        className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-background text-foreground"
+      >
+        <h1 className="mono text-2xl font-bold text-[var(--kira-cyan)]">OpenCohost</h1>
+        <p className="text-sm text-muted-foreground">No se pudo conectar con el motor local.</p>
+        {errorDetail ? (
+          <p className="text-xs text-muted-foreground">Detalle: {errorDetail}</p>
+        ) : null}
+        <button
+          type="button"
+          autoFocus
+          onClick={retry}
+          className="rounded-full border border-border-soft bg-card px-4 py-1.5 text-sm text-foreground hover:bg-[var(--accent-soft)]"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
   const statusCopy =
     phase === "bootstrapping" ? "Preparando motor local…" : "Comprobando motor local…";
 
-  return (
-    <div
-      role={isError ? "alert" : "status"}
-      aria-live={isError ? undefined : "polite"}
-      aria-busy={isError ? undefined : true}
-      className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-background text-foreground"
-    >
-      <h1 className="mono text-2xl font-bold text-[var(--kira-cyan)]">OpenCohost</h1>
-      {isError ? (
-        <>
-          <p className="text-sm text-muted-foreground">No se pudo conectar con el motor local.</p>
-          {errorDetail ? (
-            <p className="text-xs text-muted-foreground">Detalle: {errorDetail}</p>
-          ) : null}
-          <button
-            type="button"
-            autoFocus
-            onClick={retry}
-            className="rounded-full border border-border-soft bg-card px-4 py-1.5 text-sm text-foreground hover:bg-[var(--accent-soft)]"
-          >
-            Reintentar
-          </button>
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">{statusCopy}</p>
-      )}
-    </div>
-  );
+  return <BootLoader statusLabel={statusCopy} />;
 }

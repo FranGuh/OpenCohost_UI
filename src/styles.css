@@ -183,3 +183,39 @@ select:focus-visible,
 .oc-app-body > * {
   height: 100% !important;
 }
+
+/* ===== Boot loader (src/components/ui/BootLoader.tsx) =================
+   The single boot animation: Kira's mark breathes over a soft glow while the
+   BackendGate waits. Both keyframes LOOP infinitely — the loader never
+   "finishes" on a timer; the gate unmounts it the moment real readiness flips,
+   so exit is driven by unmount, not a duration floor. The global
+   prefers-reduced-motion kill switch above (animation-duration: 0.01ms;
+   iteration-count: 1) collapses both to a static frame. */
+@keyframes boot-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+.boot-mark {
+  animation: boot-breathe 1.8s var(--ease-io) infinite;
+}
+@keyframes boot-glow {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+.boot-glow {
+  animation: boot-glow 1.8s var(--ease-io) infinite;
+}
