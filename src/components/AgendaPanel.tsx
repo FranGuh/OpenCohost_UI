@@ -9,6 +9,7 @@ import { Select } from "./ui/Select.js";
 import { Segmented } from "./ui/Segmented.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "./ui/Collapsible.js";
 import { useToast } from "./ui/Toast.js";
+import { Alert } from "./ui/Alert.js";
 import {
   useAddAgendaTopicMutation,
   useAgendaQuery,
@@ -116,7 +117,7 @@ function mutationErrorMessage(error: unknown, fallback: string): string {
  * that one field (AgendaSessionRequest is a partial update).
  */
 function ProfileSessionCard() {
-  const [isOpen, toggle] = useCollapsible();
+  const [isOpen, toggle] = useCollapsible(true, "agenda-perfil");
   const { data } = useAgendaQuery();
   const updateSession = useUpdateAgendaSessionMutation();
   const cohostProfiles = useCohostProfilesQuery();
@@ -159,13 +160,16 @@ function ProfileSessionCard() {
   const safetyMode = data?.session_settings.safety_mode ?? "live_safe";
   const pending = updateSession.isPending || selectProfile.isPending || saveProfile.isPending;
 
-  const errorMessage = saveProfile.isError
+  // Split by group per spec §3e change 7 — save errors surface under the
+  // save button (they belong to the profile group), session errors surface
+  // atop the session group (they belong to the auto-saving fields).
+  const profileErrorMessage = saveProfile.isError
     ? mutationErrorMessage(saveProfile.error, "No se pudo guardar el perfil.")
     : selectProfile.isError
       ? mutationErrorMessage(selectProfile.error, "No se pudo aplicar el perfil.")
-      : updateSession.isError
-        ? "No se pudo guardar la configuración de sesión."
-        : null;
+      : null;
+
+  const sessionErrorMessage = updateSession.isError ? "No se pudo guardar la configuración de sesión." : null;
 
   return (
     <Card className="flex flex-col p-4">
@@ -176,52 +180,74 @@ function ProfileSessionCard() {
 
       <CollapsibleBody isOpen={isOpen}>
       <div className="flex flex-col gap-3.5">
-        {errorMessage && (
-          <p role="alert" className="text-xs leading-relaxed text-danger">
-            {errorMessage}
-          </p>
-        )}
-
         <section aria-labelledby="agenda-profile-label" className="space-y-2">
-          {sectionLabel("agenda-profile-label", "Perfil Co-host")}
-          <Select
-            aria-label="Perfiles guardados"
-            options={(profiles.length > 0 ? profiles : [{ name: selectedProfileName }]).map((profile) => ({ value: profile.name, label: profile.name }))}
-            value={selectedProfileName}
-            disabled={selectProfile.isPending}
-            onChange={(value: any) => handleSelectProfile(value)}
-          />
-          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+          {sectionLabel("agenda-profile-label", "Identidad")}
+          <div className="space-y-1">
+            <span className="text-xs text-muted-foreground">Perfil guardado</span>
+            <Select
+              aria-label="Perfiles guardados"
+              options={(profiles.length > 0 ? profiles : [{ name: selectedProfileName }]).map((profile) => ({ value: profile.name, label: profile.name }))}
+              value={selectedProfileName}
+              disabled={selectProfile.isPending}
+              onChange={(value: any) => handleSelectProfile(value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="agenda-profile-name" className="text-xs text-muted-foreground">
+              Nombre
+            </label>
             <Input
+              id="agenda-profile-name"
               type="text"
               aria-label="Nombre del perfil co-host"
               value={draftName}
               disabled={saveProfile.isPending}
               onChange={(event) => setDraftName(event.target.value)}
             />
+          </div>
+        </section>
+
+        <section aria-labelledby="agenda-style-label" className="space-y-2">
+          {sectionLabel("agenda-style-label", "Estilo")}
+          <div className="space-y-1">
+            <label htmlFor="agenda-profile-style" className="text-xs text-muted-foreground">
+              Cómo suena Kira
+            </label>
+            <textarea
+              id="agenda-profile-style"
+              aria-label="Estilo del perfil co-host"
+              value={styleDraft}
+              disabled={saveProfile.isPending}
+              onChange={(event) => setStyleDraft(event.target.value)}
+              rows={3}
+              placeholder="Cómo querés que suene Kira…"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed min-h-[100px] max-h-[300px] disabled:opacity-60"
+            />
+          </div>
+
+          <div className="flex items-start justify-end gap-3">
+            <p className="mr-auto text-xs text-muted-foreground">
+              Guarda el nombre y el estilo como un perfil reutilizable.
+            </p>
             <Button
               type="button"
-              variant="outline"
+              variant="primary"
               disabled={saveProfile.isPending || !draftName.trim()}
               onClick={handleSaveProfile}
             >
-              Guardar perfil
+              {saveProfile.isPending ? "Guardando…" : "Guardar perfil"}
             </Button>
           </div>
-          <textarea
-            aria-label="Estilo del perfil co-host"
-            value={styleDraft}
-            disabled={saveProfile.isPending}
-            onChange={(event) => setStyleDraft(event.target.value)}
-            rows={3}
-            placeholder="Cómo querés que suene Kira…"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed min-h-[100px] max-h-[300px] disabled:opacity-60"
-          />
+          {profileErrorMessage && <Alert tone="danger">{profileErrorMessage}</Alert>}
         </section>
 
         {data && (
-          <section aria-labelledby="agenda-session-settings-label" className="space-y-2">
-            {sectionLabel("agenda-session-settings-label", "Configuración de sesión")}
+          <section aria-labelledby="agenda-session-settings-label" className="space-y-2 border-t border-border-soft pt-3.5 pb-1">
+            <div className="flex items-baseline gap-2">
+              {sectionLabel("agenda-session-settings-label", "Sesión")}
+              <span className="mono text-[10px] text-dim">se aplica al instante</span>
+            </div>
+            {sessionErrorMessage && <Alert tone="danger">{sessionErrorMessage}</Alert>}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <span className="text-xs text-muted-foreground">Turnos por tema</span>
@@ -250,16 +276,19 @@ function ProfileSessionCard() {
                 />
               </div>
             </div>
-            <span className="text-xs text-muted-foreground">Ritmo</span>
-            <Segmented
-              ariaLabel="Ritmo"
-              options={RHYTHM_OPTIONS}
-              value={rhythm}
-              disabled={updateSession.isPending}
-              onChange={(value) => {
-                updateSession.mutate({ rhythm: value });
-              }}
-            />
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground">Ritmo</span>
+              <Segmented
+                ariaLabel="Ritmo"
+                options={RHYTHM_OPTIONS}
+                value={rhythm}
+                disabled={updateSession.isPending}
+                className="mb-1"
+                onChange={(value) => {
+                  updateSession.mutate({ rhythm: value });
+                }}
+              />
+            </div>
           </section>
         )}
       </div>
@@ -269,7 +298,7 @@ function ProfileSessionCard() {
 }
 
 function NowCard({ now }: { now: AgendaTopicOut | null | undefined }) {
-  const [isOpen, toggle] = useCollapsible();
+  const [isOpen, toggle] = useCollapsible(true, "agenda-ahora");
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
@@ -295,7 +324,7 @@ function NowCard({ now }: { now: AgendaTopicOut | null | undefined }) {
 }
 
 function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
-  const [isOpen, toggle] = useCollapsible();
+  const [isOpen, toggle] = useCollapsible(true, "agenda-cola");
   const action = useAgendaTopicActionMutation();
 
   function move(id: string, direction: -1 | 1) {
@@ -397,7 +426,7 @@ interface SuggestionsCardProps {
  * `_AGENDA_ACTION_WHITELIST` (opencohost/api/main.py).
  */
 function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
-  const [isOpen, toggle] = useCollapsible();
+  const [isOpen, toggle] = useCollapsible(true, "agenda-sugerencias");
   const action = useAgendaTopicActionMutation();
 
   function approve(id: string) {
@@ -539,7 +568,7 @@ function parseBulkLine(line: string): AgendaTopicRequest | null {
 }
 
 function AddTopicCard() {
-  const [isOpen, toggle] = useCollapsible();
+  const [isOpen, toggle] = useCollapsible(true, "agenda-agregar");
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
   const [priority, setPriority] = useState("normal");
@@ -707,7 +736,7 @@ function AddTopicCard() {
                       type="button"
                       aria-label={`Quitar etiqueta ${constraint}`}
                       onClick={() => removeConstraint(constraint)}
-                      className="text-dim transition-colors hover:text-danger"
+                      className="text-dim transition-colors duration-fast ease-io hover:text-danger"
                     >
                       ✕
                     </button>
@@ -792,7 +821,7 @@ const SESSION_ACTIONS: Array<{ action: AgendaSessionAction; label: string; varia
  * rejected action surfaces an alert instead of failing silently.
  */
 function SessionControlCard({ state, queueLength }: { state: string; queueLength: number }) {
-  const [isOpen, toggle] = useCollapsible();
+  const [isOpen, toggle] = useCollapsible(true, "agenda-sesion");
   const badge = sessionBadge(state);
   const action = useAgendaSessionActionMutation();
 

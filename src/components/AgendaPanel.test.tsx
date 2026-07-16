@@ -308,6 +308,65 @@ describe("AgendaPanel co-host profile save fires POST /api/agenda/cohost-profile
   });
 });
 
+describe("AgendaPanel Perfil Co-host form regroups Identidad → Estilo → Guardar perfil → Sesión (UI refresh Phase 5)", () => {
+  it("renders visible field labels and section headers in visual/document order, ending with the session group", async () => {
+    renderPanel();
+    await screen.findByLabelText("Turnos por tema");
+
+    const identidad = screen.getByText("Identidad");
+    const perfilGuardado = screen.getByText("Perfil guardado");
+    const nombre = screen.getByText("Nombre");
+    const estilo = screen.getByText("Estilo");
+    const comoSuenaKira = screen.getByText("Cómo suena Kira");
+    const saveButton = screen.getByRole("button", { name: "Guardar perfil" });
+    const helper = screen.getByText("Guarda el nombre y el estilo como un perfil reutilizable.");
+    const sesion = screen.getByText("Sesión");
+    const instantChip = screen.getByText("se aplica al instante");
+
+    const ordered = [identidad, perfilGuardado, nombre, estilo, comoSuenaKira, helper, saveButton, sesion, instantChip];
+    for (let i = 0; i < ordered.length - 1; i += 1) {
+      expect(
+        ordered[i].compareDocumentPosition(ordered[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    }
+  });
+
+  it("keeps the save button (tab order = visual order) after the style textarea, not between name and style", async () => {
+    renderPanel();
+    await screen.findByLabelText("Turnos por tema");
+
+    const nameInput = screen.getByLabelText("Nombre del perfil co-host");
+    const textarea = screen.getByLabelText("Estilo del perfil co-host");
+    const saveButton = screen.getByRole("button", { name: "Guardar perfil" });
+
+    expect(nameInput.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(textarea.compareDocumentPosition(saveButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows Guardando… on the save button while the save request is in flight", async () => {
+    let resolveRequest!: () => void;
+    server.use(
+      http.post(
+        `${API_BASE_URL}/api/agenda/cohost-profiles`,
+        () =>
+          new Promise((resolve) => {
+            resolveRequest = () => resolve(HttpResponse.json(defaultCohostProfiles));
+          })
+      )
+    );
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Estilo del perfil co-host")).toHaveValue(defaultCohostProfiles.profiles[0].style)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Guardando…" })).toBeDisabled());
+    resolveRequest();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Guardar perfil" })).not.toBeDisabled());
+  });
+});
+
 describe("AgendaPanel session control fires POST /api/agenda/session/action", () => {
   it("clicking Activar sends action=enable", async () => {
     const capture: { body?: unknown } = {};
