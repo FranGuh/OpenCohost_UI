@@ -383,6 +383,7 @@ fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
         .arg("--workers")
         .arg("1")
         .env("PYTHONPATH", &config.working_dir)
+        .env("PYTHONUNBUFFERED", "1")
         .current_dir(&config.working_dir)
         .stdin(Stdio::null())
         .stdout(stdout)
@@ -710,6 +711,7 @@ fn spawn_ptt_bridge_process(
     command
         .arg(script)
         .env("PYTHONPATH", &config.working_dir)
+        .env("PYTHONUNBUFFERED", "1")
         .current_dir(&config.working_dir)
         .stdin(Stdio::null())
         .stdout(stdout)
