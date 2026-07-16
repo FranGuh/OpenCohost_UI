@@ -14,3 +14,6 @@ openapi.snapshot.check.json
 # Kira avatar art — owner keeps this uncommitted (copied from the Python
 # repo's assets/avatar/kira/ at apply-time, not checked into OpenCohost_UI).
 public/avatar/
+
+.atl/
+src-tauri/backend.config.json
