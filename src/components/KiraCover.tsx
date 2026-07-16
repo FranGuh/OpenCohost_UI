@@ -1,10 +1,15 @@
 import type { SyntheticEvent } from "react";
 import { useStatusQuery } from "../api/status.js";
+import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import { AVATAR_IMAGE, AVATAR_LABEL, FALLBACK_AVATAR, deriveAvatarState } from "./kiraState.js";
 
 function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.src = FALLBACK_AVATAR;
 }
+
+// Trust the live speaking edge only while fresh; past this the 2s status poll
+// has certainly caught up, so a missed speaking_end can't pin "speaking".
+const LIVE_SPEAKING_FRESH_MS = 3000;
 
 /**
  * Kira's main presence view — the brand ring/aperture framing her avatar with
@@ -18,7 +23,13 @@ function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
  */
 export function KiraCover() {
   const { data } = useStatusQuery();
-  const avatarState = deriveAvatarState(data);
+  const liveSpeaking = useAvatarLiveState((s) => s.speaking);
+  const liveEventTs = useAvatarLiveState((s) => s.lastEventTs);
+  // Prefer the live store only when it says speaking AND is fresh; on
+  // speaking=false (or a stale edge) fall straight back to the poll-derived
+  // state — same behavior as before the live wiring.
+  const avatarState =
+    liveSpeaking && Date.now() - liveEventTs < LIVE_SPEAKING_FRESH_MS ? "speaking" : deriveAvatarState(data);
   const avatarSrc = AVATAR_IMAGE[avatarState];
 
   return (
