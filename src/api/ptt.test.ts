@@ -14,6 +14,8 @@ import {
   pttStartConflictHandler,
   pttStartUnreachableHandler
 } from "../test/handlers.js";
+import { subscribeMutationEvents } from "../lib/appEvents.js";
+import { useEventStore } from "../store/eventStore.js";
 import { usePttHold } from "./ptt.js";
 
 function createWrapper() {
@@ -234,6 +236,29 @@ describe("usePttHold: fast-tap race", () => {
     // start()'s success landed AFTER we already moved to flushing — must not
     // resurrect "listening"; the just-opened session gets cut directly.
     expect(result.current.state).toBe("flushing");
+  });
+});
+
+describe("usePttHold: single-sourced lifecycle (no mutation meta)", () => {
+  it("start/stop emit NO mutation-meta events — the feed comes only from the server echo", async () => {
+    useEventStore.setState({ events: [] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const unsubscribe = subscribeMutationEvents(queryClient);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+    const { result } = renderHook(() => usePttHold(), { wrapper });
+
+    act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.state).toBe("listening");
+
+    act(() => result.current.stop());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    // Meta removed (TASK 3): the mutation path contributes zero events; PTT
+    // lifecycle is single-sourced on GET /api/events, covered in events.test.ts.
+    expect(useEventStore.getState().events).toHaveLength(0);
+    unsubscribe();
   });
 });
 

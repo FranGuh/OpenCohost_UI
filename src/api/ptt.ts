@@ -177,15 +177,14 @@ export function usePttHold(): UsePttHoldResult {
     [clearKeepalive, setUiState]
   );
 
-  const startMutation = useMutation({
-    mutationFn: postPttStart,
-    // Fires ONLY on success (subscribeMutationEvents ignores errors) — a 503
-    // can never toast a fake "PTT escuchando".
-    meta: { event: { source: "ptt", action: "started" } }
-  });
+  // No meta.event on either mutation: PTT lifecycle toasts + feed entries are
+  // single-sourced on the SERVER echo (ptt.started/stopped via GET /api/events,
+  // see src/api/events.ts + the ptt.* toast exception in appEvents.ts). The old
+  // mutation-meta path double-emitted alongside that echo, and left the
+  // external F10 bridge (server events only) invisible.
+  const startMutation = useMutation({ mutationFn: postPttStart });
   const stopMutation = useMutation({
-    mutationFn: (sessionId: string | undefined) => postPttStop(sessionId),
-    meta: { event: { source: "ptt", action: "stopped" } }
+    mutationFn: (sessionId: string | undefined) => postPttStop(sessionId)
   });
 
   const beginKeepalive = useCallback(
