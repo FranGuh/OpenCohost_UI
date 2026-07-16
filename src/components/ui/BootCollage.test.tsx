@@ -45,12 +45,12 @@ describe("BootCollage", () => {
     if (!img) throw new Error("expected a collage tile");
 
     expect(img.className).toContain("opacity-0");
-    expect(img.className).not.toContain("opacity-[0.1]");
+    expect(img.className).not.toContain("opacity-[0.35]");
     expect(img).toHaveAttribute("loading", "eager");
 
     fireEvent.load(img);
 
-    expect(img.className).toContain("opacity-[0.1]");
+    expect(img.className).toContain("opacity-[0.35]");
     expect(img.className).not.toContain("opacity-0");
   });
 });

@@ -32,6 +32,11 @@ function pickTiles(): string[] {
   return pool.slice(0, count);
 }
 
+// Faint target opacity every loaded tile fades to — the single legibility knob.
+// Bump/lower this one value if the owner fine-tunes how present the memory wall
+// reads; the feathered edges live in styles.css (.boot-collage-tile mask).
+const TILE_LOADED_OPACITY = "opacity-[0.35]";
+
 /**
  * One tile: eager <img> that starts invisible and fades to its faint target
  * opacity on its OWN load event — no timers. A tile whose file never loads just
@@ -51,7 +56,7 @@ function CollageTile({ src, index }: { src: string; index: number }) {
         className={cn(
           "boot-collage-tile h-full w-full object-cover transition-opacity duration-slow ease-out",
           index % 2 === 0 ? "boot-collage-tile--a" : "boot-collage-tile--b",
-          loaded ? "opacity-[0.1]" : "opacity-0"
+          loaded ? TILE_LOADED_OPACITY : "opacity-0"
         )}
       />
     </div>

@@ -27,17 +27,10 @@ export function healthTone(status: string | undefined): BadgeTone {
 // surface — the single mechanism that stops a working app from looking broken.
 export type Taxonomy = "ok" | "info" | "attention" | "action" | "neutral";
 
-const TAXONOMY_TONE: Record<Taxonomy, BadgeTone> = {
-  ok: "ok",
-  info: "info",
-  attention: "warn",
-  action: "danger",
-  neutral: "neutral"
-};
-
 // Escalation applied over the neutral chip base. ok/info/neutral keep the
-// neutral surface (only the dot carries tone); attention tints border+text;
-// action gets the full filled danger treatment.
+// neutral surface; attention tints border+text; action gets the full filled
+// danger treatment. (Chips no longer carry a tone dot — state reads from the
+// icon + label + escalation surface. Per-row dots live only in the popover.)
 const CHIP_ESCALATION: Record<Taxonomy, string> = {
   ok: "",
   info: "",
@@ -237,7 +230,6 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const popoverId = useId();
-  const tone = TAXONOMY_TONE[taxonomy];
   const hasDetail = detail !== undefined && detail.length > 0;
 
   useEffect(() => {
@@ -278,10 +270,6 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
       >
         <Icon size={13} aria-hidden="true" />
         {label}
-        <span
-          aria-hidden="true"
-          className={cn("h-[6px] w-[6px] rounded-full", DOT_CLASSES[tone], taxonomy === "info" && "animate-pulse")}
-        />
       </button>
 
       {open && (
@@ -339,7 +327,6 @@ export function StatusRail() {
     return (
       <div className="flex min-w-0 items-center px-2.5">
         <span className="mono inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground">
-          <span aria-hidden="true" className="h-[6px] w-[6px] rounded-full bg-muted-foreground opacity-50" />
           Conectando con el motor…
         </span>
       </div>

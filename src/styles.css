@@ -262,6 +262,11 @@ select:focus-visible,
 }
 .boot-collage-tile {
   will-change: transform;
+  /* Feathered edges ("bordes desvanecidos"): each tile fades to transparent
+     toward its edges so the 3-col grid seams dissolve and tiles read as soft
+     memory patches, not rectangles. Radial mask, twinned for WebKit. */
+  -webkit-mask-image: radial-gradient(ellipse 75% 75% at center, #000 45%, transparent 98%);
+  mask-image: radial-gradient(ellipse 75% 75% at center, #000 45%, transparent 98%);
 }
 .boot-collage-tile--a {
   transform-origin: top left;
