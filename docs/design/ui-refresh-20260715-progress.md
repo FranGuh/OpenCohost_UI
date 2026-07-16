@@ -1448,3 +1448,93 @@ swallowed — no crash, tests stay green (mock asserts the calls).
 4. Double-click the bar → toggles maximize (native drag-region behavior).
 5. Maximized state: check the bar/buttons don't sit under the screen edge and
    that the window still restores from the custom maximize button.
+
+## Merged window bar (2026-07-15, late night)
+
+Owner screenshot showed TWO stacked bars with two logos: the custom window
+`TitleBar` (mini logo + "OpenCohost" + window buttons) sitting directly above the
+app `TopBar` (logo + wordmark + tagline + "Developed by Franguh" + StatusRail +
+gear). Owner ask: collapse them into ONE merged window bar.
+
+### What landed
+- `src/components/TitleBar.tsx` — grew `h-8` → `h-10` and became the single bar:
+  `<header data-tauri-drag-region>` (banner) with, left→right: BrandMark(24) +
+  `Open`**`Cohost`** wordmark + tagline `focus over panic` / credit link (the
+  `TopBar` lockup, moved verbatim; credit kept EXACT — href
+  `https://github.com/franguh`, `target="_blank"`, `rel="noreferrer"`, aria-label
+  "Developed by Franguh"), tagline+credit `hidden xl:flex`; a `flex-1` drag
+  spacer; the app-controls slot `#oc-titlebar-app-controls`
+  (`TITLEBAR_APP_CONTROLS_SLOT_ID`); a divider; and the three caption buttons
+  (unchanged). Brand statics are `pointer-events-none` so drags fall through to
+  the bar; the credit link is `pointer-events-auto` so it stays clickable.
+- `src/components/TopBar.tsx` + `.test.tsx` — DELETED (grep confirmed only
+  AppLayout + its own test imported it). Its brand lockup + tagline + credit went
+  into TitleBar; its StatusRail + SettingsPopover are now portaled by AppLayout.
+  Its two surviving contracts (credit link, no-avatar) were ported into
+  `TitleBar.test.tsx`.
+- `src/components/AppLayout.tsx` — dropped the `top` grid row (grid areas
+  `"top top top" "side main queue" "player player player"` → `"side main queue"`,
+  with `gridTemplateRows: minmax(0,1fr)` so the one content row fills the body and
+  the columns scroll internally). Removed the `<TopBar>` row. Now portals
+  `<StatusRail/> + <SettingsPopover onShowWelcome={handleShowWelcome}/>` into the
+  TitleBar slot via `createPortal`, gated on the slot being found after mount.
+  `handleShowWelcome` (restore welcome store + `setActiveSection("experiencia")`)
+  is UNCHANGED and stays local — the portaled gear is still a React-child of
+  AppLayout, so its closure over `activeSection` works with zero lifting.
+- `src/App.tsx` — no structural change (TitleBar already mounted above
+  BackendGate); comment refreshed for the 40px merged bar.
+- `src/styles.css` — `--oc-titlebar-h: 2rem` → `2.5rem` (h-8 → h-10), so the
+  `.oc-app-body` `calc(100vh - var)` math stays exact. Comment notes the bar is
+  intentionally NOT `overflow-hidden` so chip/gear popovers drop below it.
+
+### Why a portal (wiring decision)
+The status/gear cluster must appear ONLY past the gate, but the bar must stay
+mounted ABOVE the gate for boot draggability. Readiness lives inside
+`BackendGate` (out of scope) and the welcome navigation (`activeSection`) lives
+inside `AppLayout` (out of a store; welcomeStore/SettingsPopover/Sidebar are all
+out of scope, and no new files were allowed). So neither an `appControls` prop on
+TitleBar (App can't know readiness) nor lifting `activeSection` to App (would need
+a store or to touch BackendGate) fit the constraints. Portaling from AppLayout
+(which only exists past the gate) into the bar's slot is the least-invasive path:
+StatusRail's react-query context and SettingsPopover's `onShowWelcome` closure
+both flow from the React tree (AppLayout), while the DOM lands in the bar. During
+boot AppLayout is unmounted → slot empty → bar shows brand + window buttons only.
+
+### Drag-region correctness (Tauri v2)
+`data-tauri-drag-region` sits ONLY on the `<header>` background and the `flex-1`
+spacer. In v2 dragging fires only on the element under the pointer that carries
+the attribute, so every interactive child (credit link, status chips, gear,
+caption buttons) keeps its clicks without an explicit exclusion. The slot div
+does NOT carry the attribute (its children are interactive). A test queries every
+`button`/`a` and asserts none carries it; double-click-maximize stays native.
+
+### Tests
+- `TitleBar.test.tsx`: 2 → 6. Kept: brand + 3 controls, caption buttons drive the
+  Tauri API. Added: credit-link contract (ported; queried with `hidden:true`
+  since the tagline is `hidden` below xl in jsdom), no-avatar (ported), cluster
+  injected-into-slot-when-ready / absent-during-boot (via a portal probe), and
+  drag-region present-on-background / absent-on-every-interactive-element.
+- `AppLayout.test.tsx`: renders `<TitleBar/>` alongside `<AppLayout/>` in the
+  harness so the portal slot + banner exist; the welcome-restore-from-gear flow
+  and all landmark/nav assertions pass unchanged (9 tests).
+- `TopBar.test.tsx` removed (−1 file, −2 tests). `App.test.tsx` / `main.test.tsx`
+  untouched and green (both mock AppLayout/App, so no portal renders there).
+
+### Checks
+- `pnpm exec tsc --noEmit` — clean.
+- Full `pnpm exec vitest run` — 67 files / 651 tests passed (baseline 68/649;
+  −1 file = TopBar.test removed, net +2 tests = +4 TitleBar − 2 TopBar).
+- `pnpm build` (`tsc && vite build`) — pass.
+
+### Manual runtime pass (owner — not verifiable in headless CLI)
+1. One bar only: confirm the two stacked bars/logos are gone — brand, status
+   chips, gear and window buttons all sit on a single ~40px bar.
+2. Drag: grab empty bar space / the logo to move the window; confirm the credit
+   link, status chips, gear and caption buttons all still click (no dead drag).
+3. Popovers: open each StatusRail chip + the gear; confirm the panels drop BELOW
+   the bar and are not clipped (the bar is overflow-visible; z-50/z-10 over the
+   body content — watch for any app element painting over them).
+4. 1280 min width: confirm brand + 4 chips + gear + 3 buttons fit with no
+   horizontal scroll; the Modelo chip truncates and tagline/credit show at xl.
+5. Boot: during the "Preparando/Comprobando motor local" splash the bar shows
+   brand + window buttons only (no chips/gear), and the window stays draggable.
