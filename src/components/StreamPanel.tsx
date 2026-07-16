@@ -4,11 +4,11 @@ import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import type { BadgeTone } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
-import { cn } from "../lib/cn.js";
 import { Input } from "./ui/Input.js";
 import { Select } from "./ui/Select.js";
 import { Segmented } from "./ui/Segmented.js";
 import { Switch } from "./ui/Switch.js";
+import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "./ui/Collapsible.js";
 import { STREAM_FIXTURE, type StreamPresetLevel } from "../api/mock/fixtures.js";
 import {
   useStreamChatLiveQuery,
@@ -57,62 +57,15 @@ function isValidStreamUrl(value: string): boolean {
   }
 }
 
-// ─── Shared collapsible header ─────────────────────────────────────────────
-
-interface CollapsibleHeaderProps {
-  isOpen: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}
-
-function CollapsibleHeader({ isOpen, onToggle, children }: CollapsibleHeaderProps) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={isOpen}
-      onClick={onToggle}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); }
-      }}
-      className={cn(
-        "flex cursor-pointer select-none items-center justify-between gap-3",
-        isOpen && "border-b border-border-soft pb-3"
-      )}
-    >
-      {children}
-      <span
-        aria-hidden="true"
-        className={cn("shrink-0 text-xs text-dim transition-transform duration-200", !isOpen && "-rotate-90")}
-      >
-        ▾
-      </span>
-    </div>
-  );
-}
-
-// ─── Shared collapsible body ───────────────────────────────────────────────
-
-function CollapsibleBody({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) {
-  return (
-    <div
-      className={cn(
-        "grid transition-all duration-200 ease-in-out",
-        isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0"
-      )}
-    >
-      {/* overflow-hidden only while collapsed so the grid-rows animation clips
-          correctly, but removed when open so absolutely-positioned dropdowns
-          (Select listbox) are never cut off by this boundary. */}
-      <div className={cn("min-h-0", !isOpen && "overflow-hidden")}>{children}</div>
-    </div>
-  );
-}
+// StreamPanel used to carry a byte-identical local copy of CollapsibleHeader/
+// CollapsibleBody; after the P6 token normalization the shared ui/Collapsible
+// matches it exactly, so this panel now reuses the shared components (and its
+// useCollapsible hook, which adds localStorage persistence).
 
 // ─── Chat en vivo ─────────────────────────────────────────────────────────
 
 function ChatLiveCard() {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, toggle] = useCollapsible(true, "stream-chat-live");
   const [url, setUrl] = useState(STREAM_FIXTURE.url);
   const [error, setError] = useState<string | null>(null);
   const chatLiveQuery = useStreamChatLiveQuery();
@@ -148,7 +101,7 @@ function ChatLiveCard() {
 
   return (
     <Card className="flex flex-col p-4">
-      <CollapsibleHeader isOpen={isOpen} onToggle={() => setIsOpen((o) => !o)}>
+      <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">Chat en vivo</h2>
         <Badge tone={badge.tone}>{badge.label}</Badge>
       </CollapsibleHeader>
@@ -171,7 +124,7 @@ function ChatLiveCard() {
                   <button
                     type="submit"
                     disabled={connectMutation.isPending || connectionState === "conectado"}
-                    className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity duration-fast ease-io disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
                     Conectar
                   </button>
@@ -255,7 +208,7 @@ function presetForValue<T extends string>(value: string, presetValues: Record<T,
 // ─── Acciones ─────────────────────────────────────────────────────────────
 
 function AccionesCard() {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, toggle] = useCollapsible(true, "stream-acciones");
   const chatLiveQuery = useStreamChatLiveQuery();
   const limitsMutation = useStreamLimitsMutation();
 
@@ -278,7 +231,7 @@ function AccionesCard() {
 
   return (
     <Card className="flex flex-col p-4">
-      <CollapsibleHeader isOpen={isOpen} onToggle={() => setIsOpen((o) => !o)}>
+      <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">Acciones</h2>
         {pending && <Badge tone="info">aplicando…</Badge>}
       </CollapsibleHeader>
@@ -411,11 +364,11 @@ function AccionesCard() {
  * CTK (STREAM_ADMIN_ENABLED=False) pending an owner product decision — this
  * is a single honest deferred note, nothing interactive. */
 function DeferredStreamAdminNote() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, toggle] = useCollapsible(false, "stream-emision");
 
   return (
     <Card className="flex flex-col p-4">
-      <CollapsibleHeader isOpen={isOpen} onToggle={() => setIsOpen((o) => !o)}>
+      <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">Emisión (OAuth/metadata/moderación)</h2>
         <Badge tone="neutral">pendiente</Badge>
       </CollapsibleHeader>

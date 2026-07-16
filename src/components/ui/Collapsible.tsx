@@ -33,7 +33,7 @@ export function CollapsibleHeader({ isOpen, onToggle, children }: CollapsibleHea
       {children}
       <span
         aria-hidden="true"
-        className={cn("shrink-0 text-xs text-dim transition-transform duration-200", !isOpen && "-rotate-90")}
+        className={cn("shrink-0 text-xs text-dim transition-transform duration-base ease-io", !isOpen && "-rotate-90")}
       >
         ▾
       </span>
@@ -51,7 +51,7 @@ export function CollapsibleBody({ isOpen, children }: CollapsibleBodyProps) {
   return (
     <div
       className={cn(
-        "grid transition-all duration-200 ease-in-out",
+        "grid transition-all duration-base ease-io",
         isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0"
       )}
     >
@@ -67,8 +67,44 @@ export function CollapsibleBody({ isOpen, children }: CollapsibleBodyProps) {
 /*  useCollapsible — convenience hook for local open state             */
 /* ------------------------------------------------------------------ */
 
-/** Returns `[isOpen, toggle]` — saves two lines in every consumer. */
-export function useCollapsible(defaultOpen = true): [boolean, () => void] {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  return [isOpen, () => setIsOpen((o) => !o)];
+/** localStorage key for a persisted section — "1" open / "0" collapsed. */
+function collapseKey(persistKey: string): string {
+  return `oc-collapse-${persistKey}`;
+}
+
+function readPersistedOpen(persistKey: string | undefined, defaultOpen: boolean): boolean {
+  if (!persistKey) return defaultOpen;
+  try {
+    const raw = window.localStorage.getItem(collapseKey(persistKey));
+    return raw === null ? defaultOpen : raw === "1";
+  } catch {
+    return defaultOpen;
+  }
+}
+
+/**
+ * Returns `[isOpen, toggle]` — saves two lines in every consumer.
+ *
+ * With a `persistKey`, the initial state hydrates from
+ * `localStorage["oc-collapse-<persistKey>"]` ("1"/"0") and every toggle writes
+ * through, so a section's open/collapsed state survives the component
+ * unmounting on panel navigation. Without a `persistKey`, behaviour is
+ * unchanged: in-memory only, seeded from `defaultOpen`.
+ */
+export function useCollapsible(defaultOpen = true, persistKey?: string): [boolean, () => void] {
+  const [isOpen, setIsOpen] = useState(() => readPersistedOpen(persistKey, defaultOpen));
+  function toggle() {
+    setIsOpen((open) => {
+      const next = !open;
+      if (persistKey) {
+        try {
+          window.localStorage.setItem(collapseKey(persistKey), next ? "1" : "0");
+        } catch {
+          // best-effort persistence; the in-memory flip still holds
+        }
+      }
+      return next;
+    });
+  }
+  return [isOpen, toggle];
 }

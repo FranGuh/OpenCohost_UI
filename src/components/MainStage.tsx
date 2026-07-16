@@ -1,12 +1,5 @@
 import { KiraCover } from "./KiraCover.js";
-import { ProfileSwitcher } from "./ProfileSwitcher.js";
-import { ModelCard } from "./ModelCard.js";
-import { VoiceCard } from "./VoiceCard.js";
-import { PTTCard } from "./PTTCard.js";
-import { MemoryCard } from "./MemoryCard.js";
-import { PersonalizationCard } from "./PersonalizationCard.js";
-import { AvatarCard } from "./AvatarCard.js";
-import { ObsCard } from "./ObsCard.js";
+import { ControlsPanel } from "./ControlsPanel.js";
 import { AgendaPanel } from "./AgendaPanel.js";
 import { StreamPanel } from "./StreamPanel.js";
 import { MusicPanel } from "./MusicPanel.js";
@@ -29,14 +22,7 @@ export function MainStage({ activeSection }: MainStageProps) {
   if (activeSection === "controles") {
     return (
       <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
-        <ProfileSwitcher />
-        <ModelCard />
-        <VoiceCard />
-        <PTTCard />
-        <MemoryCard />
-        <PersonalizationCard />
-        <AvatarCard />
-        <ObsCard />
+        <ControlsPanel />
       </main>
     );
   }
