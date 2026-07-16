@@ -137,6 +137,15 @@ pub struct BackendState {
     /// backend gets killed by the OS if this process dies without running
     /// `shutdown_backend`.
     pub job: Mutex<Option<job_object::JobObject>>,
+    /// The global F10 push-to-talk bridge child (`ptt_f10_bridge.py`), if it
+    /// was spawned — killed in `shutdown_backend` regardless of `info.managed`
+    /// (the bridge is always ours, even when the backend was a reused one).
+    pub ptt_child: Mutex<Option<Child>>,
+    /// The bridge's own Job Object — only `Some` when the backend was reused
+    /// and so had no job of ours to share; otherwise the bridge is a member of
+    /// `job` above. Held for the app's lifetime for the same crash-orphan
+    /// guarantee as `job`.
+    pub ptt_job: Mutex<Option<job_object::JobObject>>,
 }
 
 #[tauri::command]
@@ -329,18 +338,13 @@ fn resolve_log_path(config: &BackendConfig) -> PathBuf {
     env::temp_dir().join("opencohost-backend.log")
 }
 
-/// Spawns `python -m uvicorn {app_module} --host 127.0.0.1 --port {port}
-/// --workers 1` exactly like run-api.bat, with PYTHONPATH=working_dir,
-/// stdout/stderr truncated into the log file, and no inherited console
-/// window on Windows.
-///
-/// A log file failure (create or clone) must never abort spawning the
-/// backend — logging is a nice-to-have, the backend process itself is not.
-/// On any log setup failure this falls back to `Stdio::null()` for both
-/// streams and continues.
-fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
-    let log_path = resolve_log_path(config);
-    let (stdout, stderr) = match fs::File::create(&log_path) {
+/// Opens `log_path` (truncating) as the stdout+stderr targets for a spawned
+/// child. A log failure (create or clone) must never abort a spawn — logging
+/// is a nice-to-have, the process itself is not — so any IO error falls back
+/// to `Stdio::null()` for both streams. Shared by `spawn_backend` and
+/// `spawn_ptt_bridge_process`.
+fn log_stdio(log_path: &Path) -> (Stdio, Stdio) {
+    match fs::File::create(log_path) {
         Ok(log_out) => match log_out.try_clone() {
             Ok(log_err) => (Stdio::from(log_out), Stdio::from(log_err)),
             Err(err) => {
@@ -356,7 +360,16 @@ fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
             );
             (Stdio::null(), Stdio::null())
         }
-    };
+    }
+}
+
+/// Spawns `python -m uvicorn {app_module} --host 127.0.0.1 --port {port}
+/// --workers 1` exactly like run-api.bat, with PYTHONPATH=working_dir,
+/// stdout/stderr truncated into the log file, and no inherited console
+/// window on Windows.
+fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
+    let log_path = resolve_log_path(config);
+    let (stdout, stderr) = log_stdio(&log_path);
 
     let mut command = Command::new(&config.python_path);
     command
@@ -613,16 +626,134 @@ fn resolve_backend(config: &BackendConfig) -> SpawnOutcome {
     }
 }
 
-/// Called from `main.rs`'s `.setup(...)` — resolves the backend and
-/// registers `BackendState` so `backend_info` and `shutdown_backend` can
-/// reach it.
+/// The spawned F10 push-to-talk bridge child, plus its own Job Object when one
+/// had to be created for it (see `spawn_ptt_bridge`). Both `None` when the
+/// bridge wasn't spawned (guards failed) or failed to spawn.
+#[derive(Default)]
+struct PttBridge {
+    child: Option<Child>,
+    job: Option<job_object::JobObject>,
+}
+
+/// Spawns the standalone global push-to-talk bridge (`ptt_f10_bridge.py` at
+/// `config.working_dir`) as a second managed child, mirroring `spawn_backend`'s
+/// process setup: the same resolved `python_path`, run from `working_dir` with
+/// `PYTHONPATH=working_dir`, `CREATE_NO_WINDOW`, and stdout/stderr truncated
+/// into `%TEMP%\opencohost-ptt-bridge.log`.
+///
+/// Best-effort by contract: the bridge is a convenience (global F10 hold-to-
+/// talk while any other app is focused), never load-bearing for the shell. Any
+/// failure — missing script, spawn IO error — is logged and swallowed so the
+/// app always comes up.
+///
+/// Guards: only spawns when `config.spawn == true` AND the script file exists.
+///
+/// Job Object: assigned to the backend's existing kill-on-close job when we
+/// have one (backend was spawned by us), so it dies with the app exactly like
+/// the backend. When the backend was reused (already healthy, no job of ours),
+/// a fresh job is created for the bridge and returned to be held for the app's
+/// lifetime in `BackendState.ptt_job`.
+fn spawn_ptt_bridge(
+    config: &BackendConfig,
+    backend_job: Option<&job_object::JobObject>,
+    token: Option<&str>,
+) -> PttBridge {
+    if !config.spawn {
+        return PttBridge::default();
+    }
+
+    let script = Path::new(&config.working_dir).join("ptt_f10_bridge.py");
+    if !script.exists() {
+        eprintln!(
+            "backend.rs: PTT bridge script not found at {script:?} — skipping global F10 push-to-talk"
+        );
+        return PttBridge::default();
+    }
+
+    let child = match spawn_ptt_bridge_process(config, &script, token) {
+        Ok(child) => child,
+        Err(err) => {
+            eprintln!(
+                "backend.rs: failed to spawn PTT bridge from {script:?}: {err} — continuing without global F10 push-to-talk"
+            );
+            return PttBridge::default();
+        }
+    };
+
+    // Reuse the backend's job object when we own one; otherwise give the
+    // bridge its own so it still dies with the app.
+    let own_job = match backend_job {
+        Some(job) => {
+            job.assign_existing(&child);
+            None
+        }
+        None => job_object::JobObject::assign(&child),
+    };
+
+    PttBridge { child: Some(child), job: own_job }
+}
+
+/// Spawns `python <script>` from `config.working_dir`, mirroring
+/// `spawn_backend` (shared `log_stdio`, `PYTHONPATH`, `CREATE_NO_WINDOW`).
+/// Passes the operator token through as `OPENCOHOST_API_TOKEN` when one was
+/// resolved — otherwise the bridge inherits the parent env and degrades to
+/// sending no Authorization header, exactly like the frontend does today.
+fn spawn_ptt_bridge_process(
+    config: &BackendConfig,
+    script: &Path,
+    token: Option<&str>,
+) -> std::io::Result<Child> {
+    let log_path = env::temp_dir().join("opencohost-ptt-bridge.log");
+    let (stdout, stderr) = log_stdio(&log_path);
+
+    let mut command = Command::new(&config.python_path);
+    command
+        .arg(script)
+        .env("PYTHONPATH", &config.working_dir)
+        .current_dir(&config.working_dir)
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr);
+
+    if let Some(token) = token {
+        command.env("OPENCOHOST_API_TOKEN", token);
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW — never flash/inherit a console window.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command.spawn()
+}
+
+/// Called from `main.rs`'s `.setup(...)` — resolves the backend, spawns the
+/// global PTT bridge, and registers `BackendState` so `backend_info` and
+/// `shutdown_backend` can reach both.
 pub fn setup_backend(app: &tauri::App) -> tauri::Result<()> {
     let config = BackendConfig::load();
     let outcome = resolve_backend(&config);
+
+    // Best-effort operator token handoff for the bridge: a single, non-blocking
+    // sweep of the same candidates `api_token` reads. The token file may not be
+    // minted this early (the backend was just spawned) — that's fine while auth
+    // enforcement is off (D2): the bridge sends no header, same as the frontend.
+    // ponytail: single sweep, no retry — revisit (read the token inside the
+    // bridge, or delay its spawn) only when API auth enforcement is switched on.
+    let token_candidates = resolve_token_file_candidates(&config.working_dir);
+    let token = read_operator_token_with_retry(&token_candidates, 1, Duration::from_millis(0));
+
+    let bridge = spawn_ptt_bridge(&config, outcome.job.as_ref(), token.as_deref());
+
     app.manage(BackendState {
         info: outcome.info,
         child: Mutex::new(outcome.child),
         job: Mutex::new(outcome.job),
+        ptt_child: Mutex::new(bridge.child),
+        ptt_job: Mutex::new(bridge.job),
     });
     Ok(())
 }
@@ -636,19 +767,19 @@ pub fn shutdown_backend(app_handle: &tauri::AppHandle) {
     let Some(state) = app_handle.try_state::<BackendState>() else {
         return;
     };
+
+    // The PTT bridge is spawned independently of whether the backend was
+    // managed, so kill it first — before the `!managed` early return below —
+    // otherwise a reused (unmanaged) backend would orphan the bridge.
+    kill_child(&state.ptt_child);
+    if let Ok(mut job_guard) = state.ptt_job.lock() {
+        job_guard.take();
+    }
+
     if !state.info.managed {
         return;
     }
-    let mut guard = match state.child.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    if let Some(mut child) = guard.take() {
-        // --workers 1 is a single process — no process-tree kill needed.
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    drop(guard);
+    kill_child(&state.child);
 
     // Explicit clean shutdown already killed the child above; drop the Job
     // Object handle too so it isn't held open longer than necessary. This is
@@ -658,6 +789,20 @@ pub fn shutdown_backend(app_handle: &tauri::AppHandle) {
     if let Ok(mut job_guard) = state.job.lock() {
         job_guard.take();
     };
+}
+
+/// Kills and reaps the child held in `slot`, if any. Poisoned-lock tolerant —
+/// shutdown must make its best effort regardless of a panicked holder.
+/// `--workers 1` / the single bridge process means no process-tree kill.
+fn kill_child(slot: &Mutex<Option<Child>>) {
+    let mut guard = match slot.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 /// Windows Job Object wiring for WU-E M2 (orphan-on-crash prevention).
@@ -735,6 +880,21 @@ mod job_object {
                 Some(JobObject(job))
             }
         }
+
+        /// Assigns an additional, already-spawned `child` to this same job so
+        /// it shares the kill-on-close guarantee. Returns `true` on success; a
+        /// failure just means this extra child loses the crash-orphan
+        /// guarantee — never fatal, never aborts an already-successful spawn.
+        pub fn assign_existing(&self, child: &Child) -> bool {
+            unsafe {
+                let process_handle = child.as_raw_handle() as HANDLE;
+                if AssignProcessToJobObject(self.0, process_handle) == 0 {
+                    eprintln!("backend.rs: AssignProcessToJobObject (PTT bridge) failed, bridge won't be killed on host crash");
+                    return false;
+                }
+                true
+            }
+        }
     }
 
     impl Drop for JobObject {
@@ -758,6 +918,10 @@ mod job_object {
     impl JobObject {
         pub fn assign(_child: &Child) -> Option<Self> {
             None
+        }
+
+        pub fn assign_existing(&self, _child: &Child) -> bool {
+            false
         }
     }
 }
