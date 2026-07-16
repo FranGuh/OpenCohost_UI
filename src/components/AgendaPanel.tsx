@@ -180,7 +180,67 @@ function ProfileSessionCard() {
 
       <CollapsibleBody isOpen={isOpen}>
       <div className="flex flex-col gap-3.5">
-        <section aria-labelledby="agenda-profile-label" className="space-y-2">
+        {/* Sesión group first (owner order 2026-07-15): auto-saving fields that
+            "se aplica al instante" lead, then the divider, then the manually
+            saved Identidad/Estilo profile. Session errors surface atop this
+            group; profile save errors stay under the save button below. */}
+        {data && (
+          <section aria-labelledby="agenda-session-settings-label" className="space-y-2 pb-1">
+            <div className="flex items-baseline gap-2">
+              {sectionLabel("agenda-session-settings-label", "Sesión")}
+              <span className="mono text-[10px] text-dim">se aplica al instante</span>
+            </div>
+            {sessionErrorMessage && <Alert tone="danger">{sessionErrorMessage}</Alert>}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <span className="text-xs text-muted-foreground">Turnos por tema</span>
+                <Select
+                  aria-label="Turnos por tema"
+                  options={TURN_OPTIONS}
+                  value={turns}
+                  disabled={updateSession.isPending}
+                  className={"z-20"}
+                  onChange={(value) => {
+                    updateSession.mutate({ max_turns_per_topic: Number(value) });
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <span className="text-xs text-muted-foreground">Modo de seguridad en vivo</span>
+                <Select
+                  aria-label="Modo de seguridad en vivo"
+                  options={SAFETY_MODE_OPTIONS}
+                  value={safetyMode}
+                  disabled={updateSession.isPending}
+                  className={"z-20"}
+                  onChange={(value) => {
+                    updateSession.mutate({ safety_mode: value });
+                  }}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <span className="text-xs text-muted-foreground">Ritmo</span>
+              <Segmented
+                ariaLabel="Ritmo"
+                options={RHYTHM_OPTIONS}
+                value={rhythm}
+                disabled={updateSession.isPending}
+                className="mb-1"
+                onChange={(value) => {
+                  updateSession.mutate({ rhythm: value });
+                }}
+              />
+            </div>
+          </section>
+        )}
+
+        {/* Divider sits between the session group and Identidad — only when the
+            session group above it actually rendered (data present). */}
+        <section
+          aria-labelledby="agenda-profile-label"
+          className={`space-y-2 ${data ? "border-t border-border-soft pt-3.5" : ""}`}
+        >
           {sectionLabel("agenda-profile-label", "Identidad")}
           <div className="space-y-1">
             <span className="text-xs text-muted-foreground">Perfil guardado</span>
@@ -240,57 +300,6 @@ function ProfileSessionCard() {
           </div>
           {profileErrorMessage && <Alert tone="danger">{profileErrorMessage}</Alert>}
         </section>
-
-        {data && (
-          <section aria-labelledby="agenda-session-settings-label" className="space-y-2 border-t border-border-soft pt-3.5 pb-1">
-            <div className="flex items-baseline gap-2">
-              {sectionLabel("agenda-session-settings-label", "Sesión")}
-              <span className="mono text-[10px] text-dim">se aplica al instante</span>
-            </div>
-            {sessionErrorMessage && <Alert tone="danger">{sessionErrorMessage}</Alert>}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Turnos por tema</span>
-                <Select
-                  aria-label="Turnos por tema"
-                  options={TURN_OPTIONS}
-                  value={turns}
-                  disabled={updateSession.isPending}
-                  className={"z-20"}
-                  onChange={(value) => {
-                    updateSession.mutate({ max_turns_per_topic: Number(value) });
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Modo de seguridad en vivo</span>
-                <Select
-                  aria-label="Modo de seguridad en vivo"
-                  options={SAFETY_MODE_OPTIONS}
-                  value={safetyMode}
-                  disabled={updateSession.isPending}
-                  className={"z-20"}
-                  onChange={(value) => {
-                    updateSession.mutate({ safety_mode: value });
-                  }}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground">Ritmo</span>
-              <Segmented
-                ariaLabel="Ritmo"
-                options={RHYTHM_OPTIONS}
-                value={rhythm}
-                disabled={updateSession.isPending}
-                className="mb-1"
-                onChange={(value) => {
-                  updateSession.mutate({ rhythm: value });
-                }}
-              />
-            </div>
-          </section>
-        )}
       </div>
       </CollapsibleBody>
     </Card>

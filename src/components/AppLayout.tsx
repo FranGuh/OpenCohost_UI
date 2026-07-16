@@ -20,6 +20,20 @@ const GRID_STYLE = {
   backgroundColor: "var(--background)"
 } as const;
 
+// Sidebar column width: full nav vs. icon-only rail. The width animates via the
+// grid-template-columns transition below (reduced-motion is globally neutralized
+// in styles.css).
+const SIDEBAR_WIDTH = { expanded: "248px", collapsed: "60px" } as const;
+const SIDEBAR_COLLAPSED_KEY = "oc-sidebar-collapsed";
+
+function readSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Theme-independent player grid shell (top/side/main/queue/player). Owns
  * the working nav switch (Experiencia / Controles / Agenda) and hands it
@@ -41,6 +55,11 @@ const GRID_STYLE = {
  */
 export function AppLayout() {
   const [activeSection, setActiveSection] = useState<Section>("experiencia");
+  // Collapsed rail state lives here — AppLayout sizes the sidebar grid column
+  // and Sidebar renders the rail, so this is their nearest shared owner (no new
+  // module store needed). Persisted under "oc-sidebar-collapsed" ("1"/"0"),
+  // mirroring the oc-collapse-* / oc-density idiom.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const restoreWelcome = useWelcomeStore((state) => state.restore);
 
   function handleShowWelcome() {
@@ -48,16 +67,39 @@ export function AppLayout() {
     setActiveSection("experiencia");
   }
 
+  function toggleSidebar() {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // best-effort persistence; the in-memory flip still holds
+      }
+      return next;
+    });
+  }
+
+  const gridStyle = {
+    ...GRID_STYLE,
+    gridTemplateColumns: `${sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded} 1fr 372px`,
+    transition: "grid-template-columns var(--dur-base) var(--ease-io)"
+  };
+
   return (
     <ProfileSwitchProvider>
       <PlaybackProvider>
         <MusicDuckingWatcher />
-        <div className="min-w-[1180px] text-foreground" style={GRID_STYLE}>
+        <div className="min-w-[1180px] text-foreground" style={gridStyle}>
           <div className="grid [grid-area:top]">
             <TopBar onShowWelcome={handleShowWelcome} />
           </div>
           <div className="grid min-h-0 [grid-area:side]">
-            <Sidebar activeSection={activeSection} onSelect={setActiveSection} />
+            <Sidebar
+              activeSection={activeSection}
+              onSelect={setActiveSection}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={toggleSidebar}
+            />
           </div>
           <div className="grid min-h-0 min-w-0 [grid-area:main]">
             <MainStage activeSection={activeSection} />

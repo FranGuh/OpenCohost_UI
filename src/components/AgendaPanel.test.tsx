@@ -308,11 +308,13 @@ describe("AgendaPanel co-host profile save fires POST /api/agenda/cohost-profile
   });
 });
 
-describe("AgendaPanel Perfil Co-host form regroups Identidad → Estilo → Guardar perfil → Sesión (UI refresh Phase 5)", () => {
-  it("renders visible field labels and section headers in visual/document order, ending with the session group", async () => {
+describe("AgendaPanel Perfil Co-host form regroups Sesión → Identidad → Estilo → Guardar perfil (owner order 2026-07-15)", () => {
+  it("renders visible field labels and section headers in visual/document order, leading with the session group", async () => {
     renderPanel();
     await screen.findByLabelText("Turnos por tema");
 
+    const sesion = screen.getByText("Sesión");
+    const instantChip = screen.getByText("se aplica al instante");
     const identidad = screen.getByText("Identidad");
     const perfilGuardado = screen.getByText("Perfil guardado");
     const nombre = screen.getByText("Nombre");
@@ -320,10 +322,8 @@ describe("AgendaPanel Perfil Co-host form regroups Identidad → Estilo → Guar
     const comoSuenaKira = screen.getByText("Cómo suena Kira");
     const saveButton = screen.getByRole("button", { name: "Guardar perfil" });
     const helper = screen.getByText("Guarda el nombre y el estilo como un perfil reutilizable.");
-    const sesion = screen.getByText("Sesión");
-    const instantChip = screen.getByText("se aplica al instante");
 
-    const ordered = [identidad, perfilGuardado, nombre, estilo, comoSuenaKira, helper, saveButton, sesion, instantChip];
+    const ordered = [sesion, instantChip, identidad, perfilGuardado, nombre, estilo, comoSuenaKira, helper, saveButton];
     for (let i = 0; i < ordered.length - 1; i += 1) {
       expect(
         ordered[i].compareDocumentPosition(ordered[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
-import { Info } from "lucide-react";
+import { Info, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
 import { usePerfilDetailQuery } from "../api/profiles.js";
 import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
@@ -55,7 +55,7 @@ interface PreviewState {
  * ponytail: this index-mapping couples to that render shape; a data-attr on the
  * row would decouple it, but that file is out of scope here.
  */
-function ProfilesRegion() {
+function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
   const { profiles } = useProfileSwitchContext();
   const regionRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -182,7 +182,7 @@ function ProfilesRegion() {
       onFocus={handleFocus}
       onBlur={hide}
     >
-      <ProfilePlaylist />
+      <ProfilePlaylist collapsed={collapsed} />
       {preview && (
         <div
           id={cardId}
@@ -220,13 +220,30 @@ function ProfilesRegion() {
 export interface SidebarProps {
   activeSection: Section;
   onSelect: (section: Section) => void;
+  /** Icon-rail mode: nav labels + profile text hide, only icons/avatars show. */
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 /** <nav> region — primary nav (all 5 sections wired, flat and honest) +
- * the profiles-as-playlists list below the separator. */
-export function Sidebar({ activeSection, onSelect }: SidebarProps) {
+ * the profiles-as-playlists list below the separator. Collapses to a ~60px
+ * icon rail when `collapsed`, keeping every nav item's accessible name via
+ * aria-label (the visible label is what's hidden). */
+export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCollapse }: SidebarProps) {
   return (
     <nav className="flex min-h-0 flex-col overflow-auto border-r border-border-soft bg-card py-3">
+      <div className={cn("flex px-2 pb-2", collapsed ? "justify-center" : "justify-end")}>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+          title={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
+        </button>
+      </div>
+
       <div className="flex flex-col gap-1 px-2 pb-2">
         {NAV_ITEMS.map((item) => {
           const isActive = item.id === activeSection;
@@ -235,16 +252,21 @@ export function Sidebar({ activeSection, onSelect }: SidebarProps) {
               key={item.id}
               type="button"
               aria-current={isActive ? "true" : undefined}
+              // Accessible name survives collapse: the visible label is hidden,
+              // so aria-label carries it (and title gives a hover tooltip).
+              aria-label={item.label}
+              title={collapsed ? item.label : undefined}
               onClick={() => onSelect(item.id)}
               className={cn(
-                "flex h-9 items-center gap-3 rounded-md px-3 font-mono text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io",
+                "flex h-9 items-center rounded-md font-mono text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
                 "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 "hover:bg-surface-2 hover:text-foreground",
                 isActive && "bg-ok-bg text-[var(--kira-cyan)]"
               )}
             >
               <span aria-hidden="true">{item.icon}</span>
-              {item.label}
+              {!collapsed && item.label}
             </button>
           );
         })}
@@ -252,7 +274,7 @@ export function Sidebar({ activeSection, onSelect }: SidebarProps) {
 
       <div className="mx-2 my-1 border-t border-border-soft" />
 
-      <ProfilesRegion />
+      <ProfilesRegion collapsed={collapsed} />
     </nav>
   );
 }

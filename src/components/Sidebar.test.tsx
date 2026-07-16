@@ -15,13 +15,22 @@ const CLOSE_FADE_MS = 220;
 // Akira's stored prompt in the default GET /api/perfiles/:name fixture.
 const AKIRA_PROMPT = defaultProfileDetails.Akira.prompt;
 
-function renderSidebar() {
+function renderSidebar(overrides: { collapsed?: boolean; onSelect?: (s: string) => void; onToggleCollapse?: () => void } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(ProfileSwitchProvider, null, React.createElement(Sidebar, { activeSection: "experiencia", onSelect: () => {} }))
+      React.createElement(
+        ProfileSwitchProvider,
+        null,
+        React.createElement(Sidebar, {
+          activeSection: "experiencia",
+          onSelect: overrides.onSelect ?? (() => {}),
+          collapsed: overrides.collapsed ?? false,
+          onToggleCollapse: overrides.onToggleCollapse ?? (() => {})
+        })
+      )
     )
   );
 }
@@ -32,6 +41,38 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("Sidebar — collapsible icon rail", () => {
+  it("renders a collapse toggle that calls onToggleCollapse when expanded", () => {
+    const onToggleCollapse = vi.fn();
+    renderSidebar({ onToggleCollapse });
+
+    const toggle = screen.getByRole("button", { name: "Colapsar barra lateral" });
+    fireEvent.click(toggle);
+
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapsed: nav shows icons only (labels hidden) but keeps accessible names, and the toggle flips to Expandir", () => {
+    renderSidebar({ collapsed: true });
+
+    // Accessible name survives via aria-label...
+    expect(screen.getByRole("button", { name: "Experiencia" })).toBeInTheDocument();
+    // ...but the visible label text is gone.
+    expect(screen.queryByText("Experiencia")).not.toBeInTheDocument();
+    // Toggle now offers to expand.
+    expect(screen.getByRole("button", { name: "Expandir barra lateral" })).toBeInTheDocument();
+  });
+
+  it("collapsed: nav still navigates on click", () => {
+    const onSelect = vi.fn();
+    renderSidebar({ collapsed: true, onSelect });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agenda" }));
+
+    expect(onSelect).toHaveBeenCalledWith("agenda");
+  });
 });
 
 describe("Sidebar — profile hover-intent preview card", () => {

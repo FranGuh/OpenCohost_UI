@@ -12,13 +12,13 @@ import { ProfilePlaylist } from "./ProfilePlaylist.js";
 // Akira's stored prompt in the default GET /api/perfiles/:name fixture.
 const AKIRA_PROMPT = "Sos ingeniosa y filosa, con humor seco.";
 
-function renderList() {
+function renderList(props: { collapsed?: boolean } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     React.createElement(
       QueryClientProvider,
       { client: queryClient },
-      React.createElement(ProfileSwitchProvider, null, React.createElement(ProfilePlaylist))
+      React.createElement(ProfileSwitchProvider, null, React.createElement(ProfilePlaylist, props))
     )
   );
 }
@@ -42,6 +42,32 @@ describe("ProfilePlaylist", () => {
     fireEvent.click(screen.getByText("Akira"));
 
     await waitFor(() => expect(screen.getByText("aplicando…")).toBeInTheDocument());
+  });
+});
+
+describe("ProfilePlaylist — collapsed icon rail", () => {
+  it("renders avatar-only rows: name/status text hidden, edit pencil gone, header replaced by an icon-only add button", async () => {
+    renderList({ collapsed: true });
+    // Row is reachable by its accessible name (aria-label carries it)...
+    await waitFor(() => expect(screen.getByRole("button", { name: "Akira" })).toBeInTheDocument());
+    // ...but the visible name/status text and the "Perfiles" header are gone.
+    expect(screen.queryByText("Akira")).not.toBeInTheDocument();
+    expect(screen.queryByText("Perfiles")).not.toBeInTheDocument();
+    // The avatar initial still renders.
+    expect(screen.getByText("A")).toBeInTheDocument();
+    // No per-row edit pencil on the rail.
+    expect(screen.queryByRole("button", { name: "Editar perfil Akira" })).not.toBeInTheDocument();
+    // "+ Nuevo" collapses to an icon-only button.
+    expect(screen.getByRole("button", { name: "Nuevo perfil" })).toBeInTheDocument();
+  });
+
+  it("still switches profile on row click when collapsed", async () => {
+    renderList({ collapsed: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Akira" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Akira" }));
+
+    await waitFor(() => expect(useSwitchStore.getState().pendingSwitch?.name).toBe("Akira"));
   });
 });
 

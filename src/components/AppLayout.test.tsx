@@ -51,6 +51,31 @@ describe("AppLayout", () => {
     expect(screen.getByRole("button", { name: "Configuración" })).toHaveFocus();
   });
 
+  it("hydrates the sidebar collapsed state from localStorage (oc-sidebar-collapsed)", () => {
+    window.localStorage.setItem("oc-sidebar-collapsed", "1");
+    renderApp();
+
+    // Collapsed: the toggle offers to expand, and nav labels are icon-only
+    // (accessible name kept via aria-label, visible text gone).
+    expect(screen.getByRole("button", { name: "Expandir barra lateral" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Experiencia" })).toBeInTheDocument();
+    expect(screen.queryByText("Experiencia")).not.toBeInTheDocument();
+  });
+
+  it("toggling the sidebar collapse persists the choice to localStorage", () => {
+    renderApp();
+    // Default expanded (localStorage cleared in beforeEach).
+    expect(screen.queryByText("Experiencia")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Colapsar barra lateral" }));
+    expect(window.localStorage.getItem("oc-sidebar-collapsed")).toBe("1");
+    expect(screen.queryByText("Experiencia")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expandir barra lateral" }));
+    expect(window.localStorage.getItem("oc-sidebar-collapsed")).toBe("0");
+    expect(screen.queryByText("Experiencia")).toBeInTheDocument();
+  });
+
   it("switches to Controles on nav click and marks aria-current", () => {
     renderApp();
     const controlesBtn = screen.getByRole("button", { name: /Controles/ });
