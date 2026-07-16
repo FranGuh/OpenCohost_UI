@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { useEventStore } from "../store/eventStore.js";
 import {
@@ -14,7 +14,9 @@ import {
   defaultAgenda,
   evolvingAgendaHandler,
   evolvingLastReplyHandler,
-  lastReplyHandler
+  lastReplyHandler,
+  pttSessionFlowHandlers,
+  pttStartUnreachableHandler
 } from "../test/handlers.js";
 import { ConversationPanel } from "./ConversationPanel.js";
 
@@ -48,29 +50,220 @@ describe("ConversationPanel", () => {
 
   it("filters the visible turns by tab and wires honest tab<->tabpanel ARIA", async () => {
     server.use(lastReplyHandler({ text: "todo bien por acá", turn_id: 1 }));
+    // The muted-viewers notice is no longer an in-timeline alert (it now
+    // anchors above the composer); use an injected app-event divider as the
+    // alert-kind turn this filtering test asserts against.
+    act(() => {
+      useEventStore
+        .getState()
+        .append({ id: "e-filter", ts: Date.now(), source: "model", label: "Modelo → qwen3:8b", tone: "ok" });
+    });
     renderPanel();
     await screen.findByText("todo bien por acá");
     const chatTab = screen.getByRole("tab", { name: "Chat" });
     const alertasTab = screen.getByRole("tab", { name: "Alertas" });
 
-    // Todo (default): both a chat turn and the alert are visible.
+    // Todo (default): both a chat turn and the alert-kind divider are visible.
     const todoPanel = screen.getByRole("tabpanel");
     expect(todoPanel).toHaveTextContent(/todo bien por acá/);
-    expect(todoPanel).toHaveTextContent(/silenciado/);
+    expect(todoPanel).toHaveTextContent(/Modelo → qwen3:8b/);
 
     fireEvent.click(chatTab);
     const chatPanel = screen.getByRole("tabpanel");
     expect(chatTab).toHaveAttribute("aria-controls", chatPanel.id);
     expect(chatPanel).toHaveAttribute("aria-labelledby", chatTab.id);
     expect(chatPanel).toHaveTextContent(/todo bien por acá/);
-    expect(chatPanel).not.toHaveTextContent(/silenciado/);
+    expect(chatPanel).not.toHaveTextContent(/Modelo → qwen3:8b/);
 
     fireEvent.click(alertasTab);
     const alertasPanel = screen.getByRole("tabpanel");
     expect(alertasTab).toHaveAttribute("aria-controls", alertasPanel.id);
     expect(alertasPanel).toHaveAttribute("aria-labelledby", alertasTab.id);
-    expect(alertasPanel).toHaveTextContent(/silenciado/);
+    expect(alertasPanel).toHaveTextContent(/Modelo → qwen3:8b/);
     expect(alertasPanel).not.toHaveTextContent(/todo bien por acá/);
+  });
+});
+
+describe("ConversationPanel — empty state + viewers-muted banner (P3/§3b)", () => {
+  it("shows the Kira empty-state invitation on Todo when no chat turns have landed", () => {
+    renderPanel();
+    expect(screen.getByText("Empezá a chatear con Kira")).toBeInTheDocument();
+    expect(screen.getByText(/mantené el micrófono para hablarle/i)).toBeInTheDocument();
+  });
+
+  it("keeps the invitation even when only alert-kind event lines exist (motor.* must not kill it)", () => {
+    act(() => {
+      useEventStore.getState().append({ id: "e-motor", ts: Date.now(), source: "model", label: "Motor: listo", tone: "ok" });
+    });
+    renderPanel();
+    expect(screen.getByText("Empezá a chatear con Kira")).toBeInTheDocument();
+    expect(screen.getByText("Motor: listo")).toBeInTheDocument();
+  });
+
+  it("dismisses the invitation once a chat turn lands", async () => {
+    server.use(lastReplyHandler({ text: "hola operador", turn_id: 1 }));
+    renderPanel();
+    await screen.findByText("hola operador");
+    expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
+  });
+
+  it("keeps 'Sin turnos en este filtro.' as the Alertas empty case, not the invitation", () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole("tab", { name: "Alertas" }));
+    expect(screen.getByText("Sin turnos en este filtro.")).toBeInTheDocument();
+    expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
+  });
+
+  it("anchors the viewers-muted banner exactly once, outside the scrollable timeline", () => {
+    renderPanel();
+    expect(screen.getAllByText("Chat de viewers silenciado")).toHaveLength(1);
+    // The banner lives above the composer, not inside the scroll region.
+    expect(screen.getByRole("tabpanel")).not.toHaveTextContent(/Chat de viewers silenciado/);
+  });
+});
+
+describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", () => {
+  it("holds to talk: pointerdown starts a PTT session, pointerup stops it", async () => {
+    let startCalls = 0;
+    let stopCalls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, () => {
+        startCalls += 1;
+        return HttpResponse.json({ session_id: "s1", state: "listening" });
+      }),
+      http.post(`${API_BASE_URL}/api/ptt/stop`, () => {
+        stopCalls += 1;
+        return HttpResponse.json({ state: "flushing" });
+      })
+    );
+    renderPanel();
+
+    const mic = screen.getByRole("button", { name: "Mantené para hablar con Kira" });
+    fireEvent.pointerDown(mic, { pointerId: 1 });
+    await waitFor(() => expect(startCalls).toBe(1));
+
+    const listeningMic = await screen.findByRole("button", { name: "Escuchando… soltá para enviar" });
+    expect(listeningMic).toHaveAttribute("aria-pressed", "true");
+    fireEvent.pointerUp(listeningMic, { pointerId: 1 });
+    await waitFor(() => expect(stopCalls).toBe(1));
+  });
+
+  it("registers NO window-level key listener — a window Space never starts PTT from the composer", async () => {
+    let startCalls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, () => {
+        startCalls += 1;
+        return HttpResponse.json({ session_id: "s1", state: "listening" });
+      })
+    );
+    renderPanel();
+
+    fireEvent.keyDown(window, { code: "Space" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(startCalls).toBe(0);
+  });
+
+  it("confirms the send with a 'Turno de voz enviado' chip after a completed hold", async () => {
+    server.use(...pttSessionFlowHandlers(1));
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+    const listeningMic = await screen.findByRole("button", { name: "Escuchando… soltá para enviar" });
+    fireEvent.pointerUp(listeningMic, { pointerId: 1 });
+
+    await waitFor(() => expect(screen.getByText("Turno de voz enviado")).toBeInTheDocument(), { timeout: 4000 });
+  });
+
+  it("surfaces a 503 stt_unreachable honestly in the composer and never fakes listening", async () => {
+    server.use(pttStartUnreachableHandler());
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+
+    await waitFor(() => expect(screen.getByText(/STT \(WhisperLive\) no disponible/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Escuchando… soltá para enviar" })).not.toBeInTheDocument();
+  });
+
+  it("fills the mic while HELD (listening) and drains it on release", async () => {
+    let stopCalls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, () => HttpResponse.json({ session_id: "s1", state: "listening" })),
+      http.post(`${API_BASE_URL}/api/ptt/stop`, () => {
+        stopCalls += 1;
+        return HttpResponse.json({ state: "flushing" });
+      })
+    );
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+    const listeningMic = await screen.findByRole("button", { name: "Escuchando… soltá para enviar" });
+
+    // The fill layer is present and carries the filling class while listening.
+    const fill = listeningMic.querySelector(".mic-fill");
+    expect(fill).not.toBeNull();
+    expect(fill).toHaveClass("mic-fill--filling");
+
+    // Release → no longer filling (it drains); the layer stays mounted.
+    fireEvent.pointerUp(listeningMic, { pointerId: 1 });
+    await waitFor(() => expect(stopCalls).toBe(1));
+    await waitFor(() => expect(listeningMic.querySelector(".mic-fill")).not.toHaveClass("mic-fill--filling"));
+  });
+});
+
+describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
+  // Injects an alert-kind app event, the simplest synchronous append.
+  function appendEvent(id: string) {
+    act(() => {
+      useEventStore.getState().append({ id, ts: Date.now(), source: "model", label: "Modelo → qwen3:8b", tone: "ok" });
+    });
+  }
+
+  it("smooth-scrolls to the bottom when a turn appends while near the bottom", async () => {
+    renderPanel();
+    const panel = screen.getByRole("tabpanel");
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+    // jsdom has no layout: scrollHeight/scrollTop/clientHeight all read 0, so
+    // distance-from-bottom is 0 (<= threshold) — i.e. "near the bottom".
+
+    appendEvent("e-near");
+
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+    expect(scrollSpy.mock.calls[0][0]).toMatchObject({ behavior: "smooth" });
+    expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the jump button (no yank) when a turn appends while scrolled up", async () => {
+    renderPanel();
+    const panel = screen.getByRole("tabpanel");
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+    // Force a scrolled-up geometry: distance-from-bottom = 1000 - 0 - 300 = 700 > 80.
+    Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
+    panel.scrollTop = 0;
+
+    appendEvent("e-up");
+
+    expect(await screen.findByRole("button", { name: /Ver lo más reciente/ })).toBeInTheDocument();
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it("scrolls to the bottom and hides the button when the jump button is clicked", async () => {
+    renderPanel();
+    const panel = screen.getByRole("tabpanel");
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+    Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
+    panel.scrollTop = 0;
+
+    appendEvent("e-up2");
+    const jump = await screen.findByRole("button", { name: /Ver lo más reciente/ });
+
+    fireEvent.click(jump);
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument());
   });
 });
 
@@ -377,6 +570,36 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
     expect(screen.queryByText("Modelo → qwen3:8b")).not.toBeInTheDocument();
   });
 
+  it("renders an app event line as a full-width Alert carrying its tone, with role=status (never interrupts)", () => {
+    act(() => {
+      useEventStore.getState().append({ id: "e-al", ts: Date.now(), source: "model", label: "Modelo → qwen3:8b", tone: "ok" });
+    });
+    renderPanel();
+
+    const alert = screen.getByText("Modelo → qwen3:8b").closest(".oc-alert");
+    expect(alert).not.toBeNull();
+    // It follows the settings-driven alert style (oc-alert) and keeps its tone…
+    expect(alert).toHaveAttribute("data-tone", "ok");
+    // …but as a NON-interrupting status role — only live send-errors are role=alert.
+    expect(alert).toHaveAttribute("role", "status");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("defaults an agenda event line (no tone) to a neutral status Alert", async () => {
+    const before: typeof defaultAgenda = { ...defaultAgenda, active_topic: null };
+    const after: typeof defaultAgenda = {
+      ...defaultAgenda,
+      active_topic: { ...defaultAgenda.active_topic!, turns_spoken: 1 }
+    };
+    server.use(evolvingAgendaHandler(before, after, 1));
+    renderPanel();
+
+    const line = await screen.findByText(/turno 1 · tema:/, undefined, { timeout: 4000 });
+    const alert = line.closest(".oc-alert");
+    expect(alert).toHaveAttribute("data-tone", "neutral");
+    expect(alert).toHaveAttribute("role", "status");
+  });
+
   it("interleaves an app event between transcript turns by ts, in document order", async () => {
     renderPanel();
     const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
@@ -397,5 +620,25 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
     const text = panel.textContent ?? "";
     expect(text.indexOf("primer mensaje")).toBeLessThan(text.indexOf("OBS activado"));
     expect(text.indexOf("OBS activado")).toBeLessThan(text.indexOf("segundo mensaje"));
+  });
+});
+
+describe("ConversationPanel — markdown only on Kira turns", () => {
+  it("renders **bold** in a Kira reply as a <strong>", async () => {
+    server.use(lastReplyHandler({ text: "che, mirá **esto**", turn_id: 1 }));
+    renderPanel();
+    const strong = await screen.findByText("esto");
+    expect(strong.tagName).toBe("STRONG");
+  });
+
+  it("keeps operator ('Vos') turns as literal text — **asterisks** are not markdown", async () => {
+    renderPanel();
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
+      target: { value: "**test**" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    const bubble = await screen.findByText("**test**");
+    expect(bubble.querySelector("strong")).toBeNull();
   });
 });

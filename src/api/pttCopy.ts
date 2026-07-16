@@ -1,0 +1,21 @@
+import type { PttErrorCode, PttUiState } from "./ptt.js";
+
+/**
+ * PTT display copy — extracted verbatim from PTTCard.tsx so both PTTCard and
+ * the ConversationPanel composer mic render the SAME strings without a second
+ * copy of the maps drifting out of sync. Pure relocation: the literals are
+ * unchanged, which is why the PTTCard test suites still pass untouched.
+ */
+export const ERROR_COPY: Record<PttErrorCode, string> = {
+  stt_unreachable: "STT (WhisperLive) no disponible — verificá que esté corriendo.",
+  stt_lost: "Se perdió la conexión con el STT — la sesión se cerró sola.",
+  session_not_active: "El servidor cortó la sesión.",
+  start_failed: "No se pudo iniciar PTT."
+};
+
+export const STATE_COPY: Record<PttUiState, string> = {
+  idle: "Mantené para hablar",
+  connecting: "Conectando…",
+  listening: "Escuchando…",
+  flushing: "Procesando…"
+};

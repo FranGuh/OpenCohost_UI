@@ -3,22 +3,9 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import { Card } from "./ui/Card.js";
 import { Button } from "./ui/Button.js";
 import { cn } from "../lib/cn.js";
-import { usePttHold, type PttErrorCode, type PttUiState } from "../api/ptt.js";
+import { usePttHold } from "../api/ptt.js";
+import { ERROR_COPY, STATE_COPY } from "../api/pttCopy.js";
 import { useLastReply } from "../api/chat.js";
-
-const ERROR_COPY: Record<PttErrorCode, string> = {
-  stt_unreachable: "STT (WhisperLive) no disponible — verificá que esté corriendo.",
-  stt_lost: "Se perdió la conexión con el STT — la sesión se cerró sola.",
-  session_not_active: "El servidor cortó la sesión.",
-  start_failed: "No se pudo iniciar PTT."
-};
-
-const STATE_COPY: Record<PttUiState, string> = {
-  idle: "Mantené para hablar",
-  connecting: "Conectando…",
-  listening: "Escuchando…",
-  flushing: "Procesando…"
-};
 
 /** Text-entry focus (chat box, profile/OBS fields, memoria editing, …) must
  * never be hijacked by the in-app Space/Enter hold shortcut.
