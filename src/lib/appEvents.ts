@@ -78,7 +78,18 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "motor.download_done": () => "Motor: descarga completa",
   "motor.download_error": () => "Motor: error de descarga",
   "motor.ctx_pressure_high": () => "Motor: contexto saturado",
-  "motor.piper_voice_locale_mismatch": () => "Motor: voz TTS no coincide con el idioma"
+  "motor.piper_voice_locale_mismatch": () => "Motor: voz TTS no coincide con el idioma",
+  // E1 (memoria_quality_20260717): fresh-memoria notice. Owner decision 5 —
+  // shown as a chat-panel FEED line (motor.* is feed-only, never toasted), not
+  // just a toast. Feed-visible on purpose (NOT in KNOWN_SILENT). `detail`
+  // carries an optional coalesced COUNT (a plain integer string) folded in by
+  // the events.ts poll loop when a burst lands in one batch; singular otherwise.
+  // The count is the only variable text and stays identifier-shaped (survives
+  // sanitizeDetail) — no memoria title/content ever rides along.
+  "motor.memoria_captured": (d) => {
+    const n = Number(d);
+    return Number.isFinite(n) && n > 1 ? `Kira guardó ${n} memorias` : "Kira guardó una memoria";
+  }
 };
 
 /* KNOWN-but-unmapped: valid backend actions (engine_host.py / ptt_session.py)

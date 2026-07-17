@@ -146,6 +146,36 @@ describe("emitAppEvent — KNOWN_SILENT drop + ptt toast exception", () => {
   });
 });
 
+describe("emitAppEvent — motor.memoria_captured (E1, feed line + coalesced plural)", () => {
+  it("maps motor.memoria_captured to a feed-visible line 'Kira guardó una memoria' (no toast, no DEV warn)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Server-originated (toast:false) — feed-only, like every other motor.*.
+    emitAppEvent({ source: "motor", action: "memoria_captured" }, "srv-1", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Kira guardó una memoria");
+    expect(events[0].source).toBe("motor");
+    expect(sink).not.toHaveBeenCalled(); // motor.* is never toasted
+    expect(warn).not.toHaveBeenCalled(); // it IS mapped — not an unknown key, not KNOWN_SILENT
+    warn.mockRestore();
+  });
+
+  it("renders the client-coalesced plural 'Kira guardó N memorias' when a count rides in detail", () => {
+    emitAppEvent({ source: "motor", action: "memoria_captured", detail: "3" }, "srv-9", { toast: false });
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Kira guardó 3 memorias");
+  });
+
+  it("a count of 1 stays singular (guards the plural boundary)", () => {
+    emitAppEvent({ source: "motor", action: "memoria_captured", detail: "1" }, "srv-9", { toast: false });
+    expect(useEventStore.getState().events[0].label).toBe("Kira guardó una memoria");
+  });
+});
+
 describe("subscribeMutationEvents", () => {
   function buildQueryClient() {
     return new QueryClient({ defaultOptions: { mutations: { retry: false } } });

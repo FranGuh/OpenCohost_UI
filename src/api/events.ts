@@ -69,6 +69,16 @@ export function useServerEventLog() {
       return;
     }
 
+    // E1 (memoria_quality_20260717): coalesce a burst of fresh-memoria notices
+    // arriving in ONE poll batch into a single feed line ("Kira guardó N
+    // memorias"), instead of N identical "una memoria" lines. Counted here, at
+    // the natural batching seam; the plural label is still produced by the
+    // EVENT_LABELS chokepoint (count folded in via detail), never assembled
+    // here — the module's "labels are born only in the template map" invariant
+    // stays intact.
+    let memoriaCount = 0;
+    let lastMemoria: ServerEvent | null = null;
+
     for (const e of data.events) {
       if (e.seq <= lastCursor.current) continue;
       // Live avatar signal, feed-independent: mirror the engine's speaking edge
@@ -78,6 +88,11 @@ export function useServerEventLog() {
       if (e.source === "motor") {
         if (e.action === "speaking_start") useAvatarLiveState.getState().setSpeaking(true);
         else if (e.action === "speaking_end" || e.action === "idle") useAvatarLiveState.getState().setSpeaking(false);
+        else if (e.action === "memoria_captured") {
+          memoriaCount += 1;
+          lastMemoria = e; // representative seq/ts for the single coalesced emit
+          continue; // deferred — emitted once after the loop
+        }
       }
       emitAppEvent(
         // ServerEvent.source is a plain string; emitAppEvent's own whitelist
@@ -86,6 +101,19 @@ export function useServerEventLog() {
         `srv-${e.seq}`,
         // Server ts is epoch seconds (Python time.time()); store sorts by JS ms.
         { toast: false, ts: e.ts * 1000 }
+      );
+    }
+    if (lastMemoria) {
+      emitAppEvent(
+        {
+          source: "motor" as AppEventSource,
+          action: "memoria_captured",
+          // Count only when >1 — a lone capture omits detail so the template
+          // renders the singular "una memoria".
+          detail: memoriaCount > 1 ? String(memoriaCount) : undefined
+        },
+        `srv-${lastMemoria.seq}`,
+        { toast: false, ts: lastMemoria.ts * 1000 }
       );
     }
     lastCursor.current = data.cursor;

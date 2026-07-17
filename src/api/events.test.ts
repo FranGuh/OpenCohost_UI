@@ -123,6 +123,48 @@ describe("useServerEventLog", () => {
     expect(useEventStore.getState().events).toHaveLength(1);
   });
 
+  it("coalesces N memoria_captured events arriving in one poll batch into a single 'Kira guardó N memorias' line", async () => {
+    // E1 (memoria_quality_20260717): three memorias captured between two polls
+    // arrive together. The feed must show ONE line, not three identical ones.
+    const batch: EventLogResponse = {
+      events: [
+        { seq: 1, ts: 0, source: "motor", action: "memoria_captured", detail: null },
+        { seq: 2, ts: 0, source: "motor", action: "memoria_captured", detail: null },
+        { seq: 3, ts: 0, source: "motor", action: "memoria_captured", detail: null }
+      ],
+      cursor: 3,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+
+    renderHook(() => useServerEventLog(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Kira guardó 3 memorias");
+  });
+
+  it("a lone memoria_captured in a batch stays singular and interleaves with other motor events", async () => {
+    const batch: EventLogResponse = {
+      events: [
+        { seq: 1, ts: 0, source: "motor", action: "ready", detail: null },
+        { seq: 2, ts: 0, source: "motor", action: "memoria_captured", detail: null }
+      ],
+      cursor: 2,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+
+    renderHook(() => useServerEventLog(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    const labels = useEventStore.getState().events.map((e) => e.label);
+    expect(labels).toContain("Motor: listo");
+    expect(labels).toContain("Kira guardó una memoria");
+    expect(labels).not.toContain("Kira guardó 1 memorias");
+  });
+
   it("on a boot change, adopts the new cursor WITHOUT emitting that batch; later genuinely-new events still emit", async () => {
     const first: EventLogResponse = {
       events: [{ seq: 1, ts: 0, source: "motor", action: "ready", detail: null }],
