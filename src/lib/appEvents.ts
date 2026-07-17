@@ -54,6 +54,8 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "ptt.started": () => "PTT escuchando",
   "ptt.stopped": () => "PTT enviado a Kira",
   "ptt.error": () => "PTT: STT no disponible",
+  "ptt.buffer_full": () =>
+    "Buffer de voz lleno — lo que sigas diciendo en este envío se pierde. Soltá F10 para mandar.",
 
   // --- Item B: engine-initiated motor events (feed-only, never toasted).
   // Deliberate SUBSET of the server's whitelist (engine_host.py) — per-turn

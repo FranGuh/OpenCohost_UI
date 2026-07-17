@@ -121,6 +121,29 @@ describe("emitAppEvent — KNOWN_SILENT drop + ptt toast exception", () => {
     expect(useEventStore.getState().events).toHaveLength(1);
     expect(sink).not.toHaveBeenCalled();
   });
+
+  it("toasts ptt.buffer_full with the cap-cue copy even when toast:false, and lands in the feed", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    emitAppEvent({ source: "ptt", action: "buffer_full" }, "srv-x", { toast: false });
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink).toHaveBeenCalledWith(
+      "Buffer de voz lleno — lo que sigas diciendo en este envío se pierde. Soltá F10 para mandar.",
+      "ok"
+    );
+    expect(useEventStore.getState().events).toHaveLength(1);
+  });
+
+  it("forward-compat: an unmapped future ptt.* literal is silently dropped (old UI vs newer server)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    emitAppEvent({ source: "ptt", action: "some_future_action" });
+    expect(useEventStore.getState().events).toHaveLength(0);
+    expect(sink).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
 });
 
 describe("subscribeMutationEvents", () => {
