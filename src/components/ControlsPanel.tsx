@@ -6,6 +6,7 @@ import { ModelCard } from "./ModelCard.js";
 import { VoiceCard } from "./VoiceCard.js";
 import { PTTCard } from "./PTTCard.js";
 import { MemoryCard } from "./MemoryCard.js";
+import { EditorialCardsCard } from "./EditorialCardsCard.js";
 import { PersonalizationCard } from "./PersonalizationCard.js";
 import { AvatarCard } from "./AvatarCard.js";
 import { ObsCard } from "./ObsCard.js";
@@ -55,6 +56,7 @@ export function ControlsPanel() {
       <ControlGroup title="Memoria y personalización" persistKey="controles-memoria-personalizacion">
         <MemoryCard />
         <PersonalizationCard />
+        <EditorialCardsCard />
       </ControlGroup>
       <ControlGroup title="Avatar y OBS" persistKey="controles-avatar-obs">
         <AvatarCard />
