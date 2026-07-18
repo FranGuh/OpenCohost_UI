@@ -753,3 +753,92 @@ describe("MemoryCard importada badge (WU4)", () => {
     expect(screen.getAllByText("importada")).toHaveLength(1);
   });
 });
+
+describe("MemoryCard memoria list — provenance filter chips (Ticket C)", () => {
+  function listWith(items: Array<Record<string, unknown>>) {
+    return http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json({ items }));
+  }
+
+  const mixedItems = [
+    {
+      id: "mem_native",
+      title: "Memoria propia",
+      created_at: "2026-01-01T00:00:00+00:00",
+      updated_at: "2026-01-01T00:00:00+00:00",
+      revision: 1,
+      pinned: false,
+      private: false,
+      inactive: false,
+      imported: false
+    },
+    {
+      id: "mem_imported",
+      title: "Memoria importada",
+      created_at: "2026-01-02T00:00:00+00:00",
+      updated_at: "2026-01-02T00:00:00+00:00",
+      revision: 1,
+      pinned: false,
+      private: false,
+      inactive: false,
+      imported: true
+    }
+  ];
+
+  it("defaults to 'Todas' and shows every row", async () => {
+    server.use(listWith(mixedItems));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria propia")).toBeInTheDocument());
+    expect(screen.getByText("Memoria importada")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Todas" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("'Importadas' chip filters to only imported:true rows", async () => {
+    server.use(listWith(mixedItems));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria propia")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Importadas" }));
+    expect(screen.getByText("Memoria importada")).toBeInTheDocument();
+    expect(screen.queryByText("Memoria propia")).not.toBeInTheDocument();
+  });
+
+  it("'Propias' chip filters to only imported:false rows", async () => {
+    server.use(listWith(mixedItems));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria propia")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Propias" }));
+    expect(screen.getByText("Memoria propia")).toBeInTheDocument();
+    expect(screen.queryByText("Memoria importada")).not.toBeInTheDocument();
+  });
+
+  it("shows 'No hay memorias de este tipo.' when a chip filters out every row", async () => {
+    server.use(listWith([mixedItems[0]]));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria propia")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Importadas" }));
+    expect(await screen.findByText("No hay memorias de este tipo.")).toBeInTheDocument();
+    expect(screen.queryByText("Memoria propia")).not.toBeInTheDocument();
+  });
+
+  it("does not render chips when the list is empty, and existing empty-state copy stays intact", async () => {
+    server.use(listWith([]));
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText(/Kira todavía no guardó memorias/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Todas" })).not.toBeInTheDocument();
+  });
+
+  it("chips coexist with existing per-row actions — badges and purge flow still work with 'Todas' selected", async () => {
+    renderCard(); // default fixture (defaultMemoriaList — both rows imported:false)
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
+    expect(screen.getByText("fijada")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Purgar memorias" })).toBeInTheDocument();
+  });
+});

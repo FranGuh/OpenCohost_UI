@@ -7,6 +7,7 @@ import { Input } from "./ui/Input.js";
 import { Select } from "./ui/Select.js";
 import { Alert } from "./ui/Alert.js";
 import { ConfirmFooter } from "./ui/ConfirmFooter.js";
+import { Segmented } from "./ui/Segmented.js";
 import { ApiError } from "../api/client.js";
 import type { MemoriaListItem } from "../api/client.js";
 import {
@@ -441,6 +442,26 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
   );
 }
 
+// Ticket C: client-side provenance filter for the row list. `imported` is the
+// only provenance signal MemoriaListItem actually carries (WU4) — "native"
+// is just its honest complement (not imported). Per-source origin
+// (Gemini/ChatGPT/Obsidian) is NOT built here: the list projection only
+// exposes the imported boolean, never which source label an imported row
+// came from, so a per-source chip would have to fake data the row doesn't
+// have.
+type MemoriaTierFilter = "all" | "imported" | "native";
+
+const MEMORIA_TIER_OPTIONS = [
+  { value: "all", label: "Todas" },
+  { value: "imported", label: "Importadas" },
+  { value: "native", label: "Propias" }
+] as const;
+
+function filterByTier(items: MemoriaListItem[], tier: MemoriaTierFilter): MemoriaListItem[] {
+  if (tier === "all") return items;
+  return items.filter((item) => (tier === "imported" ? item.imported : !item.imported));
+}
+
 /**
  * Memoria card — counts inspector wired to GET /api/memoria/stats.
  * "Limpiar memoria" is destructive and irreversible, so it keeps a two-step
@@ -467,6 +488,8 @@ export function MemoryCard() {
   const purgeMutation = useMemoriaPurgeMutation(profileId);
   const [confirmingPurge, setConfirmingPurge] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+  const [tierFilter, setTierFilter] = useState<MemoriaTierFilter>("all");
+  const filteredItems = listData ? filterByTier(listData.items, tierFilter) : [];
 
   function handleConfirmClear() {
     setConfirming(false);
@@ -605,11 +628,23 @@ export function MemoryCard() {
                     </div>
                   )}
                   {listData && listData.items.length > 0 && (
-                    <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
-                      {listData.items.map((item) => (
-                        <MemoriaRow key={item.id} item={item} profileId={profileId} />
-                      ))}
-                    </ul>
+                    <>
+                      <Segmented
+                        options={MEMORIA_TIER_OPTIONS}
+                        value={tierFilter}
+                        onChange={setTierFilter}
+                        ariaLabel="Filtrar memorias por tipo"
+                      />
+                      {filteredItems.length === 0 ? (
+                        <p className="text-xs text-dim">No hay memorias de este tipo.</p>
+                      ) : (
+                        <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
+                          {filteredItems.map((item) => (
+                            <MemoriaRow key={item.id} item={item} profileId={profileId} />
+                          ))}
+                        </ul>
+                      )}
+                    </>
                   )}
                 </>
               )}
