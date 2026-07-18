@@ -152,10 +152,15 @@ export function useCreateCardMutation() {
   });
 }
 
+/** Arming a card can change editorial_cards_by_status counts shown in
+ * GET /api/memoria/stats (MemoryCard) — invalidate both, same as create. */
 export function useArmCardMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: armEditorialCard,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: editorialCardsQueryKey() })
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: editorialCardsQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: ["memoria-stats"] });
+    }
   });
 }

@@ -167,7 +167,7 @@ describe("useCreateCardMutation", () => {
 });
 
 describe("useArmCardMutation", () => {
-  it("invalidates the cards query on success", async () => {
+  it("invalidates the cards query and memoria stats on success", async () => {
     server.use(
       http.post(`${API_BASE_URL}/api/agent/cards/card_a/arm`, () =>
         HttpResponse.json({ id: "card_a", status: "armed" })
@@ -181,5 +181,6 @@ describe("useArmCardMutation", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["editorial-cards"] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["memoria-stats"] }));
   });
 });

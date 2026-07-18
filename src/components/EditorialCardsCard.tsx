@@ -14,8 +14,10 @@ const TAKE_MAX = 800;
 const LIST_LINE_MAX = 240;
 const LIST_MAX_LINES = 8;
 
-/** One item per line, trimmed, blanks dropped — mirrors the backend's own
- * list cleaning (EditorialCard._clean_list, design D1). */
+/** One item per line, trimmed, blanks dropped. Does not collapse internal
+ * whitespace like the backend's EditorialCard._clean_list; per-line length
+ * and line-count caps (LIST_LINE_MAX, LIST_MAX_LINES below) are enforced
+ * separately by hasLongLine/hasTooManyLines. */
 function splitLines(value: string): string[] {
   return value
     .split("\n")
