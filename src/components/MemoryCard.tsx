@@ -1,20 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { cn } from "../lib/cn.js";
 import { Card } from "./ui/Card.js";
 import { Badge } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
 import { Input } from "./ui/Input.js";
+import { Select } from "./ui/Select.js";
+import { Alert } from "./ui/Alert.js";
 import { ConfirmFooter } from "./ui/ConfirmFooter.js";
+import { ApiError } from "../api/client.js";
 import type { MemoriaListItem } from "../api/client.js";
 import {
   useMemoriaDeleteMutation,
   useMemoriaFlagsMutation,
+  useMemoriaImportMutation,
   useMemoriaListQuery,
   useMemoriaPurgeMutation,
   useMemoriaRowQuery,
   useMemoriaStatsQuery,
   useMemoriaUpdateMutation
 } from "../api/memoria.js";
+import type { MemoriaImportResponse } from "../api/memoria.js";
 import { useEngineCommand } from "../api/engineCommand.js";
 import { useStatusQuery } from "../api/status.js";
 
@@ -102,6 +107,7 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
         {item.pinned && <Badge tone="info">fijada</Badge>}
         {item.private && <Badge tone="neutral">privada</Badge>}
         {item.inactive && <Badge tone="warn">inactiva</Badge>}
+        {item.imported && <Badge tone="neutral">importada</Badge>}
         <Button type="button" variant="ghost" onClick={toggle}>
           {expanded ? "Ocultar memoria" : "Ver memoria"}
         </Button>
@@ -231,6 +237,210 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
   );
 }
 
+// Fixed source set for the import provenance label. "Otro" switches to a free
+// Input (client-cap 40 to match the server's _MEMORIA_IMPORT_LABEL_MAX_LENGTH).
+const IMPORT_SOURCES = [
+  { value: "Gemini", label: "Gemini" },
+  { value: "ChatGPT", label: "ChatGPT" },
+  { value: "Obsidian", label: "Obsidian" },
+  { value: "Otro", label: "Otro" }
+] as const;
+const IMPORT_LABEL_MAX = 40;
+// Mirrors settings.MEMORIAS_IMPORT_MAX_BYTES — a client-side courtesy hint; the
+// backend still 422s an oversize body, this just warns before the round-trip.
+const IMPORT_MAX_BYTES = 65_536;
+
+/** Voseo, honest result line built from the REAL counts — skipped_cap/failed
+ * only appear when nonzero so a clean import stays terse. */
+function importResultLine(result: MemoriaImportResponse): string {
+  const parts = [
+    result.imported === 1 ? "Se importó 1" : `Se importaron ${result.imported}`,
+    `${result.skipped_duplicates} ${result.skipped_duplicates === 1 ? "duplicada" : "duplicadas"}`,
+    `${result.skipped_too_short} ${result.skipped_too_short === 1 ? "muy corta" : "muy cortas"}`
+  ];
+  if (result.skipped_cap > 0) parts.push(`${result.skipped_cap} sin cupo`);
+  if (result.failed > 0) parts.push(`${result.failed} con error`);
+  return `${parts.join(" · ")}.`;
+}
+
+/** Kind voseo copy per error status — 422 groups the boundary refusals
+ * (empty/oversize/too-many/label/cap) into one honest sentence; 503 is the
+ * store being down. */
+function importErrorMessage(error: Error | null): string {
+  const status = error instanceof ApiError ? error.status : 0;
+  if (status === 0) {
+    // fetch itself rejected (no HTTP status reached) — the backend is down or
+    // mid-restart, not a validation problem.
+    return "No hay conexión con el backend — ¿se está reiniciando? Probá en unos segundos.";
+  }
+  if (status === 404) {
+    // Route missing on the running backend (older build / route not wired).
+    return "El backend en ejecución no tiene esta función todavía — cerrá y volvé a abrir la app.";
+  }
+  if (status === 422) {
+    return "No se pudo importar. Revisá que el texto no esté vacío, no supere 64 KB ni tenga más de 100 memorias, y que el perfil no haya llegado al tope.";
+  }
+  if (status === 503) {
+    return "La memoria no está disponible ahora. Probá de nuevo en un momento.";
+  }
+  return "No se pudo importar el archivo.";
+}
+
+/**
+ * "Importar memorias" section — brings an external-AI export (Gemini/ChatGPT/
+ * Obsidian/free label) into the active profile's store via POST
+ * /api/memoria/import. Paste OR a .md/.txt file feed the SAME content field
+ * (FileReader). D7: the send is ALWAYS gated behind a single ConfirmFooter
+ * stage (no client-side item parser). The result line reports the real
+ * server counts; errors surface honestly instead of a fake success.
+ */
+function MemoriaImportSection({ profileId }: { profileId: string }) {
+  const [source, setSource] = useState<string>("Gemini");
+  const [customLabel, setCustomLabel] = useState("");
+  const [content, setContent] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const importMutation = useMemoriaImportMutation(profileId);
+
+  const effectiveLabel = source === "Otro" ? customLabel.trim().slice(0, IMPORT_LABEL_MAX) || "Otro" : source;
+  const oversize = new Blob([content]).size > IMPORT_MAX_BYTES;
+  // An oversize body (pasted OR read from a file) can never succeed — the
+  // server 422s it — so it must not be submittable either.
+  const canSubmit =
+    Boolean(profileId) && content.trim().length > 0 && !oversize && !importMutation.isPending;
+
+  function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    // R1: reject an oversize file BEFORE reading it — never load a body the
+    // server is guaranteed to refuse (and don't set content from it).
+    if (file.size > IMPORT_MAX_BYTES) {
+      setFileError("El archivo pesa más de 64 KB — dividilo o pegá solo lo importante.");
+      return;
+    }
+    setFileError(null);
+    const reader = new FileReader();
+    reader.onload = () => setContent(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => setFileError("No se pudo leer el archivo, probá de nuevo.");
+    reader.readAsText(file);
+  }
+
+  function handleConfirm() {
+    setConfirming(false);
+    // Clear the textarea on success so the same body can't be accidentally
+    // resubmitted (dedup protects the data, but the UX shouldn't invite it).
+    importMutation.mutate({ source_label: effectiveLabel, content }, { onSuccess: () => setContent("") });
+  }
+
+  function openConfirm() {
+    // Starting a fresh import — drop any prior result/error first so a stale
+    // count line never lingers into this import's pending window.
+    importMutation.reset();
+    setConfirming(true);
+  }
+
+  return (
+    <section aria-labelledby="memory-import-label" className="space-y-2">
+      <span id="memory-import-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+        Importar memorias
+      </span>
+      <p className="text-[11px] leading-relaxed text-dim">
+        Traé memorias desde un export de otra IA (Gemini, ChatGPT, Obsidian): pegá el texto o subí un archivo .md/.txt.
+      </p>
+
+      {!profileId ? (
+        // Sibling pattern to the row list's null-profile branch: without an
+        // active profile there is no uuid to import into, so prompt for one
+        // instead of leaving a silently disabled button.
+        <p className="text-xs text-dim">Activá un perfil para importar memorias.</p>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+            Origen
+            <Select options={IMPORT_SOURCES} value={source} onChange={setSource} aria-label="Origen de las memorias" />
+          </label>
+
+          {source === "Otro" && (
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Nombre del origen
+              <Input
+                aria-label="Nombre del origen"
+                value={customLabel}
+                maxLength={IMPORT_LABEL_MAX}
+                placeholder="Máximo 40 caracteres"
+                onChange={(event) => setCustomLabel(event.target.value)}
+              />
+            </label>
+          )}
+
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+            Archivo (.md / .txt)
+            <input
+              type="file"
+              accept=".md,.txt"
+              aria-label="Archivo de memorias"
+              onChange={handleFile}
+              className="text-xs text-foreground file:mr-3 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-foreground"
+            />
+          </label>
+
+          {fileError && <p className="text-xs leading-relaxed text-warn">{fileError}</p>}
+
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+            Pegar el export
+            <textarea
+              aria-label="Pegar memorias"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              rows={4}
+              placeholder="Pegá acá el texto del export…"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            />
+          </label>
+
+          {oversize && (
+            <p className="text-xs leading-relaxed text-warn">
+              El texto supera 64 KB. El servidor va a rechazar un archivo tan grande; dividilo en partes más chicas.
+            </p>
+          )}
+
+          {importMutation.isError && <Alert tone="danger">{importErrorMessage(importMutation.error)}</Alert>}
+
+          {importMutation.data && (
+            <p className="text-xs leading-relaxed text-foreground">{importResultLine(importMutation.data)}</p>
+          )}
+
+          {importMutation.isPending ? (
+            // Explicit working state — distinct from the incomplete-form disabled
+            // button, so the operator can tell "importing" from "stuck".
+            <p role="status" className="text-xs leading-relaxed text-dim">
+              Importando…
+            </p>
+          ) : confirming ? (
+            <ConfirmFooter
+              active
+              tone="neutral"
+              stages={[
+                {
+                  message: `Vas a importar memorias desde ${effectiveLabel} al perfil activo.`,
+                  advanceLabel: "Importar"
+                }
+              ]}
+              onConfirm={handleConfirm}
+              onCancel={() => setConfirming(false)}
+              busy={importMutation.isPending}
+            />
+          ) : (
+            <Button type="button" variant="outline" disabled={!canSubmit} onClick={openConfirm}>
+              Importar memorias
+            </Button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /**
  * Memoria card — counts inspector wired to GET /api/memoria/stats.
  * "Limpiar memoria" is destructive and irreversible, so it keeps a two-step
@@ -336,6 +546,8 @@ export function MemoryCard() {
             </div>
           )}
         </section>
+
+        <MemoriaImportSection profileId={profileId} />
 
         <section aria-labelledby="memory-list-label" className="space-y-2">
           <div className="flex items-center justify-between gap-3">

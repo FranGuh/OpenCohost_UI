@@ -66,6 +66,12 @@ export interface MemoriaListItem {
   // reads `inactive` too (mirrors MemoriaFlagsRequest.inactive) — added here
   // to keep this hand-typed shape honest with the real projection.
   inactive: boolean;
+  // memoria_import_20260718 WU4: get_memoria_list now computes `imported` from
+  // the row's status ('imported' → true), so MemoriaRow can render the
+  // "importada" badge. Not in types.gen.ts yet (snapshot lag, same reason as
+  // the fields above) — the orchestrator regenerates the snapshot via the
+  // openapi prebuild. ponytail: keep in sync manually until then.
+  imported: boolean;
 }
 export interface MemoriaListResponse {
   items: MemoriaListItem[];

@@ -123,6 +123,39 @@ describe("ConfirmFooter", () => {
     );
     expect(screen.getByRole("button", { name: "Borrar" })).toBeDisabled();
   });
+
+  it("renders non-danger styling (info Alert + accent advance) when tone=neutral", () => {
+    render(
+      <ConfirmFooter
+        active
+        tone="neutral"
+        stages={[{ message: "Vas a importar.", advanceLabel: "Importar" }]}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />
+    );
+    // The Alert is the calm info tone, not danger.
+    const alert = screen.getByText("Vas a importar.").closest(".oc-alert");
+    expect(alert).not.toBeNull();
+    expect(alert).toHaveAttribute("data-tone", "info");
+    // The advance button carries no filled-danger background.
+    const advance = screen.getByRole("button", { name: "Importar" });
+    expect(advance.className).not.toContain("bg-danger");
+  });
+
+  it("keeps the danger (default) tone for destructive confirms", () => {
+    render(
+      <ConfirmFooter
+        active
+        stages={[{ message: "Peligro.", advanceLabel: "Borrar" }]}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />
+    );
+    const alert = screen.getByText("Peligro.").closest(".oc-alert");
+    expect(alert).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByRole("button", { name: "Borrar" }).className).toContain("bg-danger");
+  });
 });
 
 describe("ConfirmToggle", () => {

@@ -136,6 +136,10 @@ export interface MemoriaListItemFixture {
   pinned: boolean;
   private: boolean;
   inactive: boolean;
+  // memoria_import_20260718 WU4: the list projection now carries `imported`
+  // (opencohost/api/main.py::get_memoria_list computes it from the row status)
+  // so MemoriaRow can render the "importada" badge. ponytail: keep in sync.
+  imported: boolean;
 }
 
 export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
@@ -148,7 +152,8 @@ export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
       revision: 1,
       pinned: true,
       private: false,
-      inactive: false
+      inactive: false,
+      imported: false
     },
     {
       id: "mem_b",
@@ -158,9 +163,31 @@ export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
       revision: 2,
       pinned: false,
       private: true,
-      inactive: false
+      inactive: false,
+      imported: false
     }
   ]
+};
+
+/** POST /api/memoria/import response — mirrors
+ * opencohost/api/models.py::MemoriaImportResponse (counts ONLY, R8). WU4.
+ * ponytail: keep in sync manually. */
+export interface MemoriaImportResponseFixture {
+  ok: boolean;
+  imported: number;
+  skipped_duplicates: number;
+  skipped_too_short: number;
+  skipped_cap: number;
+  failed: number;
+}
+
+export const defaultMemoriaImport: MemoriaImportResponseFixture = {
+  ok: true,
+  imported: 3,
+  skipped_duplicates: 1,
+  skipped_too_short: 2,
+  skipped_cap: 0,
+  failed: 0
 };
 
 /** GET /api/memoria/row/{id} response — hand-typed, mirrors
@@ -496,6 +523,7 @@ export const handlers = [
     return HttpResponse.json(row);
   }),
   http.post(`${API_BASE_URL}/api/memoria/purge`, () => HttpResponse.json({ deleted: defaultMemoriaList.items.length })),
+  http.post(`${API_BASE_URL}/api/memoria/import`, () => HttpResponse.json(defaultMemoriaImport)),
   http.post(`${API_BASE_URL}/api/memoria/flags`, () => HttpResponse.json({ ok: true })),
   http.post(`${API_BASE_URL}/api/memoria/delete`, () => HttpResponse.json({ ok: true })),
   http.post(`${API_BASE_URL}/api/memoria/update`, () => HttpResponse.json({ ok: true })),
@@ -1175,6 +1203,19 @@ export function memoriaUpdateUnavailableHandler(detail = "memoria_unavailable") 
 /** Per-test override: GET /api/memoria/notice fails (surfaced as a generic ApiError). */
 export function memoriaNoticeGetErrorHandler() {
   return http.get(`${API_BASE_URL}/api/memoria/notice`, () => HttpResponse.json({ detail: "boom" }, { status: 500 }));
+}
+
+/** Per-test override: POST /api/memoria/import rejected with 422 (empty content,
+ * oversize, too many items, source_label too long, or the profile already at
+ * the import cap — the route's five 422 branches). */
+export function memoriaImportValidationHandler(detail = "content must not be empty") {
+  return http.post(`${API_BASE_URL}/api/memoria/import`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: POST /api/memoria/import rejected with 503 (memoria_unavailable —
+ * store down or the cap read itself failed). */
+export function memoriaImportUnavailableHandler(detail = "memoria_unavailable") {
+  return http.post(`${API_BASE_URL}/api/memoria/import`, () => HttpResponse.json({ detail }, { status: 503 }));
 }
 
 /** Per-test override: GET /api/status's current_model flips after N calls (switch_model convergence). */

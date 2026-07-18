@@ -84,6 +84,12 @@ export interface ConfirmFooterProps {
   /** Optional opt-in control (e.g. a purge checkbox) rendered under the message. */
   children?: ReactNode;
   className?: string;
+  /**
+   * danger (default) = a destructive confirm — red Alert + filled-danger advance.
+   * neutral = an additive/non-destructive action (e.g. import) — info Alert +
+   * accent advance, so it doesn't read as a warning. Mirrors ConfirmToggle's tone API.
+   */
+  tone?: "danger" | "neutral";
 }
 
 /**
@@ -103,7 +109,8 @@ export function ConfirmFooter({
   busy = false,
   cancelLabel = "Cancelar",
   children,
-  className
+  className,
+  tone = "danger"
 }: ConfirmFooterProps) {
   const [stageIndex, setStageIndex] = useState(0);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -144,7 +151,7 @@ export function ConfirmFooter({
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
-      <Alert tone="danger" role="status">
+      <Alert tone={tone === "neutral" ? "info" : "danger"} role="status">
         {stage.message}
       </Alert>
 
@@ -161,18 +168,24 @@ export function ConfirmFooter({
           {cancelLabel}
         </Button>
         {isLast ? (
-          <button
-            type="button"
-            disabled={advanceGated}
-            onClick={handleAdvance}
-            className={cn(
-              "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-transparent bg-danger px-4 text-sm font-semibold text-primary-foreground transition-[filter] duration-fast ease-io",
-              "hover:opacity-90 disabled:opacity-50",
-              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            )}
-          >
-            {stage.advanceLabel}
-          </button>
+          tone === "neutral" ? (
+            <Button type="button" variant="primary" disabled={advanceGated} onClick={handleAdvance}>
+              {stage.advanceLabel}
+            </Button>
+          ) : (
+            <button
+              type="button"
+              disabled={advanceGated}
+              onClick={handleAdvance}
+              className={cn(
+                "inline-flex h-9 items-center justify-center gap-2 rounded-md border border-transparent bg-danger px-4 text-sm font-semibold text-primary-foreground transition-[filter] duration-fast ease-io",
+                "hover:opacity-90 disabled:opacity-50",
+                "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              )}
+            >
+              {stage.advanceLabel}
+            </button>
+          )
         ) : (
           <Button type="button" variant="outline" disabled={advanceGated} onClick={handleAdvance}>
             {stage.advanceLabel}

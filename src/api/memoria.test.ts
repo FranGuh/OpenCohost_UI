@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
+  defaultMemoriaImport,
   defaultMemoriaNotice,
   defaultMemoriaRows,
   defaultMemoriaStats,
@@ -15,6 +16,8 @@ import {
   memoriaFlagsNotFoundHandler,
   memoriaFlagsUnavailableHandler,
   memoriaFlagsValidationHandler,
+  memoriaImportUnavailableHandler,
+  memoriaImportValidationHandler,
   memoriaNoticeGetErrorHandler,
   memoriaRowNotFoundHandler,
   memoriaRowUnavailableHandler,
@@ -29,11 +32,13 @@ import {
   postMemoriaCapture,
   postMemoriaDelete,
   postMemoriaFlags,
+  postMemoriaImport,
   postMemoriaNotice,
   postMemoriaUpdate,
   useMemoriaCaptureMutation,
   useMemoriaDeleteMutation,
   useMemoriaFlagsMutation,
+  useMemoriaImportMutation,
   useMemoriaNoticeMutation,
   useMemoriaNoticeQuery,
   useMemoriaPurgeMutation,
@@ -228,6 +233,46 @@ describe("useMemoriaUpdateMutation", () => {
     expect(result.current.data).toEqual({ ok: true });
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["memoria-list", "default"] }));
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["memoria-stats", "default"] }));
+  });
+});
+
+describe("postMemoriaImport", () => {
+  it("posts profile_id/source_label/content and resolves the counts response", async () => {
+    const result = await postMemoriaImport({
+      profile_id: "default",
+      source_label: "Gemini",
+      content: "* una memoria"
+    });
+    expect(result).toEqual(defaultMemoriaImport);
+  });
+
+  it("throws ValidationError on 422 (empty/oversize/too-many/label/cap)", async () => {
+    server.use(memoriaImportValidationHandler());
+    await expect(
+      postMemoriaImport({ profile_id: "default", source_label: "Gemini", content: "" })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("throws ApiError on 503 (memoria_unavailable)", async () => {
+    server.use(memoriaImportUnavailableHandler());
+    await expect(
+      postMemoriaImport({ profile_id: "default", source_label: "Gemini", content: "* una memoria" })
+    ).rejects.toThrow(ApiError);
+  });
+});
+
+describe("useMemoriaImportMutation", () => {
+  it("resolves the counts and invalidates both the row list and the stats query on success", async () => {
+    const { queryClient, wrapper } = createWrapperWithClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result } = renderHook(() => useMemoriaImportMutation("default"), { wrapper });
+    result.current.mutate({ source_label: "Gemini", content: "* una memoria" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual(defaultMemoriaImport);
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["memoria-list", "default"] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["memoria-stats", "default"] }));
   });
 });
 

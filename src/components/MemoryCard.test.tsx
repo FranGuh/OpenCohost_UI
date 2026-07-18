@@ -1,18 +1,20 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
   commandConflictHandler,
   commandNetworkErrorHandler,
   commandValidationHandler,
+  defaultMemoriaImport,
   defaultMemoriaList,
   defaultMemoriaRows,
   defaultMemoriaStats,
   frozenStatusHandler,
+  memoriaImportUnavailableHandler,
   memoriaRowNotFoundHandler,
   memoriaRowSpyHandler
 } from "../test/handlers.js";
@@ -434,5 +436,320 @@ describe("MemoryCard redesigned memoria cards (WU2)", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]);
     await waitFor(() => expect(screen.getByLabelText("Contenido de la memoria")).toHaveValue(edited));
     expect(screen.getByLabelText("Contenido de la memoria")).not.toHaveValue(defaultMemoriaRows.mem_a.content);
+  });
+});
+
+describe("MemoryCard import section (WU4)", () => {
+  it("keeps the import submit disabled until there is content, then enables it", async () => {
+    renderCard();
+    const trigger = await screen.findByRole("button", { name: "Importar memorias" });
+    expect(trigger).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    // Enables once BOTH content is present AND the active profile has loaded.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+  });
+
+  it("gates the import behind a single confirm — no request until confirmed, then posts label+content and shows the counts", async () => {
+    let body: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(defaultMemoriaImport);
+      })
+    );
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+
+    // Opening the confirm must NOT send anything yet (always-confirm gate).
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    expect(body).toBeUndefined();
+    expect(screen.getByText(/Vas a importar memorias/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+    await waitFor(() =>
+      expect(body).toEqual({ profile_id: "profile-id-default", source_label: "Gemini", content: "* una memoria" })
+    );
+
+    // Real counts, voseo — the default fixture has skipped_cap:0 so "sin cupo" is absent.
+    await waitFor(() => expect(screen.getByText(/Se importaron 3/)).toBeInTheDocument());
+    expect(screen.getByText(/1 duplicada/)).toBeInTheDocument();
+    expect(screen.getByText(/2 muy cortas/)).toBeInTheDocument();
+    expect(screen.queryByText(/sin cupo/)).not.toBeInTheDocument();
+  });
+
+  it("Cancelar backs out of the confirm without sending", async () => {
+    let calls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, () => {
+        calls += 1;
+        return HttpResponse.json(defaultMemoriaImport);
+      })
+    );
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByText(/Vas a importar memorias/)).not.toBeInTheDocument();
+    expect(calls).toBe(0);
+  });
+
+  it("renders every real count in voseo, including skipped_cap and failed when nonzero", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, () =>
+        HttpResponse.json({ ok: false, imported: 4, skipped_duplicates: 2, skipped_too_short: 1, skipped_cap: 3, failed: 5 })
+      )
+    );
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    await waitFor(() => expect(screen.getByText(/Se importaron 4/)).toBeInTheDocument());
+    expect(screen.getByText(/2 duplicadas/)).toBeInTheDocument();
+    expect(screen.getByText(/1 muy corta/)).toBeInTheDocument();
+    expect(screen.getByText(/3 sin cupo/)).toBeInTheDocument();
+    expect(screen.getByText(/5 con error/)).toBeInTheDocument();
+  });
+
+  it("surfaces a 503 backend error honestly instead of a fake success line", async () => {
+    server.use(memoriaImportUnavailableHandler());
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    await waitFor(() => expect(screen.getByText(/no está disponible/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Se importaron/)).not.toBeInTheDocument();
+  });
+
+  it("prompts to activate a profile instead of leaving a silently disabled submit", async () => {
+    // FIX 5: no active profile -> the sibling prompt (mirrors the row list's
+    // null-profile branch), never a mute disabled button.
+    server.use(frozenStatusHandler(1, { active_profile_id: null }));
+    renderCard();
+    expect(await screen.findByText(/Activá un perfil para importar memorias/)).toBeInTheDocument();
+    // The form + submit are replaced by the prompt, not left silently disabled.
+    expect(screen.queryByRole("button", { name: "Importar memorias" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Pegar memorias")).not.toBeInTheDocument();
+  });
+
+  it("warns when the pasted content is larger than 64 KB and keeps submit disabled (the backend would 422 it)", async () => {
+    renderCard();
+    const big = "x".repeat(65_537);
+    fireEvent.change(await screen.findByLabelText("Pegar memorias"), { target: { value: big } });
+    expect(screen.getByText(/64 KB/)).toBeInTheDocument();
+    // FIX 1: an oversize paste must not be submittable either.
+    expect(screen.getByRole("button", { name: "Importar memorias" })).toBeDisabled();
+  });
+
+  it("rejects an oversize file before reading it — message shown, no content set, submit disabled", async () => {
+    // FIX 1: file.size is checked BEFORE readAsText, so an oversize file never
+    // populates the content field (no read) and stays unsubmittable.
+    renderCard();
+    const fileInput = await screen.findByLabelText("Archivo de memorias");
+    const big = new File(["x".repeat(65_537)], "big.md", { type: "text/markdown" });
+    fireEvent.change(fileInput, { target: { files: [big] } });
+
+    expect(screen.getByText(/El archivo pesa más de 64 KB/)).toBeInTheDocument();
+    // Never read into the paste field.
+    expect(screen.getByLabelText("Pegar memorias")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Importar memorias" })).toBeDisabled();
+  });
+
+  it("shows a kind message when the file cannot be read (FileReader onerror)", async () => {
+    // FIX 3: force readAsText to fail — the section surfaces a kind voseo message
+    // and never leaks partial content into the paste field.
+    class ErroringFileReader {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsText() {
+        this.onerror?.();
+      }
+    }
+    vi.stubGlobal("FileReader", ErroringFileReader);
+    try {
+      renderCard();
+      const fileInput = await screen.findByLabelText("Archivo de memorias");
+      const file = new File(["* algo"], "export.md", { type: "text/markdown" });
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      expect(screen.getByText(/No se pudo leer el archivo/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Pegar memorias")).toHaveValue("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses singular copy when a count is exactly 1 (FIX 4)", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, () =>
+        HttpResponse.json({ ok: true, imported: 1, skipped_duplicates: 1, skipped_too_short: 1, skipped_cap: 0, failed: 0 })
+      )
+    );
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    await waitFor(() => expect(screen.getByText(/Se importó 1/)).toBeInTheDocument());
+    expect(screen.getByText(/1 duplicada\b/)).toBeInTheDocument();
+    expect(screen.getByText(/1 muy corta\b/)).toBeInTheDocument();
+    // ...and never the plural forms.
+    expect(screen.queryByText(/Se importaron/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/duplicadas/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/muy cortas/)).not.toBeInTheDocument();
+  });
+
+  it("clears the textarea after success and drops the stale result line on the next import (FIX 6)", async () => {
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+
+    // First import → success (default fixture: imported 3).
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* primera" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+    await waitFor(() => expect(screen.getByText(/Se importaron 3/)).toBeInTheDocument());
+
+    // Post-success hygiene: the textarea is emptied so it can't be resubmitted.
+    expect(screen.getByLabelText("Pegar memorias")).toHaveValue("");
+
+    // Second import: opening the confirm resets the mutation, so the prior count
+    // line is gone before the next request even fires (no stale counts).
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* segunda" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    expect(screen.queryByText(/Se importaron 3/)).not.toBeInTheDocument();
+  });
+
+  it("shows an explicit Importando… state while the request is in flight (FIX 7)", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, async () => {
+        await delay(40);
+        return HttpResponse.json(defaultMemoriaImport);
+      })
+    );
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    // Working state is explicit, distinct from an incomplete-form disabled button.
+    expect(await screen.findByText("Importando…")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Se importaron 3/)).toBeInTheDocument());
+    expect(screen.queryByText("Importando…")).not.toBeInTheDocument();
+  });
+
+  it("maps a 404 import to a kind 'backend does not have this yet' message (FIX 8)", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, () => HttpResponse.json({ detail: "not found" }, { status: 404 }))
+    );
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    await waitFor(() => expect(screen.getByText(/no tiene esta función todavía/)).toBeInTheDocument());
+    expect(screen.queryByText(/Se importaron/)).not.toBeInTheDocument();
+  });
+
+  it("maps a network failure to a kind 'no backend connection' message (FIX 8)", async () => {
+    server.use(http.post(`${API_BASE_URL}/api/memoria/import`, () => HttpResponse.error()));
+    renderCard();
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    await waitFor(() => expect(screen.getByText(/No hay conexión con el backend/)).toBeInTheDocument());
+    expect(screen.queryByText(/Se importaron/)).not.toBeInTheDocument();
+  });
+
+  it("uses the free-text label when the source is Otro", async () => {
+    let body: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/import`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(defaultMemoriaImport);
+      })
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("combobox", { name: "Origen de las memorias" }));
+    fireEvent.click(screen.getByRole("option", { name: "Otro" }));
+    fireEvent.change(screen.getByLabelText("Nombre del origen"), { target: { value: "Claude" } });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* una memoria" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Importar memorias" })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+    await waitFor(() => expect(body).toMatchObject({ source_label: "Claude", content: "* una memoria" }));
+  });
+
+  it("reads an uploaded .md/.txt file into the same content field", async () => {
+    renderCard();
+    const fileInput = await screen.findByLabelText("Archivo de memorias");
+    const file = new File(["* desde un archivo"], "export.md", { type: "text/markdown" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByLabelText("Pegar memorias")).toHaveValue("* desde un archivo"));
+  });
+});
+
+describe("MemoryCard importada badge (WU4)", () => {
+  function listWith(items: Array<Record<string, unknown>>) {
+    return http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json({ items }));
+  }
+
+  it("renders the 'importada' badge only for rows with imported:true", async () => {
+    server.use(
+      listWith([
+        {
+          id: "mem_imp",
+          title: "Memoria importada",
+          created_at: "2026-01-01T00:00:00+00:00",
+          updated_at: "2026-01-01T00:00:00+00:00",
+          revision: 1,
+          pinned: false,
+          private: false,
+          inactive: false,
+          imported: true
+        },
+        {
+          id: "mem_cur",
+          title: "Memoria curada",
+          created_at: "2026-01-02T00:00:00+00:00",
+          updated_at: "2026-01-02T00:00:00+00:00",
+          revision: 1,
+          pinned: false,
+          private: false,
+          inactive: false,
+          imported: false
+        }
+      ])
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria importada")).toBeInTheDocument());
+
+    expect(screen.getByText("Memoria curada")).toBeInTheDocument();
+    // Exactly one row carries the badge — the curated row has none.
+    expect(screen.getAllByText("importada")).toHaveLength(1);
   });
 });

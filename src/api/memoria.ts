@@ -68,6 +68,37 @@ export interface MemoriaMutationResponse {
 }
 
 /**
+ * POST /api/memoria/import body (opencohost/api/main.py::post_memoria_import,
+ * memoria_import_20260718 WU3) — hand-typed from MemoriaImportRequest. Imports
+ * an external-AI export (Gemini/ChatGPT/Obsidian/free label) into the active
+ * profile's store as 'imported' rows. `content` flows INBOUND only; the
+ * response never echoes it (counts-only, R8). ponytail: keep in sync manually.
+ */
+export interface MemoriaImportRequest {
+  profile_id: string;
+  source_label: string;
+  content: string;
+}
+
+/**
+ * POST /api/memoria/import response — hand-typed from MemoriaImportResponse.
+ * Counts ONLY (R8), one field per per-item outcome of the four-state insert:
+ * `imported` = fresh rows; `skipped_duplicates` = already-present claims;
+ * `skipped_too_short` = too few significant tokens; `skipped_cap` = creatable
+ * rows left unattempted because the profile's import-cap headroom ran out;
+ * `failed` = fail-open store errors. `ok` is False for the disabled no-op or
+ * when any item failed to write. ponytail: keep in sync manually.
+ */
+export interface MemoriaImportResponse {
+  ok: boolean;
+  imported: number;
+  skipped_duplicates: number;
+  skipped_too_short: number;
+  skipped_cap: number;
+  failed: number;
+}
+
+/**
  * POST /api/memoria/capture body (opencohost/api/main.py ~882-890) —
  * hand-typed from MemoriaCaptureRequest. `paused=true` pauses auto-capture,
  * `false` resumes it — calls host.motor.set_memorias_private(paused)
@@ -168,6 +199,34 @@ export async function postMemoriaUpdate(body: MemoriaUpdateRequest): Promise<Mem
     throw new ApiError(`POST /api/memoria/update failed with ${res.status}`, res.status);
   }
   return (await res.json()) as MemoriaMutationResponse;
+}
+
+/**
+ * POST /api/memoria/import — bulk-import an external export into the active
+ * profile's store. 422 covers every boundary refusal (empty content, oversize
+ * >64KB, >100 parsed items, source_label >40 chars, or the profile already at
+ * the import cap); 503 is memoria_unavailable (store down or the cap read
+ * failed). A 200 always carries the per-item counts — including partial
+ * outcomes like skipped_cap/failed — so the caller reports the real result,
+ * never a fake all-or-nothing. Mirrors postMemoriaUpdate's error posture minus
+ * the 404 (import has no row lookup).
+ */
+export async function postMemoriaImport(body: MemoriaImportRequest): Promise<MemoriaImportResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 422) {
+    throw new ValidationError(await extractMemoriaDetail(res, "invalid memoria import"));
+  }
+  if (res.status === 503) {
+    throw new ApiError(await extractMemoriaDetail(res, "memoria_unavailable"), 503);
+  }
+  if (!res.ok) {
+    throw new ApiError(`POST /api/memoria/import failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaImportResponse;
 }
 
 /**
@@ -320,6 +379,21 @@ export function useMemoriaDeleteMutation(profileId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => postMemoriaDelete({ profile_id: profileId, id }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: memoriaListQueryKey(profileId) });
+      void queryClient.invalidateQueries({ queryKey: memoriaStatsQueryKey(profileId) });
+    }
+  });
+}
+
+/** Import creates new 'imported' rows (and may skip duplicates/short/capped) —
+ * both the row list AND the saved/pinned counts can change, so invalidate the
+ * list and the stats (same shape as the delete mutation). */
+export function useMemoriaImportMutation(profileId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { source_label: string; content: string }) =>
+      postMemoriaImport({ profile_id: profileId, ...input }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: memoriaListQueryKey(profileId) });
       void queryClient.invalidateQueries({ queryKey: memoriaStatsQueryKey(profileId) });
