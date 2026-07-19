@@ -28,7 +28,7 @@ export interface EditorialCardCreateRequest {
   discussion_hooks: string[];
   triggers: string[];
   expires_at: string | null;
-  single_use: boolean;
+  single_use?: boolean;
 }
 
 /** POST /api/agent/cards response — hand-typed from AgentCardResponse.
