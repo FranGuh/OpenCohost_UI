@@ -23,6 +23,10 @@ interface ComposerCommandPanelProps {
   query: string;
   /** Escape / Cancelar — parent clears the composer and restores its focus. */
   onClose: () => void;
+  /** Inline mode (Comandos column tab, D8/R9): renders as a plain region with
+   * no `role="dialog"` floating chrome, and cancel/close returns to the command
+   * list instead of dismissing (there is no floating palette to dismiss). */
+  inline?: boolean;
 }
 
 function CommandList({
@@ -77,32 +81,33 @@ function CommandList({
   );
 }
 
-export function ComposerCommandPanel({ query, onClose }: ComposerCommandPanelProps) {
+export function ComposerCommandPanel({ query, onClose, inline = false }: ComposerCommandPanelProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const active = activeId ? COMMANDS.find((command) => command.id === activeId) ?? null : null;
   const matches = matchCommands(query);
   // Screens own hooks, so they must render as a real component (not a call).
   const ActiveScreen = active?.screen;
 
+  const returnToList = () => setActiveId(null);
+  // Inline (Comandos tab) has no floating palette to dismiss, so cancel/close
+  // returns to the command list (R9). Floating keeps the parent's onClose.
+  const dismiss = inline ? returnToList : onClose;
+
   // Escape returns to the command list first, then closes the whole panel
   // (mirrors StatusChip's document-level listener rather than a handler on a
-  // non-interactive node).
+  // non-interactive node). Inline mode has nothing to close at the list level.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       if (active) setActiveId(null);
-      else onClose();
+      else if (!inline) onClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [active, onClose]);
+  }, [active, onClose, inline]);
 
-  return (
-    <div
-      role="dialog"
-      aria-label="Comandos del chat"
-      className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
-    >
+  const content = (
+    <>
       <div className="mono mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
         <Terminal size={12} aria-hidden="true" />
         Comandos del chat
@@ -112,14 +117,29 @@ export function ComposerCommandPanel({ query, onClose }: ComposerCommandPanelPro
       <div aria-live="polite" className="flex flex-col gap-2">
         {active ? (
           ActiveScreen ? (
-            <ActiveScreen onClose={onClose} />
+            <ActiveScreen onClose={dismiss} />
           ) : (
-            <Stepper key={active.id} command={active} onDiscard={() => setActiveId(null)} onCancel={onClose} />
+            <Stepper key={active.id} command={active} onDiscard={returnToList} onCancel={dismiss} />
           )
         ) : (
-          <CommandList matches={matches} onPick={setActiveId} onClose={onClose} />
+          <CommandList matches={matches} onPick={setActiveId} onClose={dismiss} />
         )}
       </div>
+    </>
+  );
+
+  // Inline: a plain region inside the Comandos tabpanel (no floating dialog).
+  if (inline) {
+    return <div className="flex flex-col">{content}</div>;
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Comandos del chat"
+      className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
+    >
+      {content}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { getI18nState, putI18nLocale, type I18nStateResponse } from "../api/i18n
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.js";
 import { useDensity } from "../theme/useDensity.js";
 import { ALERT_STYLES, useAlertStyle } from "../theme/useAlertStyle.js";
+import { useLogsPref } from "../store/useLogsPref.js";
 import { Alert } from "./ui/Alert.js";
 import { Segmented } from "./ui/Segmented.js";
 import { Select } from "./ui/Select.js";
@@ -40,8 +41,8 @@ const HELP_TOPICS: ReadonlyArray<{ title: string; body: string }> = [
 /**
  * TopBar gear popover — Tema (ThemeSwitcher) + Wave 1b additions: a real
  * "Compacto" density preference (useDensity, persisted to localStorage), a
- * "Mostrar logs" client-pref stub (no live log data — that needs the
- * backend), and an Ayuda trigger that opens the 5 CTK help topics in a
+ * "Mostrar logs" preference (useLogsPref, persisted) that gates the Logs
+ * column tab, and an Ayuda trigger that opens the 5 CTK help topics in a
  * LATERAL flyout (leftward, so it never grows the popover downward).
  */
 export interface SettingsPopoverProps {
@@ -51,7 +52,9 @@ export interface SettingsPopoverProps {
 export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
+  // "Mostrar logs" now gates the real Logs column tab (R36), so it lives in a
+  // shared persisted store, not component-local state.
+  const { showLogs, setShowLogs } = useLogsPref();
   const { compact, setCompact } = useDensity();
   const { alertStyle, setAlertStyle } = useAlertStyle();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -175,10 +178,6 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
               <span className="text-[13px] text-foreground">Mostrar logs</span>
               <Switch checked={showLogs} onChange={setShowLogs} aria-label="Mostrar logs" />
             </div>
-            <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-              Mostrar logs necesita streaming en vivo desde el backend — todavía no existe ese endpoint, así que el
-              toggle no trae datos reales.
-            </p>
           </section>
 
           {i18n && (

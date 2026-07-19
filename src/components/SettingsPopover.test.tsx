@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../test/handlers.js";
+import { useLogsPrefStore } from "../store/useLogsPref.js";
 import {
   SettingsPopover as SettingsPopoverComponent,
   type SettingsPopoverProps
@@ -16,6 +17,8 @@ beforeEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.density;
   delete document.documentElement.dataset.alertStyle;
+  // The logs pref is a module singleton — reset it so tests don't leak state.
+  useLogsPrefStore.setState({ showLogs: false });
 });
 
 afterEach(() => {
@@ -94,17 +97,28 @@ describe("SettingsPopover", () => {
     expect(window.localStorage.getItem("oc-density")).toBe("compact");
   });
 
-  it("Mostrar logs is a client-only stub with a not-wired role=status note", () => {
+  it("Mostrar logs persists the preference to localStorage and drops the not-wired stub copy (R36)", () => {
     render(<SettingsPopover />);
     fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
 
     const logs = screen.getByRole("switch", { name: "Mostrar logs" });
     expect(logs).toHaveAttribute("aria-checked", "false");
+    // The Logs tab has a real data source now — the old "no existe ese endpoint"
+    // stub copy must be gone.
+    expect(screen.queryByText(/necesita streaming en vivo desde el backend/)).not.toBeInTheDocument();
 
     fireEvent.click(logs);
 
     expect(logs).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("status")).toHaveTextContent("necesita streaming en vivo desde el backend");
+    expect(window.localStorage.getItem("oc-show-logs")).toBe("1");
+  });
+
+  it("reflects the persisted Mostrar logs preference across a remount (R36)", () => {
+    useLogsPrefStore.getState().setShowLogs(true);
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    expect(screen.getByRole("switch", { name: "Mostrar logs" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("Alertas section renders the segmented control defaulted to sereno plus a live preview", () => {

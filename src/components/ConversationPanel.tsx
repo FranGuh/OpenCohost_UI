@@ -11,6 +11,9 @@ import { ComposerCommandPanel } from "./ComposerCommandPanel.js";
 import { Input } from "./ui/Input.js";
 import { KiraFace } from "./ui/KiraFace.js";
 import { Markdown } from "./ui/Markdown.js";
+import { Tab, TabList, TabPanel, Tabs } from "./ui/Tabs.js";
+import { LogsPanel } from "./commands/LogsPanel.js";
+import { useLogsPref } from "../store/useLogsPref.js";
 import { useAgendaEvents } from "../api/agenda.js";
 import { useLastReply, useSendChatTurn } from "../api/chat.js";
 import { useLiveTranscript } from "../api/liveTranscript.js";
@@ -20,7 +23,20 @@ import { cn } from "../lib/cn.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../store/eventStore.js";
 
 const TABS = ["Todo", "Chat", "Alertas"] as const;
-type Tab = (typeof TABS)[number];
+type FilterTab = (typeof TABS)[number];
+
+/** Primary column tab strip (R5). Chat holds the timeline + filter row +
+ * composer; Comandos reuses the command palette inline; Logs surfaces the
+ * engine event feed. */
+type ColumnTab = "chat" | "comandos" | "logs";
+
+function columnTabClass(active: boolean): string {
+  return cn(
+    "h-8 rounded-md px-3 text-[13px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+    active && "bg-[color:var(--accent-soft)] text-primary"
+  );
+}
 
 // Auto-scroll follow distance: an append while the operator sits within this
 // many px of the bottom follows the stream; further up, we surface the
@@ -57,7 +73,7 @@ interface Turn {
   tone?: AppEventTone;
 }
 
-function matchesTab(tab: Tab, kind: TurnKind): boolean {
+function matchesTab(tab: FilterTab, kind: TurnKind): boolean {
   if (tab === "Todo") return true;
   if (tab === "Chat") return kind === "chat";
   return kind === "alert";
@@ -141,7 +157,14 @@ function ConversationTurn({ turn }: { turn: Turn }) {
  * The operator's own message is appended locally as an ephemeral turn so it's
  * visible immediately; there's no server echo to reconcile against. */
 export function ConversationPanel() {
-  const [activeTab, setActiveTab] = useState<Tab>("Todo");
+  const [activeTab, setActiveTab] = useState<FilterTab>("Todo");
+  // Primary column strip (D3/R5). Local state — nothing else reads it.
+  const [columnTab, setColumnTab] = useState<ColumnTab>("chat");
+  // R36 flagged assumption: this preference gates Logs-TAB VISIBILITY, not a
+  // "jump to Logs" shortcut — owner sign-off pending, see spec.md R36.
+  const { showLogs } = useLogsPref();
+  // Unread indicator for the Logs tab (D10/R7): ephemeral, session-only.
+  const [seenLogId, setSeenLogId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   // Composer command palette (mockup): a live, prefix-based detection — the
   // panel shows whenever the trimmed composer value starts with "/" or "!".
@@ -163,6 +186,10 @@ export function ConversationPanel() {
   // src/lib/appEvents.ts's whitelist is the only source of these labels)
   // interleaved into the stream the same way agenda events already are.
   const appEvents = useEventStore(selectEvents);
+  // Logs unread dot (D10/R7): lit when the newest event is unseen and we're not
+  // already looking at Logs; cleared once Logs is active AND has rendered.
+  const latestLogId = appEvents.length > 0 ? appEvents[appEvents.length - 1].id : null;
+  const unreadLogs = showLogs && latestLogId !== null && latestLogId !== seenLogId && columnTab !== "logs";
   // Tracks the operator bubble for the in-flight/retryable send intent, so a
   // retry after a failed send updates that SAME bubble instead of appending
   // a duplicate "Vos" turn. Cleared once the send succeeds.
@@ -271,6 +298,18 @@ export function ConversationPanel() {
   useEffect(() => {
     if (pttState === "listening") setMicDegraded(false);
   }, [pttState]);
+
+  // Clear the Logs unread dot once the operator is viewing Logs and the newest
+  // event has rendered (R7 clear-on-view, not clear-on-click).
+  useEffect(() => {
+    if (columnTab === "logs") setSeenLogId(latestLogId);
+  }, [columnTab, latestLogId]);
+
+  // If the pref is turned OFF while Logs is the active column, fall back to Chat
+  // so the strip never points at a tab that no longer exists.
+  useEffect(() => {
+    if (!showLogs && columnTab === "logs") setColumnTab("chat");
+  }, [showLogs, columnTab]);
 
   // "Turno de voz enviado" confirmation: fire on the flushing -> idle
   // transition with no error, auto-clear after 4s.
@@ -416,168 +455,210 @@ export function ConversationPanel() {
 
   return (
     <aside className="flex min-h-0 flex-col border-l border-border-soft bg-card">
-      <div role="tablist" aria-label="Filtro de conversación" className="flex gap-1 border-b border-border-soft px-3 py-2">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            id={`conversation-tab-${tab}`}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab}
-            aria-controls="conversation-panel"
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              "mono h-7 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
-              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-              activeTab === tab && "bg-[color:var(--accent-soft)] text-primary"
-            )}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
-        <span className="inline-flex items-center gap-1.5 text-xs text-ok">
-          <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ok" />
-          </span>
-          sesión en vivo
-        </span>
-      </div>
-
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <div
-          role="tabpanel"
-          id="conversation-panel"
-          tabIndex={0}
-          ref={scrollRef}
-          onScroll={handleTimelineScroll}
-          aria-labelledby={`conversation-tab-${activeTab}`}
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          {visibleTurns.map((turn) => (
-            <ConversationTurn key={turn.id} turn={turn} />
-          ))}
-          {showEmptyState && (
-            <div className="m-auto flex flex-col items-center gap-2 py-8 text-center animate-rise-in">
-              <KiraFace size={40} aria-hidden />
-              <p className="text-sm font-semibold text-foreground">Empezá a chatear con Kira</p>
-              <p className="max-w-[220px] text-xs text-muted-foreground">
-                Escribí un mensaje abajo, o mantené el micrófono para hablarle.
-              </p>
-            </div>
+      <Tabs value={columnTab} onValueChange={(value) => setColumnTab(value as ColumnTab)} className="flex min-h-0 flex-1 flex-col">
+        <TabList ariaLabel="Columna" className="flex gap-1 border-b border-border-soft px-3 py-2">
+          <Tab value="chat" className={columnTabClass(columnTab === "chat")}>Chat</Tab>
+          <Tab value="comandos" className={columnTabClass(columnTab === "comandos")}>Comandos</Tab>
+          {showLogs && (
+            <Tab value="logs" className={cn(columnTabClass(columnTab === "logs"), "relative")}>
+              Logs
+              {unreadLogs && (
+                <span
+                  aria-hidden="true"
+                  data-unread
+                  className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle"
+                />
+              )}
+            </Tab>
           )}
-          {activeTab === "Alertas" && visibleTurns.length === 0 && (
-            <p className="text-xs text-dim">Sin turnos en este filtro.</p>
-          )}
-        </div>
-        {showJump && (
-          <button
-            type="button"
-            onClick={scrollToBottom}
-            className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-soft bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            <ChevronDown size={14} aria-hidden="true" />
-            Ver lo más reciente
-          </button>
-        )}
-      </div>
+        </TabList>
 
-      <div ref={composerRef} className="relative border-t border-border-soft bg-surface-2 p-3">
-        {showCommandPanel && (
-          <ComposerCommandPanel
-            query={message}
-            onClose={() => {
-              setMessage("");
-              // Restore focus to the composer input the operator was typing in.
-              composerRef.current?.querySelector("input")?.focus();
-            }}
-          />
-        )}
-        <div
-          className="mono flex h-7 items-center gap-2 text-[11px] text-dim"
-          title="Kira no está leyendo el chat de viewers en esta sesión."
-        >
-          <MessageSquareOff size={12} aria-hidden="true" />
-          Chat de viewers silenciado
-        </div>
-
-        {voiceSent && (
-          <p role="status" className="mono mt-1 flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
-            <Mic size={12} aria-hidden="true" />
-            Turno de voz enviado
-          </p>
-        )}
-        {/* role="alert" (assertive) + icon + rise-in: a live PTT failure must
-            actually register — the old bare 11px line was easy to miss. */}
-        {pttError && (
-          <p role="alert" className="mono mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
-            <MicOff size={12} aria-hidden="true" />
-            {ERROR_COPY[pttError]}
-          </p>
-        )}
-
-        <form onSubmit={handleSubmit} className="mt-2">
-          <Input
-            type="text"
-            value={message}
-            onChange={handleMessageChange}
-            placeholder="Escribí un mensaje para Kira…"
-            aria-label="Mensaje para Kira"
-            trailing={
-              <div className="flex items-stretch">
+        <TabPanel value="chat" className="flex min-h-0 flex-1 flex-col">
+          {/* Filter row + composer render only while Chat is active (R5/R8): the
+              composer must be absent from the a11y tree elsewhere, not merely
+              hidden. The timeline below stays mounted regardless so its scroll
+              position survives a column switch (R6). Filter selection survives
+              too — activeTab lives on this component, not on the filter row. */}
+          {columnTab === "chat" && (
+            <div role="tablist" aria-label="Filtro de conversación" className="flex gap-1 border-b border-border-soft px-3 py-2">
+              {TABS.map((tab) => (
                 <button
+                  key={tab}
+                  id={`conversation-tab-${tab}`}
                   type="button"
-                  aria-label={micLabel}
-                  aria-pressed={pttState === "listening"}
-                  title={showMicOff ? "PTT no disponible — WhisperLive no está corriendo." : undefined}
-                  onPointerDown={handleMicPointerDown}
-                  onPointerUp={pttStop}
-                  onPointerCancel={pttStop}
-                  onLostPointerCapture={pttStop}
-                  onKeyDown={handleMicKeyDown}
-                  onKeyUp={handleMicKeyUp}
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  aria-controls="conversation-panel"
+                  onClick={() => setActiveTab(tab)}
                   className={cn(
-                    "relative flex h-full w-10 touch-none select-none items-center justify-center overflow-hidden transition-colors duration-fast",
+                    "mono h-7 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
                     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                    pttState === "idle" && !micDegraded && "text-muted-foreground hover:text-foreground",
-                    showMicOff && "text-muted-foreground opacity-60",
-                    // connecting: tint the whole button, not just the 16px
-                    // glyph — same treatment family as the listening wash.
-                    pttState === "connecting" && "bg-info-bg text-info animate-pulse",
-                    pttState === "listening" && "bg-danger-bg text-danger animate-pulse",
-                    pttState === "flushing" && "text-muted-foreground animate-pulse"
+                    activeTab === tab && "bg-[color:var(--accent-soft)] text-primary"
                   )}
                 >
-                  {/* Hold-fill: rises while listening, drains fast on release.
-                      Pure visual (aria-hidden); state is carried by aria-pressed. */}
-                  <span
-                    aria-hidden="true"
-                    className={cn("mic-fill pointer-events-none absolute inset-0", pttState === "listening" && "mic-fill--filling")}
-                  />
-                  <MicGlyph size={16} aria-hidden="true" className="relative z-[1]" />
+                  {tab}
                 </button>
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                  Enviar
-                </button>
-              </div>
-            }
-          />
-        </form>
-      </div>
+              ))}
+            </div>
+          )}
 
-      {isError && (
-        <div className="px-3 pb-3">
-          <Alert tone="danger">{error?.message ?? "No se pudo enviar el mensaje."}</Alert>
-        </div>
-      )}
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-ok">
+              <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ok" />
+              </span>
+              sesión en vivo
+            </span>
+          </div>
+
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div
+              role="tabpanel"
+              id="conversation-panel"
+              tabIndex={0}
+              ref={scrollRef}
+              onScroll={handleTimelineScroll}
+              aria-labelledby={`conversation-tab-${activeTab}`}
+              className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              {visibleTurns.map((turn) => (
+                <ConversationTurn key={turn.id} turn={turn} />
+              ))}
+              {showEmptyState && (
+                <div className="m-auto flex flex-col items-center gap-2 py-8 text-center animate-rise-in">
+                  <KiraFace size={40} aria-hidden />
+                  <p className="text-sm font-semibold text-foreground">Empezá a chatear con Kira</p>
+                  <p className="max-w-[220px] text-xs text-muted-foreground">
+                    Escribí un mensaje abajo, o mantené el micrófono para hablarle.
+                  </p>
+                </div>
+              )}
+              {activeTab === "Alertas" && visibleTurns.length === 0 && (
+                <p className="text-xs text-dim">Sin turnos en este filtro.</p>
+              )}
+            </div>
+            {showJump && (
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-soft bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+                Ver lo más reciente
+              </button>
+            )}
+          </div>
+
+          {columnTab === "chat" && (
+            <div ref={composerRef} className="relative border-t border-border-soft bg-surface-2 p-3">
+              {showCommandPanel && (
+                <ComposerCommandPanel
+                  query={message}
+                  onClose={() => {
+                    setMessage("");
+                    // Restore focus to the composer input the operator was typing in.
+                    composerRef.current?.querySelector("input")?.focus();
+                  }}
+                />
+              )}
+              <div
+                className="mono flex h-7 items-center gap-2 text-[11px] text-dim"
+                title="Kira no está leyendo el chat de viewers en esta sesión."
+              >
+                <MessageSquareOff size={12} aria-hidden="true" />
+                Chat de viewers silenciado
+              </div>
+
+              {voiceSent && (
+                <p role="status" className="mono mt-1 flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
+                  <Mic size={12} aria-hidden="true" />
+                  Turno de voz enviado
+                </p>
+              )}
+              {/* role="alert" (assertive) + icon + rise-in: a live PTT failure must
+                  actually register — the old bare 11px line was easy to miss. */}
+              {pttError && (
+                <p role="alert" className="mono mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
+                  <MicOff size={12} aria-hidden="true" />
+                  {ERROR_COPY[pttError]}
+                </p>
+              )}
+
+              <form onSubmit={handleSubmit} className="mt-2">
+                <Input
+                  type="text"
+                  value={message}
+                  onChange={handleMessageChange}
+                  placeholder="Escribí un mensaje para Kira…"
+                  aria-label="Mensaje para Kira"
+                  trailing={
+                    <div className="flex items-stretch">
+                      <button
+                        type="button"
+                        aria-label={micLabel}
+                        aria-pressed={pttState === "listening"}
+                        title={showMicOff ? "PTT no disponible — WhisperLive no está corriendo." : undefined}
+                        onPointerDown={handleMicPointerDown}
+                        onPointerUp={pttStop}
+                        onPointerCancel={pttStop}
+                        onLostPointerCapture={pttStop}
+                        onKeyDown={handleMicKeyDown}
+                        onKeyUp={handleMicKeyUp}
+                        className={cn(
+                          "relative flex h-full w-10 touch-none select-none items-center justify-center overflow-hidden transition-colors duration-fast",
+                          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                          pttState === "idle" && !micDegraded && "text-muted-foreground hover:text-foreground",
+                          showMicOff && "text-muted-foreground opacity-60",
+                          // connecting: tint the whole button, not just the 16px
+                          // glyph — same treatment family as the listening wash.
+                          pttState === "connecting" && "bg-info-bg text-info animate-pulse",
+                          pttState === "listening" && "bg-danger-bg text-danger animate-pulse",
+                          pttState === "flushing" && "text-muted-foreground animate-pulse"
+                        )}
+                      >
+                        {/* Hold-fill: rises while listening, drains fast on release.
+                            Pure visual (aria-hidden); state is carried by aria-pressed. */}
+                        <span
+                          aria-hidden="true"
+                          className={cn("mic-fill pointer-events-none absolute inset-0", pttState === "listening" && "mic-fill--filling")}
+                        />
+                        <MicGlyph size={16} aria-hidden="true" className="relative z-[1]" />
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={pending}
+                        className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        Enviar
+                      </button>
+                    </div>
+                  }
+                />
+              </form>
+            </div>
+          )}
+
+          {isError && columnTab === "chat" && (
+            <div className="px-3 pb-3">
+              <Alert tone="danger">{error?.message ?? "No se pudo enviar el mensaje."}</Alert>
+            </div>
+          )}
+        </TabPanel>
+
+        <TabPanel value="comandos" className="flex min-h-0 flex-1 flex-col overflow-auto p-3">
+          {/* R9: same COMMANDS registry as the inline "/" palette, rendered
+              inline (no floating dialog). query="" lists all 7 commands. */}
+          <ComposerCommandPanel inline query="" onClose={() => setColumnTab("chat")} />
+        </TabPanel>
+
+        {showLogs && (
+          <TabPanel value="logs" className="flex min-h-0 flex-1 flex-col overflow-auto p-3">
+            <LogsPanel />
+          </TabPanel>
+        )}
+      </Tabs>
     </aside>
   );
 }
