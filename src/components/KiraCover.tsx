@@ -54,7 +54,7 @@ export function KiraCover() {
           - overflow-hidden + rounded-full clips the image to the circle shape
           - The bottom gradient fade is also clipped, creating a smooth
             circular blend rather than a hard rectangular cutoff */}
-      <div className="relative z-10 h-[420px] w-[420px] overflow-hidden rounded-full border border-ring">
+      <div className="relative z-10 h-[520px] w-[520px] overflow-hidden rounded-full border border-ring">
         {/* Inner breathing ring */}
         <div
           aria-hidden="true"
