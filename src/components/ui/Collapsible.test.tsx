@@ -72,7 +72,31 @@ describe("SubCollapsibleSection", () => {
       </SubCollapsibleSection>
     );
     expect(screen.getByText("sub child")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sub/ })).toHaveAttribute("aria-expanded", "true");
+    const header = screen.getByRole("button", { name: /Sub/ });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+
+    // Open: body is visible and reachable — no inert, aria-hidden="false" —
+    // and the header's aria-controls points at the body's real id.
+    const bodyId = header.getAttribute("aria-controls");
+    expect(bodyId).toBeTruthy();
+    const body = document.getElementById(bodyId as string) as HTMLElement;
+    expect(body).not.toHaveAttribute("inert");
+    expect(body).toHaveAttribute("aria-hidden", "false");
+    expect(body).toContainElement(screen.getByText("sub child"));
+  });
+
+  it("marks a default-closed body inert/aria-hidden before it's ever expanded — the destructive-action hazard this guards against", () => {
+    render(
+      <SubCollapsibleSection title="Sub" persistKey="sub-closed" defaultOpen={false}>
+        <button type="button">danger</button>
+      </SubCollapsibleSection>
+    );
+    const header = screen.getByRole("button", { name: /Sub/ });
+    const bodyId = header.getAttribute("aria-controls");
+    expect(bodyId).toBeTruthy();
+    const body = document.getElementById(bodyId as string) as HTMLElement;
+    expect(body).toHaveAttribute("inert");
+    expect(body).toHaveAttribute("aria-hidden", "true");
   });
 
   it("honours defaultOpen=false and persists the toggle through to localStorage", () => {
@@ -83,10 +107,15 @@ describe("SubCollapsibleSection", () => {
     );
     const header = screen.getByRole("button", { name: /Sub/ });
     expect(header).toHaveAttribute("aria-expanded", "false");
+    const bodyId = header.getAttribute("aria-controls") as string;
+    expect(document.getElementById(bodyId)).toHaveAttribute("inert");
 
     fireEvent.click(header);
     expect(header).toHaveAttribute("aria-expanded", "true");
     expect(window.localStorage.getItem("oc-collapse-sub-b")).toBe("1");
+    // Re-opened: inert/aria-hidden lift, the body becomes reachable again.
+    expect(document.getElementById(bodyId)).not.toHaveAttribute("inert");
+    expect(document.getElementById(bodyId)).toHaveAttribute("aria-hidden", "false");
   });
 
   it("hydrates its initial open state from localStorage (persistKey)", () => {

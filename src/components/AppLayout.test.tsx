@@ -44,11 +44,22 @@ describe("AppLayout", () => {
 
   it("gives the chat/queue column 465px and drops the fixed 1180px min-width (horizontal-scroll fix)", () => {
     const { container } = renderApp();
-    // The runtime grid variant carries the widened chat column…
-    expect(container.innerHTML).toContain("465px");
+    const shell = container.querySelector(".w-full.min-w-0") as HTMLElement;
+    // Default (expanded sidebar): 248px side / 1fr main / 465px chat-queue —
+    // the exact runtime grid, not just a substring hit.
+    expect(shell.style.gridTemplateColumns).toBe("248px 1fr 465px");
+
+    fireEvent.click(screen.getByRole("button", { name: "Colapsar barra lateral" }));
+    // Collapsed sidebar: only the first column narrows to the icon-rail width.
+    expect(shell.style.gridTemplateColumns).toBe("60px 1fr 465px");
+
     // …and the shell no longer forces a 1180px min-width that caused the
     // whole app to scroll horizontally below that width.
     expect(container.innerHTML).not.toContain("min-w-[1180px]");
+
+    // A true browser-level "does the viewport scroll horizontally at 1280px"
+    // check isn't feasible in jsdom (no real layout engine) — that's covered
+    // by the owner's runtime validation instead.
   });
 
   it("restores Welcome from Settings and returns section ownership to Experiencia", () => {

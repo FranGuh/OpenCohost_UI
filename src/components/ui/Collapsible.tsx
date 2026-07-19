@@ -1,6 +1,19 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/cn.js";
+
+// @types/react 18.3.x doesn't type the native `inert` attribute in its stable
+// HTMLAttributes (only react/experimental.d.ts has it), and react-dom 18
+// doesn't recognise `inert` as a boolean-valued DOM attribute either (it warns
+// on `inert={false}` — a real boolean value isn't a "boolean attribute" to
+// React unless it's on its own hardcoded allowlist). So this is typed and used
+// as a string attribute: `inert=""` (present) / `inert={undefined}` (absent),
+// same as the `disabled=""` idiom, which is what the DOM actually reads.
+declare module "react" {
+  interface HTMLAttributes<T> {
+    inert?: "";
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Collapsible — shared card section toggle                          */
@@ -11,16 +24,21 @@ import { cn } from "../../lib/cn.js";
 export interface CollapsibleHeaderProps {
   isOpen: boolean;
   onToggle: () => void;
+  /** DOM id of the matching CollapsibleBody, wired into aria-controls so
+   *  assistive tech can find the section this header expands/collapses.
+   *  Omit for callers that don't share an id with their CollapsibleBody. */
+  bodyId?: string;
   children: ReactNode;
 }
 
 /** Clickable card header with a ▾ chevron that rotates when collapsed. */
-export function CollapsibleHeader({ isOpen, onToggle, children }: CollapsibleHeaderProps) {
+export function CollapsibleHeader({ isOpen, onToggle, bodyId, children }: CollapsibleHeaderProps) {
   return (
     <div
       role="button"
       tabIndex={0}
       aria-expanded={isOpen}
+      aria-controls={bodyId}
       onClick={onToggle}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); }
@@ -43,16 +61,35 @@ export function CollapsibleHeader({ isOpen, onToggle, children }: CollapsibleHea
 
 export interface CollapsibleBodyProps {
   isOpen: boolean;
+  /** Stable DOM id for this body. Pass the same value to the matching
+   *  CollapsibleHeader's `bodyId` prop so aria-controls resolves. Falls back
+   *  to a generated id (React useId) when the caller doesn't supply one, so
+   *  the element always has a stable id even without aria-controls wiring. */
+  id?: string;
   children: ReactNode;
 }
 
-/** Animated panel body — grid-rows trick for smooth height transition. */
-export function CollapsibleBody({ isOpen, children }: CollapsibleBodyProps) {
+/**
+ * Animated panel body — grid-rows trick for smooth height transition.
+ *
+ * Collapsed content used to stay mounted, exposed to the accessibility tree,
+ * and keyboard-focusable despite aria-expanded="false" on the header — a
+ * destructive action inside a "closed" section could still be tabbed to and
+ * activated. `inert` (belt-and-braces `pointer-events-none` too, since jsdom
+ * doesn't enforce `inert`) plus `aria-hidden` close that hole while keeping
+ * the content mounted so the grid-rows height animation still works.
+ */
+export function CollapsibleBody({ isOpen, id, children }: CollapsibleBodyProps) {
+  const fallbackId = useId();
+  const bodyId = id ?? fallbackId;
   return (
     <div
+      id={bodyId}
+      inert={!isOpen ? "" : undefined}
+      aria-hidden={!isOpen}
       className={cn(
         "grid transition-all duration-base ease-io",
-        isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0"
+        isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0 pointer-events-none"
       )}
     >
       {/* overflow-hidden only while collapsed so the grid-rows animation clips
@@ -133,12 +170,15 @@ export interface SubCollapsibleSectionProps {
  */
 export function SubCollapsibleSection({ title, persistKey, defaultOpen = true, children }: SubCollapsibleSectionProps) {
   const [isOpen, toggle] = useCollapsible(defaultOpen, persistKey);
+  // persistKey is already required to be unique (it doubles as the localStorage
+  // key), so deriving the shared header/body id from it is a safe, stable choice.
+  const bodyId = `oc-collapsible-body-${persistKey}`;
   return (
     <section>
-      <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
+      <CollapsibleHeader isOpen={isOpen} onToggle={toggle} bodyId={bodyId}>
         <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{title}</span>
       </CollapsibleHeader>
-      <CollapsibleBody isOpen={isOpen}>{children}</CollapsibleBody>
+      <CollapsibleBody isOpen={isOpen} id={bodyId}>{children}</CollapsibleBody>
     </section>
   );
 }

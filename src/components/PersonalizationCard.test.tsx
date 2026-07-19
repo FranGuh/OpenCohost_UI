@@ -124,6 +124,22 @@ describe("PersonalizationCard Guardar (PUT /api/personalization)", () => {
 });
 
 describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalization)", () => {
+  it("keeps the destructive section's body inert/aria-hidden while collapsed, before it's ever expanded", async () => {
+    renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toBeInTheDocument());
+
+    const header = screen.getByRole("button", { name: "Borrar datos guardados" });
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    const bodyId = header.getAttribute("aria-controls") as string;
+    expect(bodyId).toBeTruthy();
+    const body = document.getElementById(bodyId) as HTMLElement;
+    expect(body).toHaveAttribute("inert");
+    expect(body).toHaveAttribute("aria-hidden", "true");
+    // The Limpiar button lives inside the still-collapsed body, unreachable
+    // by role query — proof the destructive action isn't tabbable while hidden.
+    expect(screen.queryByRole("button", { name: "Limpiar" })).not.toBeInTheDocument();
+  });
+
   it("requires a confirm step, Cancelar backs out without deleting", async () => {
     let calls = 0;
     server.use(
@@ -135,6 +151,7 @@ describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalizat
     renderCard();
     await waitFor(() => expect(screen.getByLabelText("Apodo")).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole("button", { name: "Borrar datos guardados" }));
     fireEvent.click(screen.getByRole("button", { name: "Limpiar" }));
     expect(screen.getByText(/No se puede deshacer/)).toBeInTheDocument();
 
@@ -155,6 +172,7 @@ describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalizat
     server.use(http.delete(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json({ ok: true })));
     server.use(http.get(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json(defaultPersonalization)));
 
+    fireEvent.click(screen.getByRole("button", { name: "Borrar datos guardados" }));
     fireEvent.click(screen.getByRole("button", { name: "Limpiar" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
     fireEvent.click(screen.getByRole("button", { name: "Borrar personalización" }));
@@ -171,6 +189,7 @@ describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalizat
     renderCard();
     await waitFor(() => expect(screen.getByLabelText("Apodo")).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole("button", { name: "Borrar datos guardados" }));
     fireEvent.click(screen.getByRole("button", { name: "Limpiar" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
     fireEvent.click(screen.getByRole("button", { name: "Borrar personalización" }));
