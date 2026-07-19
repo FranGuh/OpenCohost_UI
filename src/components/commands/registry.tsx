@@ -55,6 +55,9 @@ export interface Command {
   primaryLabel?: string | ((values: Record<string, StepValue>) => string);
   /** Overrides the default "maquetado — todavía no envía" helper under the action. */
   actionNote?: string;
+  /** Overrides the post-success "Cargar otro" re-arm label (Item 1) —
+   * e.g. /agenda "Otro tema", /perfil "Otro perfil". */
+  resetLabel?: string;
   /**
    * D4 submit pipe: maps the stepper's collected values to a backend call and
    * resolves the ack text `ActionRow` renders on success. Absent → the command
@@ -317,6 +320,7 @@ export const COMMANDS: Command[] = [
     description: "programá un tema para el stream",
     summaryTitle: "Tema listo para agendar",
     primaryLabel: "Programar tema",
+    resetLabel: "Otro tema",
     // WU7/R12-R15: map the stepper values to the wire vocab, POST the topic, and
     // invalidate the agenda query so a reopened /temas reflects it (D6). Uses the
     // app-shared queryClient (main.tsx provides this same instance).
@@ -357,6 +361,7 @@ export const COMMANDS: Command[] = [
     description: "guardá o cambiá el perfil de co-host de Kira — identidad y cómo suena en la agenda",
     summaryTitle: "Perfil de co-host listo para guardar",
     primaryLabel: "Guardar perfil de co-host",
+    resetLabel: "Otro perfil",
     // WU10/R16-R19: save the cohost profile (identity) AND apply the session
     // fields — two calls, never POST /api/perfiles (the LLM persona). `estandar`
     // maps to `monologue` (R19 flagged), never sent raw.

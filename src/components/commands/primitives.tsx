@@ -278,22 +278,30 @@ export function SummaryCard({
 
 /**
  * Stepper tail action (D4/R1-R3). When a command supplies `onSubmit`, this is a
- * real submit pipe: idle → pending (disabled, in-flight) → settled (ack from
- * the resolved response). On failure it re-enables for a retry and NEVER resets
- * the parent stepper's values (they live in `Stepper` state, R2). Commands not
- * yet migrated (no `onSubmit`) keep the original inert DISABLED + "maquetado"
- * mockup byte-for-byte, so they don't regress before their WU lands.
+ * real submit pipe: idle → pending (disabled, in-flight) → settled. Settled is
+ * NOT a dead end (Item 1): it shows the green ack plus two live actions —
+ * "Cargar otro" (`onReset`, re-arms the whole stepper) and "Listo" (`onCancel`).
+ * On failure it re-enables for a retry and NEVER resets the parent stepper's
+ * values (they live in `Stepper` state, R2). Commands not yet migrated (no
+ * `onSubmit`) keep the original inert DISABLED + "maquetado" mockup
+ * byte-for-byte, so they don't regress before their WU lands.
  */
 export function ActionRow({
   primaryLabel,
   note,
   onSubmit,
-  onCancel
+  onCancel,
+  onReset,
+  resetLabel
 }: {
   primaryLabel: string;
   note: string;
   onSubmit?: () => Promise<string>;
   onCancel: () => void;
+  /** Re-arm the whole stepper for another entry (Item 1 "Cargar otro"). */
+  onReset?: () => void;
+  /** Per-command "Cargar otro" label override (e.g. "Otro tema"). */
+  resetLabel?: string;
 }) {
   const [phase, setPhase] = useState<"idle" | "pending" | "settled">("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -338,8 +346,9 @@ export function ActionRow({
       const ack = await onSubmit!();
       setPhase("settled");
       setMessage(ack);
-      // Settled is terminal (button stays disabled via `busy || done`) — no
-      // reset needed here, this row is never resubmitted.
+      // Settled renders the re-arm actions (Cargar otro / Listo) instead of a
+      // dead disabled button (Item 1). "Cargar otro" remounts this row (key
+      // bump in Stepper), which resets `submittingRef` for the next submit.
     } catch (err) {
       // R2: entered values live in the parent Stepper — reset nothing here.
       submittingRef.current = false;
@@ -352,13 +361,33 @@ export function ActionRow({
   const busy = phase === "pending";
   const done = phase === "settled";
 
+  // Settled (Item 1): green ack + "Cargar otro" (re-arm) and "Listo" (dismiss),
+  // instead of a permanently disabled primary.
+  if (done) {
+    return (
+      <div className="mt-1 flex flex-col gap-2 border-t border-border-soft pt-3">
+        <span role="status" aria-live="polite" className="text-[13px] font-medium text-ok">
+          {message}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="primary" className="h-8 px-3 text-[13px]" onClick={onReset}>
+            {resetLabel ?? "Cargar otro"}
+          </Button>
+          <Button type="button" variant="ghost" className="h-8 px-3 text-[13px]" onClick={onCancel}>
+            Listo
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-1 flex items-center justify-between gap-3 border-t border-border-soft pt-3">
       <div className="flex flex-col">
         <Button
           type="button"
           variant="primary"
-          disabled={busy || done}
+          disabled={busy}
           onClick={handleSubmit}
           className="self-start disabled:cursor-not-allowed disabled:opacity-40"
         >

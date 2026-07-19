@@ -378,6 +378,132 @@ describe("ActionRow submit pipe (WU2 — R1/R2/R3)", () => {
   });
 });
 
+// ─── Item 1: post-success re-arm (Cargar otro / Listo) ───────────────────────
+
+function renderInlinePanel(query: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ComposerCommandPanel query={query} onClose={noop} inline />
+    </QueryClientProvider>
+  );
+}
+
+describe("ActionRow post-success re-arm (Item 1)", () => {
+  it("success replaces the dead disabled primary with a green ack + 'Cargar otro' and 'Listo'", async () => {
+    renderStepperToSummary(oneStepCommand(() => Promise.resolve("Hecho")));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    expect(await screen.findByText("Hecho")).toBeInTheDocument();
+    // The dead-end disabled primary is gone; two live actions replace it.
+    expect(screen.queryByRole("button", { name: "Enviar" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cargar otro" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Listo" })).toBeEnabled();
+  });
+
+  it("'Cargar otro' clears the stepper to an empty first step and a second submit succeeds", async () => {
+    let calls = 0;
+    const submit = () => {
+      calls += 1;
+      return Promise.resolve(`ok ${calls}`);
+    };
+    render(<Stepper command={oneStepCommand(submit)} onDiscard={noop} onCancel={noop} />);
+    fireEvent.change(screen.getByLabelText("¿Valor?"), { target: { value: "primero" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText("ok 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cargar otro" }));
+    // Whole-stepper reset: back at the first step with the field cleared.
+    const field = screen.getByLabelText("¿Valor?") as HTMLInputElement;
+    expect(field.value).toBe("");
+
+    // A full second submit works end-to-end (submittingRef guard was re-armed).
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(await screen.findByText("ok 2")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it("'Otro tema' (/agenda reset label) re-arms the stepper and POSTs /api/agenda/topic twice", async () => {
+    let hits = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/topic`, () => {
+        hits += 1;
+        return HttpResponse.json(defaultAgenda);
+      })
+    );
+    renderPanel("/agenda");
+    enterCommand(/agenda — programá un tema/);
+
+    driveAgenda({ tema: "uno" });
+    fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
+    await screen.findByText(/tema agregado a la cola/i);
+
+    // /agenda overrides the re-arm label to "Otro tema".
+    fireEvent.click(screen.getByRole("button", { name: "Otro tema" }));
+    expect(screen.getByLabelText("¿Qué tema querés agendar?")).toHaveValue("");
+
+    driveAgenda({ tema: "dos" });
+    fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
+    await screen.findByText(/tema agregado a la cola/i);
+    expect(hits).toBe(2);
+  });
+
+  it("/perfil overrides the re-arm label to 'Otro perfil'", async () => {
+    server.use(cohostProfileSaveCaptureHandler({}), agendaSessionCaptureHandler({}));
+    renderPanel("/perfil");
+    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+
+    drivePerfil({ nombre: "Kira" });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
+    await screen.findByText(/perfil de co-host guardado/i);
+
+    expect(screen.getByRole("button", { name: "Otro perfil" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cargar otro" })).not.toBeInTheDocument();
+  });
+
+  it("'Listo' returns to the command list in the inline Comandos tab", async () => {
+    renderInlinePanel("/agenda");
+    enterCommand(/agenda — programá un tema/);
+    driveAgenda({ tema: "uno" });
+    fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
+    await screen.findByText(/tema agregado a la cola/i);
+
+    fireEvent.click(screen.getByRole("button", { name: "Listo" }));
+    // Back at the browsable list — the command entry is visible again.
+    expect(screen.getByRole("button", { name: /agenda — programá un tema/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Listo" })).not.toBeInTheDocument();
+  });
+
+  it("rapid double-click during pending still submits exactly once after the re-arm change (F1/F7)", async () => {
+    let calls = 0;
+    let resolve!: (ack: string) => void;
+    const submit = () => {
+      calls += 1;
+      return new Promise<string>((res) => (resolve = res));
+    };
+    renderStepperToSummary(oneStepCommand(submit));
+
+    const primary = screen.getByRole("button", { name: "Enviar" });
+    fireEvent.click(primary);
+    fireEvent.click(primary);
+    expect(calls).toBe(1);
+
+    resolve("¡Enviado!");
+    await screen.findByText("¡Enviado!");
+  });
+});
+
+// ─── Item 2: stepper form width cap ──────────────────────────────────────────
+
+describe("Stepper form width cap (Item 2)", () => {
+  it("caps the stepper form container at max-w-[560px]", () => {
+    const { container } = render(<Stepper command={oneStepCommand()} onDiscard={noop} onCancel={noop} />);
+    expect(container.firstChild).toHaveClass("max-w-[560px]");
+  });
+});
+
 // ─── WU7: /agenda → postAgendaTopic (R12-R15, R33-R35) ────────────────────────
 
 /** Walk /agenda's steps (tema → angulo → prioridad → largo → etiquetas) to the

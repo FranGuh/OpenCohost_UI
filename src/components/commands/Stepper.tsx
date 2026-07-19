@@ -99,6 +99,9 @@ export function Stepper({
   const steps = command.steps ?? [];
   const [values, setValues] = useState<Record<string, StepValue>>(() => initialValues(steps));
   const [cursor, setCursor] = useState(0);
+  // Bumped by `reset` to remount the ActionRow so its in-flight/`submittingRef`
+  // guard clears — a fresh submit works after "Cargar otro" (Item 1).
+  const [resetKey, setResetKey] = useState(0);
 
   // Steps whose `when` gate passes for the current answers. Commands without any
   // `when` yield the full list unchanged (their flow stays byte-identical).
@@ -111,8 +114,18 @@ export function Stepper({
     setCursor((current) => Math.min(visible.length, current + 1));
   }
 
+  // "Cargar otro" (Item 1): clear every answer, jump back to the first step, and
+  // remount the ActionRow so its idle/submittingRef state re-arms.
+  function reset() {
+    setValues(initialValues(steps));
+    setCursor(0);
+    setResetKey((key) => key + 1);
+  }
+
   return (
-    <div className="flex flex-col gap-3">
+    // max-w-[560px] caps the whole stepper form (steps, summary, action row) so
+    // fields stop stretching across a wide panel; fields keep w-full within it.
+    <div className="flex max-w-[560px] flex-col gap-3">
       {/* Answered steps collapse to chips so the flow reads one-at-a-time. */}
       {cursor > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -164,6 +177,7 @@ export function Stepper({
             onDiscard={onDiscard}
           />
           <ActionRow
+            key={resetKey}
             primaryLabel={
               typeof command.primaryLabel === "function"
                 ? command.primaryLabel(values)
@@ -172,6 +186,8 @@ export function Stepper({
             note={command.actionNote ?? "maquetado — todavía no envía"}
             onSubmit={command.submit ? () => command.submit!(values) : undefined}
             onCancel={onCancel}
+            onReset={reset}
+            resetLabel={command.resetLabel}
           />
         </>
       )}
