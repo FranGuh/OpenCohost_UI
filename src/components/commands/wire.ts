@@ -8,6 +8,7 @@ import type {
 import { ApiError, ConflictError, ValidationError } from "../../api/client.js";
 import type { MusicMoodResponse } from "../../api/music.js";
 import type { StreamChatLiveResponse, StreamLimitsRequest } from "../../api/stream.js";
+import { StreamConnectTimeoutError } from "../../api/stream.js";
 import type { StepValue } from "./primitives.js";
 
 /**
@@ -39,12 +40,22 @@ function wireMap(vocab: readonly VocabEntry[]): Record<string, string> {
 }
 
 /** Known 422 `detail` codes the wired command endpoints can send back (R20's
- * `invalid_url`, R25's `invalid_filter_policy`). Everything else is an
+ * `invalid_url`, R25's `invalid_filter_policy`, Lote C's `unsupported_platform`
+ * and the client-side `youtube_channel_url` fast-fail). Everything else is an
  * untranslated backend string (validation sentences, unmapped codes) that
  * must never render verbatim in operator-facing copy. */
 const VALIDATION_COPY: Record<string, string> = {
   invalid_url: "Esa URL o canal no es válida — revisá el link.",
-  invalid_filter_policy: "Ese contrato de entrada no es válido — probá con otra opción."
+  invalid_filter_policy: "Ese contrato de entrada no es válido — probá con otra opción.",
+  unsupported_platform: "Esa plataforma no está soportada — usá YouTube o Twitch.",
+  youtube_channel_url: "YouTube necesita el link del VIDEO en vivo (watch?v=…), no el del canal."
+};
+
+/** Known 503 `detail` codes for the stream connect path (Lote C). An unknown
+ * 503 code falls back to the generic service-unavailable line — the raw code
+ * never renders (F4). */
+const STREAM_UNAVAILABLE_COPY: Record<string, string> = {
+  chat_source_unavailable: "El conector de chat no está instalado/disponible en el backend."
 };
 
 /**
@@ -56,6 +67,10 @@ const VALIDATION_COPY: Record<string, string> = {
  * operator — raw backend detail text is never interpolated (F4).
  */
 export function errorCopy(err: unknown): string {
+  // Lote C: a connect that never reported connected within the poll budget.
+  if (err instanceof StreamConnectTimeoutError) {
+    return "No conectó — verificá que el directo esté EN VIVO y probá de nuevo.";
+  }
   if (err instanceof ValidationError) {
     return VALIDATION_COPY[err.message] ?? "No se pudo aplicar — revisá los datos y probá de nuevo.";
   }
@@ -63,7 +78,9 @@ export function errorCopy(err: unknown): string {
     return "Ya hay una operación en curso — probá de nuevo en un momento.";
   }
   if (err instanceof ApiError && err.status === 503) {
-    return "El motor no está disponible ahora — probá de nuevo en un momento.";
+    // KNOWN 503 codes (e.g. chat_source_unavailable) name the real cause; an
+    // unknown 503 detail falls back to the generic line — never the raw code.
+    return STREAM_UNAVAILABLE_COPY[err.message] ?? "El motor no está disponible ahora — probá de nuevo en un momento.";
   }
   if (err instanceof ApiError) {
     return `Falló la operación (${err.status}) — probá de nuevo.`;
@@ -170,16 +187,21 @@ export function composeStreamUrl(plataforma: string, canal: string): string {
   return /^[\w-]{11}$/.test(trimmed) ? trimmed : `youtube.com/watch?v=${trimmed}`;
 }
 
-/** Ack for /vivo (R21). Names the resulting connection on success; honest on a
- * `connected:false` response. The 422/409 paths throw and are surfaced by
- * `errorCopy` (invalid_url / busy). */
+/** Lote C fast-fail: a YouTube CHANNEL URL (@handle, /channel/, /c/, /user/)
+ * can never yield a live-video chat id — the backend's `parse_chat_url` would
+ * 422 it. Detect it BEFORE the POST so /vivo can tell the operator to paste the
+ * live VIDEO link instead of round-tripping to a generic invalid_url. A real
+ * `watch?v=` / `live/` video URL is NOT a channel URL and passes through. */
+export function isYoutubeChannelUrl(canal: string): boolean {
+  return /youtube\.com\/(@|channel\/|c\/|user\/)/i.test(canal.trim());
+}
+
+/** Ack for /vivo (R21, Lote C). Only reached with a `connected:true` response —
+ * the /vivo submit polls status until connected or throws (timeout/422/409/503,
+ * all surfaced by `errorCopy`), so this never has to fake a false connect. */
 export function describeConnect(response: StreamChatLiveResponse): string {
-  if (!response.connected) {
-    return "No se pudo conectar el chat en vivo — probá de nuevo.";
-  }
   const platform = response.platform ?? "el chat";
-  const source = response.source_id ? ` (${response.source_id})` : "";
-  return `Conectado a ${platform}${source}.`;
+  return `Chat en vivo conectado — ${platform}.`;
 }
 
 // ─── /sesion → POST /api/agenda/session/action (R27/R28) ─────────────────────

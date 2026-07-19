@@ -14,12 +14,16 @@ import {
   streamLimitsValidationHandler
 } from "../test/handlers.js";
 import {
+  StreamConnectTimeoutError,
+  connectStreamAndAwait,
   useStreamChatLiveQuery,
   useStreamConnectMutation,
   useStreamDisconnectMutation,
   useStreamLimitsMutation
 } from "./stream.js";
-import { ConflictError, ValidationError } from "./client.js";
+import { ApiError, ConflictError, ValidationError } from "./client.js";
+
+const noSleep = async () => {};
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -78,6 +82,101 @@ describe("useStreamConnectMutation", () => {
     result.current.mutate("https://twitch.tv/kira");
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toBeInstanceOf(ConflictError);
+  });
+
+  it("throws ApiError(503, chat_source_unavailable) so the UI can name the missing connector", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
+        HttpResponse.json({ detail: "chat_source_unavailable" }, { status: 503 })
+      )
+    );
+    const { result } = renderHook(() => useStreamConnectMutation(), { wrapper: createWrapper() });
+    result.current.mutate("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toBeInstanceOf(ApiError);
+    expect((result.current.error as ApiError).status).toBe(503);
+    // R8/F4: the code — not a raw traceback string — so errorCopy can map it.
+    expect((result.current.error as ApiError).message).toBe("chat_source_unavailable");
+  });
+});
+
+describe("connectStreamAndAwait (Lote C — POST then poll GET status until connected)", () => {
+  it("polls GET status and resolves once connected flips to true", async () => {
+    // The real backend connects on a daemon thread, so the POST returns
+    // connected:false a beat before the socket is actually up.
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, connected: false, platform: "youtube" })
+      )
+    );
+    let statusCalls = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () => {
+        statusCalls += 1;
+        return HttpResponse.json({
+          ...defaultStreamChatLive,
+          connected: statusCalls >= 2, // flips on the 2nd poll
+          platform: "youtube",
+          source_id: "vid12345678"
+        });
+      })
+    );
+    const result = await connectStreamAndAwait("youtube.com/watch?v=vid12345678", {
+      intervalMs: 0,
+      sleep: noSleep
+    });
+    expect(result.connected).toBe(true);
+    expect(result.platform).toBe("youtube");
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("throws StreamConnectTimeoutError when the chat never reports connected", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, connected: false })
+      )
+    );
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, connected: false })
+      )
+    );
+    await expect(
+      connectStreamAndAwait("youtube.com/watch?v=vid12345678", { attempts: 3, intervalMs: 0, sleep: noSleep })
+    ).rejects.toBeInstanceOf(StreamConnectTimeoutError);
+  });
+
+  it("resolves immediately (no poll) when the connect POST already reports connected", async () => {
+    let statusCalls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" })
+      )
+    );
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () => {
+        statusCalls += 1;
+        return HttpResponse.json(defaultStreamChatLive);
+      })
+    );
+    const result = await connectStreamAndAwait("twitch.tv/kira", { intervalMs: 0, sleep: noSleep });
+    expect(result.connected).toBe(true);
+    expect(statusCalls).toBe(0);
+  });
+
+  it("propagates a 422 from the connect POST without polling (fast reject)", async () => {
+    let statusCalls = 0;
+    server.use(streamConnectInvalidUrlHandler());
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () => {
+        statusCalls += 1;
+        return HttpResponse.json(defaultStreamChatLive);
+      })
+    );
+    await expect(
+      connectStreamAndAwait("not-a-url", { attempts: 3, intervalMs: 0, sleep: noSleep })
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(statusCalls).toBe(0);
   });
 });
 

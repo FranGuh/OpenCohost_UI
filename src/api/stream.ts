@@ -48,6 +48,9 @@ export async function postStreamConnect(url: string): Promise<StreamChatLiveResp
     throw new ConflictError("stream connect busy");
   }
   if (res.status === 422) {
+    // Lote C: backend now sends `invalid_url` (bad URL shape) OR
+    // `unsupported_platform` (aggregator rejected the platform). Both are
+    // ValidationErrors; errorCopy maps the KNOWN codes to voseo copy.
     let detail = "invalid_url";
     try {
       const body = (await res.json()) as { detail?: string };
@@ -57,10 +60,77 @@ export async function postStreamConnect(url: string): Promise<StreamChatLiveResp
     }
     throw new ValidationError(detail);
   }
+  if (res.status === 503) {
+    // Lote C: `chat_source_unavailable` (connector not installed) vs
+    // `stream_unavailable` (no aggregator / unexpected failure). Carry the
+    // CODE as the ApiError message so errorCopy can name the right cause —
+    // never a raw traceback (R8/F4).
+    let detail = "stream_unavailable";
+    try {
+      const body = (await res.json()) as { detail?: string };
+      detail = body.detail ?? detail;
+    } catch {
+      // non-JSON 503 body — fall back to the generic code.
+    }
+    throw new ApiError(detail, 503);
+  }
   if (!res.ok) {
     throw new ApiError(`POST /api/stream/chat-live/connect failed with ${res.status}`, res.status);
   }
   return (await res.json()) as StreamChatLiveResponse;
+}
+
+/**
+ * Thrown by `connectStreamAndAwait` when the connect POST succeeded but the
+ * chat never reported `connected:true` within the poll budget — i.e. the
+ * directo probably is not actually live. Distinct type so `errorCopy` can
+ * produce the "verificá que esté EN VIVO" copy instead of a generic retry.
+ */
+export class StreamConnectTimeoutError extends Error {
+  constructor(message = "stream_connect_timeout") {
+    super(message);
+    this.name = "StreamConnectTimeoutError";
+  }
+}
+
+export interface StreamConnectPollOptions {
+  /** Status polls AFTER the initial POST (default 7 ≈ 5.6s @ 800ms). */
+  attempts?: number;
+  /** Delay between polls in ms (default 800). */
+  intervalMs?: number;
+  /** Injected sleep — tests pass a no-op to run instantly. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injected status reader — tests stub this. */
+  getStatus?: () => Promise<StreamChatLiveResponse>;
+}
+
+/**
+ * Lote C — honest connect: POST connect, then poll GET /api/stream/chat-live
+ * until `connected:true` or the budget runs out. The backend launches the real
+ * connection on a daemon thread, so the POST almost always returns
+ * `connected:false` a beat before the socket is up; polling is what makes the
+ * /vivo ack honest instead of the near-guaranteed false negative the raw POST
+ * response gave. Connect errors (422/409/503) propagate unchanged; budget
+ * exhaustion throws `StreamConnectTimeoutError`.
+ */
+export async function connectStreamAndAwait(
+  url: string,
+  opts: StreamConnectPollOptions = {}
+): Promise<StreamChatLiveResponse> {
+  const attempts = opts.attempts ?? 7;
+  const intervalMs = opts.intervalMs ?? 800;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const getStatus = opts.getStatus ?? getStreamChatLive;
+
+  const initial = await postStreamConnect(url);
+  if (initial.connected) return initial;
+
+  for (let i = 0; i < attempts; i++) {
+    await sleep(intervalMs);
+    const status = await getStatus();
+    if (status.connected) return status;
+  }
+  throw new StreamConnectTimeoutError();
 }
 
 export async function postStreamDisconnect(): Promise<StreamChatLiveResponse> {

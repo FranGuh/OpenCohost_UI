@@ -264,9 +264,10 @@ describe("command palette — registry + primitives (mockup)", () => {
     renderPanel("/vivo");
     enterCommand(/vivo — conectá el chat en vivo/);
 
-    // Walk the two steps to the summary.
+    // Walk the two steps to the summary. Default platform is YouTube → the
+    // URL field is labeled for the live video link (Lote C).
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // plataforma → canal
-    fireEvent.change(screen.getByLabelText("Canal o URL"), { target: { value: "twitch.tv/kira" } });
+    fireEvent.change(screen.getByLabelText("Link del video en vivo"), { target: { value: "youtube.com/watch?v=dQw4w9WgXcQ" } });
     fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
 
     expect(screen.getByRole("button", { name: "Descartar" })).toBeInTheDocument();
@@ -581,15 +582,21 @@ describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
 
 // ─── WU8: /vivo → postStreamConnect (R20/R21) ────────────────────────────────
 
+/** The URL step's accessible label is per-platform (Lote C): YouTube asks for
+ * the live VIDEO link, Twitch for a channel/URL. */
+function vivoUrlLabel(plataforma: string): string {
+  return plataforma === "Twitch" ? "Canal o URL de Twitch" : "Link del video en vivo";
+}
+
 /** Walk /vivo's two steps (plataforma → canal) to the summary. */
 function driveVivo(plataforma: string, canal: string) {
   selectOption("¿Qué plataforma?", plataforma);
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → canal
-  fireEvent.change(screen.getByLabelText("Canal o URL"), { target: { value: canal } });
+  fireEvent.change(screen.getByLabelText(vivoUrlLabel(plataforma)), { target: { value: canal } });
   fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
 }
 
-describe("/vivo → postStreamConnect (WU8 — R20/R21)", () => {
+describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
   it("composes ONE url (no separate platform field) and acks the connect result (R20/R21)", async () => {
     const capture: { body?: unknown } = {};
     server.use(
@@ -604,9 +611,43 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21)", () => {
     driveVivo("Twitch", "kira");
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
 
-    expect(await screen.findByText(/conectado a twitch \(kira\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/chat en vivo conectado — twitch/i)).toBeInTheDocument();
     // Only { url } — plataforma is UI-only, never a separate wire field.
     expect(capture.body).toEqual({ url: "twitch.tv/kira" });
+  });
+
+  it("labels the URL step per platform (YouTube → live video, Twitch → channel)", () => {
+    renderPanel("/vivo");
+    enterCommand(/vivo — conectá el chat en vivo/);
+
+    // Default platform is YouTube → the field asks for the live VIDEO link.
+    selectOption("¿Qué plataforma?", "YouTube");
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByLabelText("Link del video en vivo")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Canal o URL de Twitch")).not.toBeInTheDocument();
+  });
+
+  it("labels the URL step as a Twitch channel when Twitch is selected", () => {
+    renderPanel("/vivo");
+    enterCommand(/vivo — conectá el chat en vivo/);
+
+    selectOption("¿Qué plataforma?", "Twitch");
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByLabelText("Canal o URL de Twitch")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Link del video en vivo")).not.toBeInTheDocument();
+  });
+
+  it("rejects a YouTube channel URL client-side, never hitting the connect endpoint (Lote C)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderPanel("/vivo");
+    enterCommand(/vivo — conectá el chat en vivo/);
+
+    driveVivo("YouTube", "https://youtube.com/@kirastreams");
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+
+    expect(await screen.findByText(/necesita el link del video/i)).toBeInTheDocument();
+    const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/chat-live/connect"))).toBe(false);
   });
 
   it("surfaces a localized invalid_url copy inline, never the raw code (R21/F4)", async () => {

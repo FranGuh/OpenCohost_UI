@@ -15,7 +15,8 @@ import {
   type MusicMoodResponse
 } from "../../api/music.js";
 import { queryClient } from "../../api/queryClient.js";
-import { postStreamConnect, putStreamLimits } from "../../api/stream.js";
+import { ValidationError } from "../../api/client.js";
+import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
 import { pickRotationTrack } from "../MusicPanel.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
 import { Badge } from "../ui/Badge.js";
@@ -29,6 +30,7 @@ import {
   SAFETY_VOCAB,
   composeStreamUrl,
   describeConnect,
+  isYoutubeChannelUrl,
   describeMood,
   describeSessionAction,
   describeStreamLimits,
@@ -478,10 +480,19 @@ export const COMMANDS: Command[] = [
     description: "conectá el chat en vivo",
     summaryTitle: "Listo para conectar",
     primaryLabel: "Conectar",
-    // WU8/R20-R21: compose a single url (plataforma is UI-only), connect, and ack
-    // the result. 422 invalid_url / 409 busy throw and are surfaced by errorCopy.
-    submit: async (values) =>
-      describeConnect(await postStreamConnect(composeStreamUrl(values.plataforma as string, values.canal as string))),
+    // WU8/R20-R21 + Lote C: compose a single url (plataforma is UI-only). Reject
+    // a YouTube channel URL client-side (it can only 422), then connect and POLL
+    // status until connected — the raw POST returns connected:false a beat early
+    // because the backend connects on a daemon thread. Timeout / 422 / 409 / 503
+    // all throw and are surfaced by errorCopy.
+    submit: async (values) => {
+      const plataforma = values.plataforma as string;
+      const canal = values.canal as string;
+      if (isYoutubeChannelUrl(canal)) {
+        throw new ValidationError("youtube_channel_url");
+      }
+      return describeConnect(await connectStreamAndAwait(composeStreamUrl(plataforma, canal)));
+    },
     steps: [
       {
         kind: "select",
@@ -494,7 +505,25 @@ export const COMMANDS: Command[] = [
         ],
         default: "youtube"
       },
-      { kind: "text", id: "canal", question: "Canal o URL", chipLabel: "canal", placeholder: "Pegá el canal o la URL del stream" }
+      // Per-platform URL copy (Lote C): mutually-exclusive `when` gates render
+      // exactly one `canal` step. YouTube needs the live VIDEO link (a channel
+      // URL 422s); Twitch takes a channel name or URL.
+      {
+        kind: "text",
+        id: "canal",
+        question: "Link del video en vivo",
+        chipLabel: "video",
+        placeholder: "Pegá el link del video EN VIVO (watch?v=…)",
+        when: (values) => values.plataforma !== "twitch"
+      },
+      {
+        kind: "text",
+        id: "canal",
+        question: "Canal o URL de Twitch",
+        chipLabel: "canal",
+        placeholder: "Pegá el canal o la URL de Twitch",
+        when: (values) => values.plataforma === "twitch"
+      }
     ]
   },
   {

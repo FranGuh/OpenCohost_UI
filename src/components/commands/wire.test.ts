@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgendaResponse } from "../../api/agenda.js";
 import { ApiError, ConflictError, ValidationError } from "../../api/client.js";
 import type { StreamChatLiveResponse } from "../../api/stream.js";
+import { StreamConnectTimeoutError } from "../../api/stream.js";
 import {
   COOLDOWN_WIRE,
   FILTER_POLICY,
@@ -15,6 +16,7 @@ import {
   describeSessionAction,
   describeStreamLimits,
   errorCopy,
+  isYoutubeChannelUrl,
   toAgendaSessionRequest,
   toAgendaTopicRequest,
   toCohostProfileRequest,
@@ -132,11 +134,24 @@ describe("/vivo url compose + connect ack (R20/R21)", () => {
     expect(composeStreamUrl("youtube", "youtube.com/watch?v=abc")).toBe("youtube.com/watch?v=abc");
   });
 
-  it("describeConnect names platform + source_id on success and is honest on a false connect", () => {
+  it("describeConnect acks a connected chat naming the platform (voseo)", () => {
     const ok = describeConnect({ ...streamBase, connected: true, platform: "twitch", source_id: "kira" });
+    expect(ok).toMatch(/chat en vivo conectado/i);
     expect(ok).toMatch(/twitch/i);
-    expect(ok).toMatch(/kira/i);
-    expect(describeConnect({ ...streamBase, connected: false })).toMatch(/no se pudo conectar/i);
+  });
+
+  it("isYoutubeChannelUrl flags @handle / channel / c / user URLs (which 422 as invalid_url)", () => {
+    expect(isYoutubeChannelUrl("https://youtube.com/@kirastreams")).toBe(true);
+    expect(isYoutubeChannelUrl("youtube.com/channel/UC12345")).toBe(true);
+    expect(isYoutubeChannelUrl("https://www.youtube.com/c/kira")).toBe(true);
+    expect(isYoutubeChannelUrl("youtube.com/user/kira")).toBe(true);
+  });
+
+  it("isYoutubeChannelUrl passes a real watch/live video URL (and non-YouTube input) through", () => {
+    expect(isYoutubeChannelUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(false);
+    expect(isYoutubeChannelUrl("youtube.com/live/dQw4w9WgXcQ")).toBe(false);
+    expect(isYoutubeChannelUrl("twitch.tv/kira")).toBe(false);
+    expect(isYoutubeChannelUrl("dQw4w9WgXcQ")).toBe(false);
   });
 });
 
@@ -210,6 +225,30 @@ describe("errorCopy (D5/F4 — never interpolate raw backend text)", () => {
     const copy = errorCopy(new ApiError("cohost_write_failed", 503));
     expect(copy).not.toContain("cohost_write_failed");
     expect(copy).toMatch(/no está disponible/i);
+  });
+
+  it("unsupported_platform (422) → localized platform copy, not the raw code", () => {
+    const copy = errorCopy(new ValidationError("unsupported_platform"));
+    expect(copy).not.toContain("unsupported_platform");
+    expect(copy).toMatch(/plataforma/i);
+  });
+
+  it("chat_source_unavailable (503) → connector-specific copy, not the raw code", () => {
+    const copy = errorCopy(new ApiError("chat_source_unavailable", 503));
+    expect(copy).not.toContain("chat_source_unavailable");
+    expect(copy).toMatch(/conector de chat/i);
+  });
+
+  it("youtube_channel_url (client fast-fail) → asks for the live VIDEO link, not the raw code", () => {
+    const copy = errorCopy(new ValidationError("youtube_channel_url"));
+    expect(copy).not.toContain("youtube_channel_url");
+    expect(copy).toMatch(/video en vivo/i);
+  });
+
+  it("StreamConnectTimeoutError → 'no conectó, verificá que esté EN VIVO' copy", () => {
+    const copy = errorCopy(new StreamConnectTimeoutError());
+    expect(copy).toMatch(/no conect/i);
+    expect(copy).toMatch(/en vivo/i);
   });
 
   it("generic ApiError (other status) → status-tagged retry copy", () => {
