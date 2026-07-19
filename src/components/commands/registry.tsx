@@ -9,9 +9,15 @@ import {
   useAgendaSessionActionMutation,
   type AgendaSessionAction
 } from "../../api/agenda.js";
-import { useMusicLibraryQuery, useMusicMoodMutation } from "../../api/music.js";
+import {
+  useMusicLibraryQuery,
+  useMusicMoodMutation,
+  type MusicMoodResponse
+} from "../../api/music.js";
 import { queryClient } from "../../api/queryClient.js";
 import { postStreamConnect, putStreamLimits } from "../../api/stream.js";
+import { pickRotationTrack } from "../MusicPanel.js";
+import { usePlaybackContext } from "../../state/PlaybackProvider.js";
 import { Badge } from "../ui/Badge.js";
 import type { BadgeTone } from "../ui/Badge.js";
 import { Button } from "../ui/Button.js";
@@ -229,40 +235,74 @@ function SesionScreen({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── /musica — live mood selection screen ───────────────────────────────────
-
-/** Transport controls stay visually present but inert this track — there is no
- * backend play/pause/next endpoint (playback is client/Tauri-owned by design).
- * Per R31 they make NO network call and render NO false ack — silence is the
- * correct behavior, so they carry no onClick. */
-const MUSICA_TRANSPORT = [
-  { id: "reproducir", label: "Reproducir" },
-  { id: "pausar", label: "Pausar" },
-  { id: "siguiente", label: "Siguiente" }
-] as const;
+// ─── /musica — live mood selection + playback screen ─────────────────────────
 
 function MusicaScreen({ onClose }: { onClose: () => void }) {
-  // WU11/R29-R31: library/mood selection only. The free-text `cancion` step is
-  // gone (R29); moods come LIVE from the library (R30), not a hardcoded list.
+  // WU11/R29-R31 selection + Lote B playback: the mood submit and the transport
+  // buttons drive the SAME client-side <audio> element MusicPanel uses, via the
+  // shared PlaybackProvider ("the API orchestrates, the client plays" — 2911).
   const { data, isError } = useMusicLibraryQuery();
   const mutation = useMusicMoodMutation();
+  const playback = usePlaybackContext();
   const [ack, setAck] = useState<string | null>(null);
   const [mood, setMood] = useState<string>("");
+  // Last mood response, so "Siguiente"/"Reproducir" can rotate over the same
+  // bucket the operator last selected instead of always the raw library.
+  const [lastResult, setLastResult] = useState<MusicMoodResponse | null>(null);
 
   const moods = data?.moods ?? [];
+  const tracks = data?.tracks ?? [];
   // Default the selector to the first live mood once the library loads. This
-  // only seeds the control — it never auto-dispatches a mood (R31).
+  // only seeds the control — it never auto-dispatches a mood.
   useEffect(() => {
     if (!mood && moods.length > 0) setMood(moods[0]);
   }, [mood, moods]);
+
+  // Reuses MusicPanel's exact rotation logic. Falls back to a synthetic empty
+  // result (→ rotate the valid library) when no mood has been submitted yet, so
+  // the transport buttons work before any mood click. Returns the picked track
+  // AND its display label, or null when nothing is playable.
+  function pickTrack(result: MusicMoodResponse | null): { id: string; label: string } | null {
+    const source: MusicMoodResponse = result ?? { active_mood: mood, tracks: [], suggested_track_id: null };
+    const id = pickRotationTrack(source, playback.currentTrackId, tracks);
+    if (!id) return null;
+    const label = [...source.tracks, ...tracks].find((track) => track.id === id)?.label ?? id;
+    return { id, label };
+  }
 
   const applyMood = (next: string) => {
     setMood(next);
     setAck(null);
     mutation.mutate(next, {
-      onSuccess: (res) => setAck(describeMood(res)),
+      onSuccess: (res) => {
+        setLastResult(res);
+        const picked = pickTrack(res);
+        if (picked) {
+          playback.playTrack(picked.id, picked.label);
+          setAck(`${describeMood(res)} · sonando ${picked.label}`);
+        } else {
+          setAck(`${describeMood(res)} · sin pista disponible para reproducir`);
+        }
+      },
       onError: (err) => setAck(errorCopy(err))
     });
+  };
+
+  const handleReproducir = () => {
+    // A loaded-but-paused track resumes; otherwise pick a rotation track (from
+    // the last mood, or the library) and start it. Already playing → no-op.
+    if (playback.currentTrackId && !playback.playing) {
+      playback.toggle();
+      return;
+    }
+    if (playback.playing) return;
+    const picked = pickTrack(lastResult);
+    if (picked) playback.playTrack(picked.id, picked.label);
+  };
+
+  const handleSiguiente = () => {
+    const picked = pickTrack(lastResult);
+    if (picked) playback.playTrack(picked.id, picked.label);
   };
 
   return (
@@ -287,13 +327,18 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* Transport controls — visually present, fully inert (R31): no onClick, no ack. */}
+      {/* Transport controls — drive the shared PlaybackProvider (Lote B). No
+          network call: playback is client-side. Pausar disables when idle. */}
       <div className="flex gap-2">
-        {MUSICA_TRANSPORT.map((control) => (
-          <Button key={control.id} type="button" variant="outline" className="flex-1">
-            {control.label}
-          </Button>
-        ))}
+        <Button type="button" variant="outline" className="flex-1" onClick={handleReproducir}>
+          Reproducir
+        </Button>
+        <Button type="button" variant="outline" className="flex-1" disabled={!playback.playing} onClick={() => playback.pause()}>
+          Pausar
+        </Button>
+        <Button type="button" variant="outline" className="flex-1" onClick={handleSiguiente}>
+          Siguiente
+        </Button>
       </div>
 
       {ack && (

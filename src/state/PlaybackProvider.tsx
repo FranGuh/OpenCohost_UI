@@ -7,6 +7,10 @@ export interface PlaybackContextValue {
   playing: boolean;
   playTrack(id: string, label?: string): void;
   toggle(): void;
+  /** Pause the current track (no-op if nothing is playing). Unlike `toggle`,
+   * this never resumes — it is the unambiguous "Pausar" verb the command
+   * palette's separate transport buttons need. */
+  pause(): void;
   stop(): void;
   /** User-facing music volume, 0-100 (persisted to localStorage). */
   volume: number;
@@ -23,7 +27,10 @@ export interface PlaybackContextValue {
   setDucked(value: boolean): void;
 }
 
-const PlaybackContext = createContext<PlaybackContextValue | null>(null);
+// Exported so tests can inject a stub context value (spied playTrack/pause/...)
+// without instantiating the real shared <audio> element. Production consumers
+// use usePlaybackContext / PlaybackProvider, not this directly.
+export const PlaybackContext = createContext<PlaybackContextValue | null>(null);
 
 const VOLUME_STORAGE_KEY = "oc-music-volume";
 const DEFAULT_VOLUME = 70;
@@ -173,6 +180,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const pause = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) audio.pause();
+    setPlaying(false);
+  }, []);
+
   const stop = useCallback(() => {
     const audio = audioRef.current;
     if (audio) audio.pause();
@@ -186,6 +199,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     playing,
     playTrack,
     toggle,
+    pause,
     stop,
     volume,
     setVolume,

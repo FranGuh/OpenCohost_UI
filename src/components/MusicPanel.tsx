@@ -66,7 +66,7 @@ function rotate(bucket: MusicTrackOut[], currentTrackId: string | null): string 
  * only "state" is which track is playing right now, passed in as
  * `currentTrackId`.
  */
-function pickRotationTrack(
+export function pickRotationTrack(
   result: MusicMoodResponse,
   currentTrackId: string | null,
   libraryTracks: MusicTrackOut[]

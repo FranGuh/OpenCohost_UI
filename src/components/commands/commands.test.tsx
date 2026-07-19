@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerCommandPanel } from "../ComposerCommandPanel.js";
+import { PlaybackContext, type PlaybackContextValue } from "../../state/PlaybackProvider.js";
 import { Stepper } from "./Stepper.js";
 import type { Command } from "./registry.js";
 import type { StepValue } from "./primitives.js";
@@ -779,10 +780,42 @@ describe("/perfil → saveCohostProfile + putAgendaSession (WU10 — R16-R19)", 
   });
 });
 
-// ─── WU11: /musica screen → library moods + postMusicMood (R29-R31) ──────────
+// ─── WU11 + Lote B: /musica screen → library moods, postMusicMood, playback ───
 
-async function openMusica() {
-  renderPanel("/musica");
+/** A stub PlaybackContext value with vi.fn() spies for every action, so a
+ * /musica test can assert exactly which playback method the screen dispatched
+ * (playTrack/toggle/pause) without pulling in the real shared <audio> element. */
+function makePlayback(overrides: Partial<PlaybackContextValue> = {}): PlaybackContextValue {
+  return {
+    currentTrackId: null,
+    playing: false,
+    playTrack: vi.fn(),
+    toggle: vi.fn(),
+    pause: vi.fn(),
+    stop: vi.fn(),
+    volume: 70,
+    setVolume: vi.fn(),
+    ducked: false,
+    setDucked: vi.fn(),
+    ...overrides
+  };
+}
+
+/** MusicaScreen calls usePlaybackContext(), so /musica renders must sit inside
+ * a PlaybackContext provider — here a controllable stub instead of the real one. */
+function renderMusicaPanel(playback: PlaybackContextValue) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <PlaybackContext.Provider value={playback}>
+        <ComposerCommandPanel query="/musica" onClose={noop} />
+      </PlaybackContext.Provider>
+    </QueryClientProvider>
+  );
+}
+
+async function openMusica(playback: PlaybackContextValue = makePlayback()) {
+  renderMusicaPanel(playback);
   enterCommand(/musica — controlá la música/);
   return screen.findByRole("combobox", { name: "Mood de la música" });
 }
@@ -828,9 +861,101 @@ describe("/musica → library moods + postMusicMood (WU11 — R29-R31)", () => {
     expect(await screen.findByText(/pool normal\/general/i)).toBeInTheDocument();
   });
 
-  it("keeps the transport controls inert — no network call, no false ack (R31)", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
+  it("has no free-text song step anywhere (R29)", async () => {
     await openMusica();
+    expect(screen.queryByLabelText("¿Qué canción?")).not.toBeInTheDocument();
+  });
+});
+
+// ─── Lote B: /musica actually plays music ────────────────────────────────────
+
+const HYPE_LIBRARY = { ...defaultMusicLibrary, moods: ["hype"] };
+const HYPE_MOOD = {
+  active_mood: "hype",
+  tracks: [{ id: "track-2", label: "hype_intro.wav", mood: "hype", status: "ok" as const }],
+  suggested_track_id: "track-2"
+};
+
+describe("/musica plays music on mood submit (Lote B)", () => {
+  it("plays the mood's bucket track after a successful submit", async () => {
+    const playback = makePlayback();
+    server.use(musicLibraryGetHandler(HYPE_LIBRARY), musicMoodHandler(HYPE_MOOD));
+    const combobox = await openMusica(playback);
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "hype" }));
+
+    await waitFor(() => expect(playback.playTrack).toHaveBeenCalledWith("track-2", "hype_intro.wav"));
+  });
+
+  it("acks the track that is now sonando, reflecting reality", async () => {
+    const playback = makePlayback();
+    server.use(musicLibraryGetHandler(HYPE_LIBRARY), musicMoodHandler(HYPE_MOOD));
+    const combobox = await openMusica(playback);
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "hype" }));
+
+    expect(await screen.findByText(/sonando hype_intro\.wav/i)).toBeInTheDocument();
+  });
+
+  it("keeps an honest ack and does not play when no track is available", async () => {
+    const playback = makePlayback();
+    server.use(
+      musicLibraryGetHandler({ tracks: [], count: 0, moods: ["hype"] }),
+      musicMoodHandler({ active_mood: "hype", tracks: [], suggested_track_id: null })
+    );
+    const combobox = await openMusica(playback);
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "hype" }));
+
+    expect(await screen.findByText(/sin pista/i)).toBeInTheDocument();
+    expect(playback.playTrack).not.toHaveBeenCalled();
+  });
+});
+
+describe("/musica transport controls dispatch playback (Lote B — replaces R31 inert)", () => {
+  it("Pausar is disabled when nothing is playing", async () => {
+    await openMusica(makePlayback({ playing: false }));
+    expect(screen.getByRole("button", { name: "Pausar" })).toBeDisabled();
+  });
+
+  it("Pausar pauses the currently playing track", async () => {
+    const playback = makePlayback({ playing: true, currentTrackId: "track-2" });
+    await openMusica(playback);
+    fireEvent.click(screen.getByRole("button", { name: "Pausar" }));
+    expect(playback.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("Reproducir resumes a loaded, paused track (never re-picks)", async () => {
+    const playback = makePlayback({ currentTrackId: "track-2", playing: false });
+    await openMusica(playback);
+    fireEvent.click(screen.getByRole("button", { name: "Reproducir" }));
+    expect(playback.toggle).toHaveBeenCalledTimes(1);
+    expect(playback.playTrack).not.toHaveBeenCalled();
+  });
+
+  it("Reproducir picks and plays a library track when nothing is loaded", async () => {
+    server.use(musicLibraryGetHandler(HYPE_LIBRARY));
+    const playback = makePlayback({ currentTrackId: null, playing: false });
+    await openMusica(playback);
+    fireEvent.click(screen.getByRole("button", { name: "Reproducir" }));
+    expect(playback.playTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("Siguiente rotates to a different library track and plays it", async () => {
+    server.use(musicLibraryGetHandler(HYPE_LIBRARY));
+    const playback = makePlayback({ currentTrackId: "track-1", playing: true });
+    await openMusica(playback);
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    // track-1 is the current track, so rotation avoids it → the other ok track.
+    expect(playback.playTrack).toHaveBeenCalledWith("track-2", "hype_intro.wav");
+  });
+
+  it("transport controls make no network call to POST /api/music/mood", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    server.use(musicLibraryGetHandler(HYPE_LIBRARY));
+    const playback = makePlayback({ currentTrackId: "track-1", playing: true });
+    await openMusica(playback);
+    fetchSpy.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: "Reproducir" }));
     fireEvent.click(screen.getByRole("button", { name: "Pausar" }));
@@ -838,11 +963,5 @@ describe("/musica → library moods + postMusicMood (WU11 — R29-R31)", () => {
 
     const moodCalls = fetchSpy.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/api/music/mood"));
     expect(moodCalls).toHaveLength(0);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-  });
-
-  it("has no free-text song step anywhere (R29)", async () => {
-    await openMusica();
-    expect(screen.queryByLabelText("¿Qué canción?")).not.toBeInTheDocument();
   });
 });
