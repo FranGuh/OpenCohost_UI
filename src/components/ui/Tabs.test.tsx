@@ -58,6 +58,27 @@ describe("Tabs primitive (R4/D1/D2)", () => {
     expect(screen.getByRole("tabpanel")).toHaveTextContent("Panel dos");
   });
 
+  it("forces display:none inline on inactive panels so author display classes cannot leak them", () => {
+    // Regression: the [hidden] UA rule loses to author classes like .flex, so
+    // inactive panels were visible in real browsers while jsdom stayed green.
+    // Inline style beats any class — assert it directly.
+    const { container } = render(<Harness />);
+    const panels = container.querySelectorAll('[role="tabpanel"]');
+    expect(panels).toHaveLength(3);
+    for (const panel of Array.from(panels)) {
+      if (panel.getAttribute("aria-hidden") === "true") {
+        expect(panel).toHaveStyle({ display: "none" });
+      } else {
+        expect(panel).not.toHaveStyle({ display: "none" });
+      }
+    }
+    // Switching tabs moves the inline display:none to the newly inactive panel.
+    fireEvent.click(screen.getByRole("tab", { name: "Dos" }));
+    const after = Array.from(container.querySelectorAll('[role="tabpanel"]'));
+    expect(after[0]).toHaveStyle({ display: "none" });
+    expect(after[1]).not.toHaveStyle({ display: "none" });
+  });
+
   it("moves focus and selection with ArrowRight/ArrowLeft and clamps at both ends", () => {
     render(<Harness />);
     screen.getByRole("tab", { name: "Uno" }).focus();

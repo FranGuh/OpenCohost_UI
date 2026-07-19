@@ -512,6 +512,7 @@ export function ConversationPanel() {
           hidden={!feedActive}
           inert={!feedActive ? "" : undefined}
           aria-hidden={!feedActive}
+          style={!feedActive ? { display: "none" } : undefined}
           className={cn("flex min-h-0 flex-1 flex-col", !feedActive && "pointer-events-none")}
         >
           <div className="flex items-center justify-between px-3 py-2">

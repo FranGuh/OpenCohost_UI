@@ -136,6 +136,10 @@ export function TabPanel({ value, children, className }: TabPanelProps) {
       hidden={!active}
       inert={!active ? "" : undefined}
       aria-hidden={!active}
+      // Inline display:none — the [hidden] UA rule loses to author display
+      // classes like Tailwind's .flex, which made inactive panels visible in
+      // real browsers while jsdom (attribute-only visibility) stayed green.
+      style={!active ? { display: "none" } : undefined}
       className={cn(!active && "pointer-events-none", className)}
     >
       {children}
