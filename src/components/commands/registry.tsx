@@ -1,9 +1,12 @@
 import { useState } from "react";
 import type { ReactElement } from "react";
+import { useAgendaQuery } from "../../api/agenda.js";
+import { putStreamLimits } from "../../api/stream.js";
 import { Badge } from "../ui/Badge.js";
 import type { BadgeTone } from "../ui/Badge.js";
 import { Button } from "../ui/Button.js";
 import { InfoNote, type StepDef, type StepValue } from "./primitives.js";
+import { describeStreamLimits, toStreamLimits } from "./wire.js";
 
 /**
  * Command registry — MOCKUP ONLY. Each command is either a `steps` stepper
@@ -27,6 +30,13 @@ export interface Command {
   primaryLabel?: string | ((values: Record<string, StepValue>) => string);
   /** Overrides the default "maquetado — todavía no envía" helper under the action. */
   actionNote?: string;
+  /**
+   * D4 submit pipe: maps the stepper's collected values to a backend call and
+   * resolves the ack text `ActionRow` renders on success. Absent → the command
+   * keeps the inert "maquetado" ActionRow. Per-command implementations land in
+   * their own WU (WU3/WU7-WU11).
+   */
+  submit?: (values: Record<string, StepValue>) => Promise<string>;
   /** Custom, non-stepper command surface (review/action screens). */
   screen?: (props: { onClose: () => void }) => ReactElement;
 }
@@ -64,46 +74,60 @@ const RHYTHM_OPTIONS = [
 
 // ─── /temas — read-only agenda review screen ────────────────────────────────
 
-const SAMPLE_TEMAS: { title: string; priority: keyof typeof PRIORITY_BADGE; estado: keyof typeof ESTADO_BADGE }[] = [
-  { title: "Nostalgia de los 2000 en gaming", priority: "normal", estado: "al aire" },
-  { title: "Burnout de streamers", priority: "alta", estado: "pendiente" },
-  { title: "Mods como cultura popular", priority: "baja", estado: "hecho" }
-];
-
 const PRIORITY_BADGE = {
   alta: { tone: "warn" as BadgeTone, label: "Alta" },
   normal: { tone: "info" as BadgeTone, label: "Normal" },
   baja: { tone: "ok" as BadgeTone, label: "Baja" }
 };
 
-const ESTADO_BADGE = {
-  "al aire": { tone: "ok" as BadgeTone, label: "al aire" },
-  pendiente: { tone: "info" as BadgeTone, label: "pendiente" },
-  hecho: { tone: "neutral" as BadgeTone, label: "hecho" }
-};
+/** Live `AgendaTopicOut.priority` is a free backend string (canonical
+ * alta/normal/baja, but unknowns are possible). Map defensively — an unknown
+ * priority falls to a neutral badge showing the raw value, never crashes. */
+function priorityBadge(priority: string): { tone: BadgeTone; label: string } {
+  return PRIORITY_BADGE[priority as keyof typeof PRIORITY_BADGE] ?? { tone: "neutral" as BadgeTone, label: priority };
+}
 
 function TemasScreen({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="flex flex-col gap-3">
+  // WU1/R11: /temas reads the live agenda queue (GET /api/agenda) instead of
+  // the old SAMPLE_TEMAS mock. Empty and unavailable states are explicit.
+  const { data, isError } = useAgendaQuery();
+
+  let body: ReactElement;
+  if (isError) {
+    body = (
+      <p role="alert" className="text-[13px] text-danger">
+        No se pudo leer la agenda — el motor no está disponible ahora.
+      </p>
+    );
+  } else if (!data) {
+    body = <p className="text-[13px] text-dim">Cargando agenda…</p>;
+  } else if (data.queued_topics.length === 0) {
+    body = <p className="text-[13px] text-dim">No hay temas en la cola de agenda.</p>;
+  } else {
+    body = (
       <ul aria-label="Temas en agenda" className="flex flex-col gap-2">
-        {SAMPLE_TEMAS.map((tema) => {
-          const priority = PRIORITY_BADGE[tema.priority];
-          const estado = ESTADO_BADGE[tema.estado];
+        {data.queued_topics.map((tema) => {
+          const priority = priorityBadge(tema.priority);
           return (
             <li
-              key={tema.title}
+              key={tema.id}
               className="flex items-center justify-between gap-3 rounded-md border border-border-soft bg-surface-2 p-3"
             >
               <span className="text-[13px] font-semibold text-foreground">{tema.title}</span>
               <div className="flex shrink-0 items-center gap-1.5">
                 <Badge tone={priority.tone}>{priority.label}</Badge>
-                <Badge tone={estado.tone}>{estado.label}</Badge>
+                <Badge tone="neutral">{tema.status}</Badge>
               </div>
             </li>
           );
         })}
       </ul>
-      <InfoNote>maquetado — va a leer la agenda real</InfoNote>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {body}
       <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
         <Button type="button" variant="outline" className="h-8 px-3 text-[13px]" onClick={onClose}>
           Cerrar
@@ -285,6 +309,10 @@ export const COMMANDS: Command[] = [
     description: "configurá cómo reacciona Kira al chat",
     summaryTitle: "Acciones listas para aplicar",
     primaryLabel: "Aplicar acciones",
+    // WU3/R26: same PUT whether or not the chat-live link is connected; only the
+    // ack copy differs, read from the PUT response's own `connected` field
+    // (R26b — never calls connect/disconnect).
+    submit: async (values) => describeStreamLimits(await putStreamLimits(toStreamLimits(values))),
     steps: [
       {
         kind: "select",
@@ -326,12 +354,16 @@ export const COMMANDS: Command[] = [
         section: { label: "Spam" }
       },
       {
-        kind: "switch",
+        kind: "select",
         id: "input_contract",
         question: "Contrato de entrada",
         chipLabel: "contrato",
-        switchLabel: "Input Contract (contexto real)",
-        note: "El endpoint ya acepta filter_policy — falta decidir qué preset corresponde a este switch.",
+        options: [
+          { value: "balanced", label: "Equilibrado" },
+          { value: "twitch_relaxed", label: "Relajado (Twitch)" },
+          { value: "strict", label: "Estricto" }
+        ],
+        default: "balanced",
         section: { label: "Contrato de entrada" }
       }
     ]

@@ -8,7 +8,6 @@ import {
   SegmentedStep,
   SelectStep,
   SummaryCard,
-  SwitchStep,
   TagsStep,
   TextStep,
   formatChipValue,
@@ -28,14 +27,13 @@ function initialValues(steps: readonly StepDef[]): Record<string, StepValue> {
   for (const step of steps) {
     if (step.kind === "tags") values[step.id] = [];
     else if (step.kind === "select" || step.kind === "segmented") values[step.id] = step.default;
-    else if (step.kind === "switch") values[step.id] = "off";
     else values[step.id] = "";
   }
   return values;
 }
 
 /** Only a required, still-empty text step blocks advancing. Everything else
- * (selects have defaults, tags/optional are skippable, switch is inert) is free. */
+ * (selects have defaults, tags/optional are skippable) is free. */
 function canAdvance(step: StepDef, value: StepValue): boolean {
   if (step.kind === "text" && !step.optional) return (value as string).trim().length > 0;
   return true;
@@ -84,8 +82,6 @@ function StepControl({
       return <SegmentedStep step={step} value={value as string} onChange={onChange} />;
     case "tags":
       return <TagsStep step={step} value={value as string[]} onChange={onChange} />;
-    case "switch":
-      return <SwitchStep step={step} />;
   }
 }
 
@@ -174,6 +170,7 @@ export function Stepper({
                 : command.primaryLabel ?? "Confirmar"
             }
             note={command.actionNote ?? "maquetado — todavía no envía"}
+            onSubmit={command.submit ? () => command.submit!(values) : undefined}
             onCancel={onCancel}
           />
         </>

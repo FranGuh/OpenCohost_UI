@@ -5,7 +5,7 @@ import { cn } from "../../lib/cn.js";
 import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Select.js";
 import { Segmented } from "../ui/Segmented.js";
-import { Switch } from "../ui/Switch.js";
+import { errorCopy } from "./wire.js";
 
 /**
  * Reusable command-palette primitives — MOCKUP ONLY. The chat command palette
@@ -46,10 +46,9 @@ export type StepDef =
   | (StepCommon & { kind: "text"; placeholder?: string; maxLength?: number; multiline?: boolean; optional?: boolean })
   | (StepCommon & { kind: "select"; options: readonly StepOption[]; default: string })
   | (StepCommon & { kind: "segmented"; options: readonly StepOption[]; default: string })
-  | (StepCommon & { kind: "tags"; placeholder?: string })
-  | (StepCommon & { kind: "switch"; switchLabel: string; note: string });
+  | (StepCommon & { kind: "tags"; placeholder?: string });
 
-/** text/select/segmented/switch carry a string; tags carries a string[]. */
+/** text/select/segmented carry a string; tags carries a string[]. */
 export type StepValue = string | string[];
 
 const FIELD_CLASSES =
@@ -78,8 +77,6 @@ export function formatChipValue(step: StepDef, value: StepValue | undefined): st
       const tags = (value as string[] | undefined) ?? [];
       return tags.length > 0 ? tags.join(", ") : "sin etiquetas";
     }
-    case "switch":
-      return "maquetado";
     default: {
       const text = ((value as string | undefined) ?? "").trim();
       return text || "—";
@@ -244,20 +241,6 @@ export function TagsStep({
   );
 }
 
-/** Disabled toggle + verbatim contextual note — a config row that is real on the
- * backend but not yet wired here (see /acciones input-contract). */
-export function SwitchStep({ step }: { step: Extract<StepDef, { kind: "switch" }> }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border-soft bg-surface-2 px-3 py-2">
-        <span className="text-sm text-foreground">{step.switchLabel}</span>
-        <Switch checked={false} disabled onChange={() => {}} aria-label={step.switchLabel} />
-      </div>
-      <InfoNote>{step.note}</InfoNote>
-    </div>
-  );
-}
-
 // ─── Summary + action row (stepper tail) ────────────────────────────────────
 
 export function SummaryCard({
@@ -293,31 +276,92 @@ export function SummaryCard({
   );
 }
 
-/** The inert final action: a DISABLED primary + a "maquetado" helper + Cancelar. */
+/**
+ * Stepper tail action (D4/R1-R3). When a command supplies `onSubmit`, this is a
+ * real submit pipe: idle → pending (disabled, in-flight) → settled (ack from
+ * the resolved response). On failure it re-enables for a retry and NEVER resets
+ * the parent stepper's values (they live in `Stepper` state, R2). Commands not
+ * yet migrated (no `onSubmit`) keep the original inert DISABLED + "maquetado"
+ * mockup byte-for-byte, so they don't regress before their WU lands.
+ */
 export function ActionRow({
   primaryLabel,
   note,
+  onSubmit,
   onCancel
 }: {
   primaryLabel: string;
   note: string;
+  onSubmit?: () => Promise<string>;
   onCancel: () => void;
 }) {
+  const [phase, setPhase] = useState<"idle" | "pending" | "settled">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const cancelButton = (
+    <button
+      type="button"
+      onClick={onCancel}
+      className="rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      Cancelar
+    </button>
+  );
+
+  // Not-yet-migrated command → original inert mockup (unchanged markup).
+  if (!onSubmit) {
+    return (
+      <div className="mt-1 flex items-center justify-between gap-3 border-t border-border-soft pt-3">
+        <div className="flex flex-col">
+          <Button type="button" variant="primary" disabled className="self-start opacity-40 disabled:cursor-not-allowed">
+            {primaryLabel}
+          </Button>
+          <span className="mt-1 text-[11px] text-dim">{note}</span>
+        </div>
+        {cancelButton}
+      </div>
+    );
+  }
+
+  async function handleSubmit() {
+    setPhase("pending");
+    setMessage(null);
+    setFailed(false);
+    try {
+      const ack = await onSubmit!();
+      setPhase("settled");
+      setMessage(ack);
+    } catch (err) {
+      // R2: entered values live in the parent Stepper — reset nothing here.
+      setPhase("idle");
+      setFailed(true);
+      setMessage(errorCopy(err));
+    }
+  }
+
+  const busy = phase === "pending";
+  const done = phase === "settled";
+
   return (
     <div className="mt-1 flex items-center justify-between gap-3 border-t border-border-soft pt-3">
       <div className="flex flex-col">
-        <Button type="button" variant="primary" disabled className="self-start opacity-40 disabled:cursor-not-allowed">
-          {primaryLabel}
+        <Button
+          type="button"
+          variant="primary"
+          disabled={busy || done}
+          onClick={handleSubmit}
+          className="self-start disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy ? "Enviando…" : primaryLabel}
         </Button>
-        <span className="mt-1 text-[11px] text-dim">{note}</span>
+        {message && (
+          <span role="status" aria-live="polite" className={cn("mt-1 text-[11px]", failed ? "text-danger" : "text-dim")}>
+            {message}
+          </span>
+        )}
       </div>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      >
-        Cancelar
-      </button>
+      {cancelButton}
     </div>
   );
 }
