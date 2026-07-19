@@ -1,148 +1,119 @@
-import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL } from "../test/handlers.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEventStore } from "../store/eventStore.js";
-import { ConversationPanel } from "./ConversationPanel.js";
-
-// The palette is only reachable through the composer, so it's driven end-to-end
-// via ConversationPanel (which owns the live "/"|"!" prefix detection).
-function renderPanel() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ConversationPanel)));
-}
-
-function typeComposer(value: string) {
-  fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value } });
-}
+import { CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
 
 beforeEach(() => {
   useEventStore.setState({ events: [] });
 });
 
-describe("ComposerCommandPanel (chat command palette — mockup)", () => {
-  it("does NOT render until the composer value starts with '/' or '!'", () => {
-    renderPanel();
-    expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
-    typeComposer("hola");
-    expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
+/**
+ * Owner layout correction (2026-07-18): the always-hosted command dialog above
+ * the composer is gone. The composer now surfaces an emergent LAUNCHER popover
+ * (CommandPalettePopover) while the input starts with "/" or "!" — a filtered,
+ * keyboard-navigable list that SELECTS a command (routing it to the Comandos
+ * tab) rather than hosting the stepper inline. The browsable stepper home is the
+ * inline ComposerCommandPanel rendered in the Comandos tab; its per-command
+ * stepper behaviour is covered in commands/commands.test.tsx.
+ */
+
+describe("CommandPalettePopover (emergent launcher)", () => {
+  function renderLauncher(query: string) {
+    const onSelect = vi.fn();
+    const onClose = vi.fn();
+    render(<CommandPalettePopover query={query} onSelect={onSelect} onClose={onClose} />);
+    return { onSelect, onClose };
+  }
+
+  it("renders a labelled listbox of the commands matching the query", () => {
+    renderLauncher("/ag");
+    const listbox = screen.getByRole("listbox", { name: "Comandos disponibles" });
+    const options = within(listbox).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent("/agenda");
   });
 
-  it("appears on a '/' prefix and lists the agenda command", () => {
-    renderPanel();
-    typeComposer("/");
-    const dialog = screen.getByRole("dialog", { name: "Comandos del chat" });
-    expect(dialog).toHaveTextContent("/agenda");
-    expect(dialog).toHaveTextContent("programá un tema para el stream");
+  it("lists every command on a bare '/' and highlights the first by default", () => {
+    renderLauncher("/");
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(7);
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(options[1]).toHaveAttribute("aria-selected", "false");
   });
 
-  it("also appears on a '!' prefix (same command namespace)", () => {
-    renderPanel();
-    typeComposer("!ag");
-    expect(screen.getByRole("dialog", { name: "Comandos del chat" })).toHaveTextContent("/agenda");
+  it("moves the highlight with ArrowDown/ArrowUp and clamps at both ends", () => {
+    renderLauncher("/");
+    const options = () => screen.getAllByRole("option");
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(options()[1]).toHaveAttribute("aria-selected", "true");
+
+    // Clamp at the top: many ups never wrap past the first option.
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(options()[0]).toHaveAttribute("aria-selected", "true");
   });
 
-  it("filters live: '/ag' still matches agenda, '/xyz' is an unknown command", () => {
-    renderPanel();
-    typeComposer("/ag");
-    expect(screen.getByRole("dialog", { name: "Comandos del chat" })).toHaveTextContent("/agenda");
-
-    typeComposer("/xyz");
-    const dialog = screen.getByRole("dialog", { name: "Comandos del chat" });
-    expect(dialog).toHaveTextContent("comando desconocido");
-    expect(dialog).not.toHaveTextContent("programá un tema");
+  it("selects the highlighted command on Enter", () => {
+    const { onSelect } = renderLauncher("/");
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // → /perfil (second)
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("perfil");
   });
 
-  // The /agenda command was extended to the full editorial contract: tema →
-  // ángulo → prioridad → largo → etiquetas → summary. This walks the new order
-  // and proves the one-at-a-time + collapsing-chip behavior is preserved.
-  it("advances the stepper one question at a time (tema → ángulo → …)", () => {
-    renderPanel();
-    typeComposer("/agenda");
-
-    // Enter the stepper from the command entry.
-    fireEvent.click(screen.getByRole("button", { name: /agenda — programá un tema/ }));
-
-    // Step 1: only the tema question is visible.
-    expect(screen.getByText("¿Qué tema querés agendar?")).toBeInTheDocument();
-    expect(screen.queryByText("¿Cómo querés que Kira lo trate?")).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "mods retro" } });
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
-
-    // Step 2: ángulo question, and the answered tema collapsed to a chip.
-    expect(screen.getByText("¿Cómo querés que Kira lo trate?")).toBeInTheDocument();
-    expect(screen.getByText("mods retro")).toBeInTheDocument();
-    expect(screen.queryByText("¿Qué tema querés agendar?")).not.toBeInTheDocument();
+  it("selects a command on click", () => {
+    const { onSelect } = renderLauncher("/te");
+    fireEvent.click(screen.getByRole("option", { name: /\/temas/ }));
+    expect(onSelect).toHaveBeenCalledWith("temas");
   });
 
-  it("enables the primary 'Programar tema' action at the summary (WU7 — wired, no maquetado)", () => {
-    renderPanel();
-    typeComposer("/agenda");
-    fireEvent.click(screen.getByRole("button", { name: /agenda — programá un tema/ }));
-
-    // WU7 wired /agenda to postAgendaTopic, so the summary action is a real,
-    // enabled submit — the old inert "maquetado" note is gone.
-    fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "mods retro" } });
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → ángulo
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → largo
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → etiquetas (last)
-    fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
-
-    const programar = screen.getByRole("button", { name: "Programar tema" });
-    expect(programar).toBeEnabled();
-    expect(screen.queryByText("maquetado — todavía no envía")).not.toBeInTheDocument();
-  });
-
-  it("closes on Escape and clears the composer", () => {
-    renderPanel();
-    typeComposer("/agenda");
-    expect(screen.getByRole("dialog", { name: "Comandos del chat" })).toBeInTheDocument();
-
+  it("closes on Escape", () => {
+    const { onClose } = renderLauncher("/");
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
-    expect((screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement).value).toBe("");
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on Cancelar, restoring the composer", () => {
-    renderPanel();
-    typeComposer("/agenda");
-    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
+  it("shows an unknown-command hint and Enter selects nothing", () => {
+    const { onSelect } = renderLauncher("/xyz");
+    expect(screen.getByText("comando desconocido")).toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onSelect).not.toHaveBeenCalled();
   });
+});
 
-  it("makes NO agenda/chat network calls before the summary submit (partial drive + composer Enter)", async () => {
-    let agendaPosts = 0;
-    let chatPosts = 0;
-    server.use(
-      http.post(`${API_BASE_URL}/api/agenda/topic`, () => {
-        agendaPosts += 1;
-        return HttpResponse.json({ detail: "should not be called" }, { status: 500 });
-      }),
-      http.post(`${API_BASE_URL}/api/chat/turn`, () => {
-        chatPosts += 1;
-        return HttpResponse.json({ accepted: true, command_id: "cmd", status: "queued", state_version: 2 });
-      })
+describe("ComposerCommandPanel — inline browsable home (Comandos tab)", () => {
+  const noop = () => {};
+  function renderInline(activeId: string | null = null, onActiveIdChange = noop) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(ComposerCommandPanel, {
+          inline: true,
+          query: "",
+          activeId,
+          onActiveIdChange,
+          onClose: noop
+        })
+      )
     );
-    renderPanel();
+  }
 
-    // Drive the stepper partway (never reaching the summary submit) — the topic
-    // POST only fires on "Programar tema" at the summary, not while stepping.
-    typeComposer("/agenda");
-    fireEvent.click(screen.getByRole("button", { name: /agenda — programá un tema/ }));
-    fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "mods retro" } });
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → ángulo
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
+  it("lists all 7 commands with no floating dialog when no command is active", () => {
+    renderInline(null);
+    for (const badge of ["/agenda", "/perfil", "/temas", "/vivo", "/acciones", "/sesion", "/musica"]) {
+      expect(screen.getByText(badge)).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 
-    // Also prove Enter in the composer never sends a "/"-prefixed command as chat.
-    fireEvent.submit(screen.getByPlaceholderText("Escribí un mensaje para Kira…").closest("form") as HTMLFormElement);
-
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(agendaPosts).toBe(0);
-    expect(chatPosts).toBe(0);
+  it("opens a controlled command directly (as launched from the popover)", () => {
+    renderInline("agenda");
+    // /agenda is a stepper — its first question renders when it is the active command.
+    expect(screen.getByText("¿Qué tema querés agendar?")).toBeInTheDocument();
   });
 });

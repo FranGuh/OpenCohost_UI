@@ -7,7 +7,7 @@ import type {
 } from "react";
 import { ChevronDown, MessageSquareOff, Mic, MicOff } from "lucide-react";
 import { Alert } from "./ui/Alert.js";
-import { ComposerCommandPanel } from "./ComposerCommandPanel.js";
+import { CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
 import { Input } from "./ui/Input.js";
 import { KiraFace } from "./ui/KiraFace.js";
 import { Markdown } from "./ui/Markdown.js";
@@ -22,15 +22,21 @@ import { ERROR_COPY } from "../api/pttCopy.js";
 import { cn } from "../lib/cn.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../store/eventStore.js";
 
-const TABS = ["Todo", "Chat", "Alertas"] as const;
-type FilterTab = (typeof TABS)[number];
+/** Owner layout correction (2026-07-18): ONE unified strip
+ * `Todo | Chat | Comandos | Alertas` (+ `Logs` when the pref is on). Todo/Chat/
+ * Alertas are feed filters over the single timeline; Comandos swaps to the
+ * inline command palette; Logs swaps to the engine event feed. */
+type TabValue = "todo" | "chat" | "comandos" | "alertas" | "logs";
 
-/** Primary column tab strip (R5). Chat holds the timeline + filter row +
- * composer; Comandos reuses the command palette inline; Logs surfaces the
- * engine event feed. */
-type ColumnTab = "chat" | "comandos" | "logs";
+/** Fixed feed-tab ids so the shared timeline panel's `aria-labelledby` can name
+ * the active filter tab (Todo/Chat/Alertas all control one panel). */
+const FEED_TAB_ID: Record<"todo" | "chat" | "alertas", string> = {
+  todo: "conv-tab-todo",
+  chat: "conv-tab-chat",
+  alertas: "conv-tab-alertas"
+};
 
-function columnTabClass(active: boolean): string {
+function tabClass(active: boolean): string {
   return cn(
     "h-8 rounded-md px-3 text-[13px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
@@ -73,10 +79,10 @@ interface Turn {
   tone?: AppEventTone;
 }
 
-function matchesTab(tab: FilterTab, kind: TurnKind): boolean {
-  if (tab === "Todo") return true;
-  if (tab === "Chat") return kind === "chat";
-  return kind === "alert";
+function matchesTab(tab: TabValue, kind: TurnKind): boolean {
+  if (tab === "chat") return kind === "chat";
+  if (tab === "alertas") return kind === "alert";
+  return true; // "todo" (non-feed tabs hide the timeline anyway)
 }
 
 function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
@@ -157,9 +163,12 @@ function ConversationTurn({ turn }: { turn: Turn }) {
  * The operator's own message is appended locally as an ephemeral turn so it's
  * visible immediately; there's no server echo to reconcile against. */
 export function ConversationPanel() {
-  const [activeTab, setActiveTab] = useState<FilterTab>("Todo");
-  // Primary column strip (D3/R5). Local state — nothing else reads it.
-  const [columnTab, setColumnTab] = useState<ColumnTab>("chat");
+  // ONE unified tab strip (owner layout correction 2026-07-18): todo/chat/alertas
+  // are feed filters; comandos and logs swap the panel. Default: the Todo feed.
+  const [activeTab, setActiveTab] = useState<TabValue>("todo");
+  // Command launched from the emergent composer popover, opened in the Comandos
+  // tab. Controlled here so re-launching the SAME command reopens it there.
+  const [comandoId, setComandoId] = useState<string | null>(null);
   // R36 flagged assumption: this preference gates Logs-TAB VISIBILITY, not a
   // "jump to Logs" shortcut — owner sign-off pending, see spec.md R36.
   const { showLogs } = useLogsPref();
@@ -189,7 +198,7 @@ export function ConversationPanel() {
   // Logs unread dot (D10/R7): lit when the newest event is unseen and we're not
   // already looking at Logs; cleared once Logs is active AND has rendered.
   const latestLogId = appEvents.length > 0 ? appEvents[appEvents.length - 1].id : null;
-  const unreadLogs = showLogs && latestLogId !== null && latestLogId !== seenLogId && columnTab !== "logs";
+  const unreadLogs = showLogs && latestLogId !== null && latestLogId !== seenLogId && activeTab !== "logs";
   // Tracks the operator bubble for the in-flight/retryable send intent, so a
   // retry after a failed send updates that SAME bubble instead of appending
   // a duplicate "Vos" turn. Cleared once the send succeeds.
@@ -302,14 +311,14 @@ export function ConversationPanel() {
   // Clear the Logs unread dot once the operator is viewing Logs and the newest
   // event has rendered (R7 clear-on-view, not clear-on-click).
   useEffect(() => {
-    if (columnTab === "logs") setSeenLogId(latestLogId);
-  }, [columnTab, latestLogId]);
+    if (activeTab === "logs") setSeenLogId(latestLogId);
+  }, [activeTab, latestLogId]);
 
-  // If the pref is turned OFF while Logs is the active column, fall back to Chat
+  // If the pref is turned OFF while Logs is active, fall back to the Todo feed
   // so the strip never points at a tab that no longer exists.
   useEffect(() => {
-    if (!showLogs && columnTab === "logs") setColumnTab("chat");
-  }, [showLogs, columnTab]);
+    if (!showLogs && activeTab === "logs") setActiveTab("todo");
+  }, [showLogs, activeTab]);
 
   // "Turno de voz enviado" confirmation: fire on the flushing -> idle
   // transition with no error, auto-clear after 4s.
@@ -440,7 +449,7 @@ export function ConversationPanel() {
   // within seconds of startup and must not kill the invitation. Alertas keeps
   // its own "Sin turnos en este filtro." empty case.
   const hasChatKindTurns = transcript.length > 0 || isThinking;
-  const showEmptyState = activeTab !== "Alertas" && !hasChatKindTurns;
+  const showEmptyState = activeTab !== "alertas" && !hasChatKindTurns;
 
   const micLabel =
     pttState === "connecting"
@@ -453,14 +462,27 @@ export function ConversationPanel() {
   const showMicOff = micDegraded && pttState === "idle";
   const MicGlyph = showMicOff ? MicOff : Mic;
 
+  // Todo/Chat/Alertas show the feed (timeline + composer); Comandos/Logs swap
+  // the panel. The feed region stays MOUNTED (hidden + inert) when a non-feed
+  // tab is active so the timeline scroll survives (R6); the composer, though, is
+  // unmounted so it truly leaves the a11y tree and no "/" palette is reachable
+  // from it (R8).
+  const feedActive = activeTab === "todo" || activeTab === "chat" || activeTab === "alertas";
+  const feedTabId = FEED_TAB_ID[feedActive ? (activeTab as "todo" | "chat" | "alertas") : "todo"];
+
   return (
     <aside className="flex min-h-0 flex-col border-l border-border-soft bg-card">
-      <Tabs value={columnTab} onValueChange={(value) => setColumnTab(value as ColumnTab)} className="flex min-h-0 flex-1 flex-col">
-        <TabList ariaLabel="Columna" className="flex gap-1 border-b border-border-soft px-3 py-2">
-          <Tab value="chat" className={columnTabClass(columnTab === "chat")}>Chat</Tab>
-          <Tab value="comandos" className={columnTabClass(columnTab === "comandos")}>Comandos</Tab>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabValue)} className="flex min-h-0 flex-1 flex-col">
+        {/* ONE unified strip (owner layout correction 2026-07-18): Todo/Chat/
+            Alertas filter the timeline (they share the single "conversation-panel"
+            via a fixed id/aria-controls); Comandos and Logs swap the panel. */}
+        <TabList ariaLabel="Conversación" className="flex gap-1 border-b border-border-soft px-3 py-2">
+          <Tab value="todo" id={FEED_TAB_ID.todo} controls="conversation-panel" className={tabClass(activeTab === "todo")}>Todo</Tab>
+          <Tab value="chat" id={FEED_TAB_ID.chat} controls="conversation-panel" className={tabClass(activeTab === "chat")}>Chat</Tab>
+          <Tab value="comandos" className={tabClass(activeTab === "comandos")}>Comandos</Tab>
+          <Tab value="alertas" id={FEED_TAB_ID.alertas} controls="conversation-panel" className={tabClass(activeTab === "alertas")}>Alertas</Tab>
           {showLogs && (
-            <Tab value="logs" className={cn(columnTabClass(columnTab === "logs"), "relative")}>
+            <Tab value="logs" className={cn(tabClass(activeTab === "logs"), "relative")}>
               Logs
               {unreadLogs && (
                 <span
@@ -473,35 +495,15 @@ export function ConversationPanel() {
           )}
         </TabList>
 
-        <TabPanel value="chat" className="flex min-h-0 flex-1 flex-col">
-          {/* Filter row + composer render only while Chat is active (R5/R8): the
-              composer must be absent from the a11y tree elsewhere, not merely
-              hidden. The timeline below stays mounted regardless so its scroll
-              position survives a column switch (R6). Filter selection survives
-              too — activeTab lives on this component, not on the filter row. */}
-          {columnTab === "chat" && (
-            <div role="tablist" aria-label="Filtro de conversación" className="flex gap-1 border-b border-border-soft px-3 py-2">
-              {TABS.map((tab) => (
-                <button
-                  key={tab}
-                  id={`conversation-tab-${tab}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  aria-controls="conversation-panel"
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "mono h-7 rounded-full px-3 text-[12.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
-                    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                    activeTab === tab && "bg-[color:var(--accent-soft)] text-primary"
-                  )}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-          )}
-
+        {/* Feed region — shown for Todo/Chat/Alertas, kept MOUNTED (hidden +
+            inert + aria-hidden) on Comandos/Logs so the timeline scroll survives
+            (R6). It is NOT a <TabPanel> because three filter tabs share it. */}
+        <div
+          hidden={!feedActive}
+          inert={!feedActive ? "" : undefined}
+          aria-hidden={!feedActive}
+          className={cn("flex min-h-0 flex-1 flex-col", !feedActive && "pointer-events-none")}
+        >
           <div className="flex items-center justify-between px-3 py-2">
             <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
             <span className="inline-flex items-center gap-1.5 text-xs text-ok">
@@ -520,7 +522,7 @@ export function ConversationPanel() {
               tabIndex={0}
               ref={scrollRef}
               onScroll={handleTimelineScroll}
-              aria-labelledby={`conversation-tab-${activeTab}`}
+              aria-labelledby={feedTabId}
               className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {visibleTurns.map((turn) => (
@@ -535,7 +537,7 @@ export function ConversationPanel() {
                   </p>
                 </div>
               )}
-              {activeTab === "Alertas" && visibleTurns.length === 0 && (
+              {activeTab === "alertas" && visibleTurns.length === 0 && (
                 <p className="text-xs text-dim">Sin turnos en este filtro.</p>
               )}
             </div>
@@ -551,11 +553,19 @@ export function ConversationPanel() {
             )}
           </div>
 
-          {columnTab === "chat" && (
+          {feedActive && (
             <div ref={composerRef} className="relative border-t border-border-soft bg-surface-2 p-3">
+              {/* Emergent command launcher (owner layout correction 2026-07-18):
+                  appears above the composer only while the input starts with
+                  "/"|"!"; selecting a command routes it to the Comandos tab. */}
               {showCommandPanel && (
-                <ComposerCommandPanel
+                <CommandPalettePopover
                   query={message}
+                  onSelect={(id) => {
+                    setComandoId(id);
+                    setActiveTab("comandos");
+                    setMessage("");
+                  }}
                   onClose={() => {
                     setMessage("");
                     // Restore focus to the composer input the operator was typing in.
@@ -640,17 +650,26 @@ export function ConversationPanel() {
             </div>
           )}
 
-          {isError && columnTab === "chat" && (
+          {isError && feedActive && (
             <div className="px-3 pb-3">
               <Alert tone="danger">{error?.message ?? "No se pudo enviar el mensaje."}</Alert>
             </div>
           )}
-        </TabPanel>
+        </div>
 
         <TabPanel value="comandos" className="flex min-h-0 flex-1 flex-col overflow-auto p-3">
-          {/* R9: same COMMANDS registry as the inline "/" palette, rendered
-              inline (no floating dialog). query="" lists all 7 commands. */}
-          <ComposerCommandPanel inline query="" onClose={() => setColumnTab("chat")} />
+          {/* R9: same COMMANDS registry as the launcher, rendered inline (no
+              floating dialog). It is the browsable home; the launcher opens a
+              command here via the controlled activeId. `visible` gates its Escape
+              handler so, while hidden, it never swallows the launcher's Escape. */}
+          <ComposerCommandPanel
+            inline
+            query=""
+            activeId={comandoId}
+            onActiveIdChange={setComandoId}
+            visible={activeTab === "comandos"}
+            onClose={() => setActiveTab("todo")}
+          />
         </TabPanel>
 
         {showLogs && (

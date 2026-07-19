@@ -123,6 +123,31 @@ describe("Tabs primitive (R4/D1/D2)", () => {
     expect((screen.getByLabelText("campo") as HTMLInputElement).value).toBe("persistí");
   });
 
+  it("lets a Tab override its id and aria-controls so several tabs can share one panel", () => {
+    // The unified conversation strip points Todo/Chat/Alertas at ONE feed panel,
+    // so those tabs override the generated id/aria-controls to a fixed shared id.
+    render(
+      <Tabs value="a" onValueChange={() => {}}>
+        <TabList ariaLabel="X">
+          <Tab value="a" id="fixed-a" controls="shared-panel">
+            A
+          </Tab>
+          <Tab value="b" id="fixed-b" controls="shared-panel">
+            B
+          </Tab>
+        </TabList>
+        <div role="tabpanel" id="shared-panel" aria-labelledby="fixed-a">
+          Shared
+        </div>
+      </Tabs>
+    );
+    const a = screen.getByRole("tab", { name: "A" });
+    const b = screen.getByRole("tab", { name: "B" });
+    expect(a).toHaveAttribute("id", "fixed-a");
+    expect(a).toHaveAttribute("aria-controls", "shared-panel");
+    expect(b).toHaveAttribute("aria-controls", "shared-panel");
+  });
+
   it("hides inactive panels from the accessibility tree while keeping them in the DOM", () => {
     render(<Harness />);
     // Only one tabpanel is accessible (the rest carry hidden + inert + aria-hidden)…

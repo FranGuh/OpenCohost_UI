@@ -90,19 +90,26 @@ export interface TabProps {
   value: string;
   children: ReactNode;
   className?: string;
+  /** Override the generated tab id. Used when several tabs share ONE panel
+   * (the conversation strip's Todo/Chat/Alertas feed filters) so the panel's
+   * `aria-labelledby` can name the active filter tab by a stable id. */
+  id?: string;
+  /** Override the generated `aria-controls` target. Same shared-panel case:
+   * the feed tabs all control the single timeline panel. */
+  controls?: string;
 }
 
-export function Tab({ value, children, className }: TabProps) {
+export function Tab({ value, children, className, id, controls }: TabProps) {
   const ctx = useTabsContext();
   const selected = ctx.value === value;
   return (
     <button
       type="button"
       role="tab"
-      id={`${ctx.baseId}-tab-${value}`}
+      id={id ?? `${ctx.baseId}-tab-${value}`}
       data-value={value}
       aria-selected={selected}
-      aria-controls={`${ctx.baseId}-panel-${value}`}
+      aria-controls={controls ?? `${ctx.baseId}-panel-${value}`}
       tabIndex={selected ? 0 : -1}
       onClick={() => ctx.onValueChange(value)}
       className={className}

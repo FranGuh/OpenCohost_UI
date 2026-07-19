@@ -37,16 +37,13 @@ function renderPanel() {
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ConversationPanel)));
 }
 
-// After the WU5 column tab strip landed, TWO role="tablist"s coexist (the new
-// "Columna" strip and the legacy "Filtro de conversación" row), and TWO
-// role="tabpanel"s are visible on the Chat column (the column Chat panel wraps
-// the timeline panel). Scope every legacy filter-tab query, and target the
-// timeline by its stable id, to avoid ambiguous matches (mismatch #4).
+// Owner layout correction (2026-07-18): ONE unified strip replaces the old
+// stacked "Columna" (Chat|Comandos|Logs) + "Filtro de conversación"
+// (Todo|Chat|Alertas) pair. Todo/Chat/Alertas are feed filters over the ONE
+// timeline (id "conversation-panel"); Comandos/Logs swap the panel.
 const timeline = () => document.getElementById("conversation-panel") as HTMLElement;
-const filterTablist = () => screen.getByRole("tablist", { name: "Filtro de conversación" });
-const columnTablist = () => screen.getByRole("tablist", { name: "Columna" });
-const filterTab = (name: string) => within(filterTablist()).getByRole("tab", { name });
-const columnTab = (name: string | RegExp) => within(columnTablist()).getByRole("tab", { name });
+const strip = () => screen.getByRole("tablist", { name: "Conversación" });
+const tab = (name: string | RegExp) => within(strip()).getByRole("tab", { name });
 
 beforeEach(() => {
   useEventStore.setState({ events: [] });
@@ -69,7 +66,7 @@ describe("ConversationPanel", () => {
 
   it("switches the active filter tab and marks aria-selected", () => {
     renderPanel();
-    const chatTab = filterTab("Chat");
+    const chatTab = tab("Chat");
     fireEvent.click(chatTab);
     expect(chatTab).toHaveAttribute("aria-selected", "true");
   });
@@ -86,8 +83,8 @@ describe("ConversationPanel", () => {
     });
     renderPanel();
     await screen.findByText("todo bien por acá");
-    const chatTab = filterTab("Chat");
-    const alertasTab = filterTab("Alertas");
+    const chatTab = tab("Chat");
+    const alertasTab = tab("Alertas");
 
     // Todo (default): both a chat turn and the alert-kind divider are visible.
     const todoPanel = timeline();
@@ -135,7 +132,7 @@ describe("ConversationPanel — empty state + viewers-muted banner (P3/§3b)", (
 
   it("keeps 'Sin turnos en este filtro.' as the Alertas empty case, not the invitation", () => {
     renderPanel();
-    fireEvent.click(filterTab("Alertas"));
+    fireEvent.click(tab("Alertas"));
     expect(screen.getByText("Sin turnos en este filtro.")).toBeInTheDocument();
     expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
   });
@@ -608,9 +605,9 @@ describe("ConversationPanel — agenda events in chat (WU4)", () => {
       timeout: 4000
     });
     // It renders as an alert divider — visible in the Alertas tab, hidden in Chat.
-    fireEvent.click(filterTab("Chat"));
+    fireEvent.click(tab("Chat"));
     expect(screen.queryByText(/turno 1 · tema/)).not.toBeInTheDocument();
-    fireEvent.click(filterTab("Alertas"));
+    fireEvent.click(tab("Alertas"));
     expect(screen.getByText(/turno 1 · tema/)).toBeInTheDocument();
   });
 
@@ -634,10 +631,10 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
 
     expect(screen.getByText("Modelo → qwen3:8b")).toBeInTheDocument(); // Todo (default tab)
 
-    fireEvent.click(filterTab("Alertas"));
+    fireEvent.click(tab("Alertas"));
     expect(screen.getByText("Modelo → qwen3:8b")).toBeInTheDocument();
 
-    fireEvent.click(filterTab("Chat"));
+    fireEvent.click(tab("Chat"));
     expect(screen.queryByText("Modelo → qwen3:8b")).not.toBeInTheDocument();
   });
 
@@ -749,79 +746,140 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
   });
 });
 
-describe("ConversationPanel — column tab strip (WU5: R5/R6/R8/R9)", () => {
-  it("renders the Chat|Comandos|Logs column strip with a distinct aria-label", () => {
-    useLogsPrefStore.getState().setShowLogs(true); // Logs tab is pref-gated (R36)
+describe("ConversationPanel — unified tab strip (owner layout correction 2026-07-18)", () => {
+  it("renders ONE Todo|Chat|Comandos|Alertas strip; Todo is the default feed tab with composer + timeline", () => {
     renderPanel();
-    const strip = columnTablist();
-    expect(within(strip).getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
-    expect(within(strip).getByRole("tab", { name: "Comandos" })).toBeInTheDocument();
-    expect(within(strip).getByRole("tab", { name: /Logs/ })).toBeInTheDocument();
-    // Chat is the default column: filter row + composer are both present.
-    expect(filterTablist()).toBeInTheDocument();
+    // Exactly one tablist exists — the two-strip layout is gone.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    for (const name of ["Todo", "Chat", "Comandos", "Alertas"]) {
+      expect(tab(name)).toBeInTheDocument();
+    }
+    expect(tab("Todo")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByPlaceholderText("Escribí un mensaje para Kira…")).toBeInTheDocument();
   });
 
-  it("hides the filter row and composer outside Chat, and restores the filter selection on return (R5/R6/R8)", () => {
-    useLogsPrefStore.getState().setShowLogs(true); // needs the Logs tab present
+  it("shows the composer on every feed tab and hides it on Comandos and Logs (R8)", () => {
+    useLogsPrefStore.getState().setShowLogs(true);
     renderPanel();
-    // Set a non-default filter, then leave and come back.
-    fireEvent.click(filterTab("Alertas"));
-    expect(filterTab("Alertas")).toHaveAttribute("aria-selected", "true");
+    const composer = () => screen.queryByPlaceholderText("Escribí un mensaje para Kira…");
 
-    fireEvent.click(columnTab("Comandos"));
-    // The legacy filter row and the composer are gone from the tree entirely
-    // (not merely hidden) while Comandos is active (R5/R8).
-    expect(screen.queryByRole("tablist", { name: "Filtro de conversación" })).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Escribí un mensaje para Kira…")).not.toBeInTheDocument();
+    expect(composer()).toBeInTheDocument(); // Todo (default)
+    fireEvent.click(tab("Chat"));
+    expect(composer()).toBeInTheDocument();
+    fireEvent.click(tab("Alertas"));
+    expect(composer()).toBeInTheDocument();
 
-    fireEvent.click(columnTab(/Logs/));
-    expect(screen.queryByRole("tablist", { name: "Filtro de conversación" })).not.toBeInTheDocument();
+    fireEvent.click(tab("Comandos"));
+    expect(composer()).not.toBeInTheDocument();
+    fireEvent.click(tab(/Logs/));
+    expect(composer()).not.toBeInTheDocument();
 
-    fireEvent.click(columnTab("Chat"));
-    // Filter selection survived the round trip (activeTab lives on the panel).
-    expect(filterTab("Alertas")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByPlaceholderText("Escribí un mensaje para Kira…")).toBeInTheDocument();
+    fireEvent.click(tab("Chat"));
+    expect(composer()).toBeInTheDocument();
   });
 
-  it("keeps the Chat timeline mounted across a column switch (R6 — no remount)", () => {
+  it("keeps the Chat timeline mounted across a tab switch (R6 — no remount)", () => {
     renderPanel();
     const before = timeline();
     // jsdom does no layout, so a literal scrollTop survival is unreliable; the
     // robust proxy is DOM node identity — a remount would swap the node.
-    fireEvent.click(columnTab("Comandos"));
-    fireEvent.click(columnTab("Chat"));
+    fireEvent.click(tab("Comandos"));
+    fireEvent.click(tab("Todo"));
     expect(timeline()).toBe(before);
   });
 
   it("renders all 7 commands inline in the Comandos tab, with no floating dialog (R9)", () => {
     renderPanel();
-    fireEvent.click(columnTab("Comandos"));
+    fireEvent.click(tab("Comandos"));
 
     const comandosPanel = screen.getByRole("tabpanel"); // only Comandos is visible now
     for (const badge of ["/agenda", "/perfil", "/temas", "/vivo", "/acciones", "/sesion", "/musica"]) {
       expect(within(comandosPanel).getByText(badge)).toBeInTheDocument();
     }
-    // Inline, not the floating "/" palette.
+    // Inline, not a floating dialog, and not the launcher listbox (no composer).
     expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Comandos disponibles" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ConversationPanel — emergent command launcher (owner layout correction 2026-07-18)", () => {
+  const launcher = () => screen.queryByRole("listbox", { name: "Comandos disponibles" });
+  function typeComposer(value: string) {
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value } });
+  }
+
+  it("stays hidden until the composer input starts with '/' or '!', and filters as you type", () => {
+    renderPanel();
+    expect(launcher()).not.toBeInTheDocument();
+    typeComposer("hola");
+    expect(launcher()).not.toBeInTheDocument();
+
+    typeComposer("/ag");
+    const options = within(launcher() as HTMLElement).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent("/agenda");
+
+    typeComposer("!se"); // bang prefix, same namespace
+    expect(within(launcher() as HTMLElement).getByText("/sesion")).toBeInTheDocument();
   });
 
-  it("makes no floating slash-palette reachable outside Chat — the composer isn't rendered (R8)", () => {
+  it("ArrowDown + Enter selects a command, opens it in the Comandos tab, and closes the launcher (R8/R9)", () => {
     renderPanel();
-    fireEvent.click(columnTab("Comandos"));
-    // No composer to type "/" into → the floating showCommandPanel path is dead.
+    typeComposer("/"); // all 7, highlight on /agenda
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // → /perfil
+    fireEvent.keyDown(document, { key: "Enter" });
+
+    // Routed to the Comandos tab, with /perfil opened (its first step renders).
+    expect(tab("Comandos")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("¿Cómo se llama el perfil?")).toBeInTheDocument();
+    // Launcher and composer are both gone (composer hidden outside feed tabs).
+    expect(launcher()).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Escribí un mensaje para Kira…")).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
+  });
+
+  it("closes on Escape, clears the composer, and restores focus to the input", () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    input.focus();
+    typeComposer("/ag");
+    expect(launcher()).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(launcher()).not.toBeInTheDocument();
+    expect(input.value).toBe("");
+    expect(input).toHaveFocus();
+  });
+
+  it("closes when the operator clears the input back to plain text", () => {
+    renderPanel();
+    typeComposer("/ag");
+    expect(launcher()).toBeInTheDocument();
+    typeComposer("");
+    expect(launcher()).not.toBeInTheDocument();
+  });
+
+  it("never sends a '/'-prefixed command as a chat turn on Enter", async () => {
+    let chatPosts = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, () => {
+        chatPosts += 1;
+        return HttpResponse.json({ accepted: true, command_id: "c", status: "queued", state_version: 2 });
+      })
+    );
+    renderPanel();
+    typeComposer("/xyz"); // unknown → Enter is inert, no select, no chat send
+    fireEvent.submit(screen.getByPlaceholderText("Escribí un mensaje para Kira…").closest("form") as HTMLFormElement);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(chatPosts).toBe(0);
   });
 });
 
 describe("ConversationPanel — Logs tab (WU6: R7/R10/R32/R36)", () => {
   it("hides the Logs tab when the Mostrar logs preference is OFF (default) (R36)", () => {
     renderPanel();
-    const strip = columnTablist();
-    expect(within(strip).getByRole("tab", { name: "Chat" })).toBeInTheDocument();
-    expect(within(strip).getByRole("tab", { name: "Comandos" })).toBeInTheDocument();
-    expect(within(strip).queryByRole("tab", { name: /Logs/ })).not.toBeInTheDocument();
+    expect(tab("Chat")).toBeInTheDocument();
+    expect(tab("Comandos")).toBeInTheDocument();
+    expect(within(strip()).queryByRole("tab", { name: /Logs/ })).not.toBeInTheDocument();
   });
 
   it("shows the Logs tab and renders real LogsPanel content when the preference is ON (R36/R10)", () => {
@@ -831,7 +889,7 @@ describe("ConversationPanel — Logs tab (WU6: R7/R10/R32/R36)", () => {
     });
     renderPanel();
 
-    fireEvent.click(columnTab(/Logs/));
+    fireEvent.click(tab(/Logs/));
     const logsPanel = screen.getByRole("tabpanel"); // only Logs is visible now
     expect(within(logsPanel).getByText("Modelo → qwen3:8b")).toBeInTheDocument();
     expect(within(logsPanel).getByText("model")).toBeInTheDocument();
@@ -844,21 +902,21 @@ describe("ConversationPanel — Logs tab (WU6: R7/R10/R32/R36)", () => {
     act(() => {
       useEventStore.getState().append({ id: "e-unread", ts: Date.now(), source: "model", label: "Motor: listo", tone: "info" });
     });
-    expect(columnTab(/Logs/).querySelector("[data-unread]")).not.toBeNull();
+    expect(tab(/Logs/).querySelector("[data-unread]")).not.toBeNull();
 
     // Switching to Logs and rendering the entry clears the indicator.
-    fireEvent.click(columnTab(/Logs/));
-    expect(columnTab(/Logs/).querySelector("[data-unread]")).toBeNull();
+    fireEvent.click(tab(/Logs/));
+    expect(tab(/Logs/).querySelector("[data-unread]")).toBeNull();
   });
 
   it("never lights the Logs unread dot for an event that lands while already on Logs (R7)", () => {
     useLogsPrefStore.getState().setShowLogs(true);
     renderPanel();
-    fireEvent.click(columnTab(/Logs/)); // already viewing Logs
+    fireEvent.click(tab(/Logs/)); // already viewing Logs
 
     act(() => {
       useEventStore.getState().append({ id: "e-on-logs", ts: Date.now(), source: "model", label: "Motor: listo", tone: "info" });
     });
-    expect(columnTab(/Logs/).querySelector("[data-unread]")).toBeNull();
+    expect(tab(/Logs/).querySelector("[data-unread]")).toBeNull();
   });
 });
