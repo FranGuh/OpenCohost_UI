@@ -12,6 +12,7 @@ import { Input } from "./ui/Input.js";
 import { KiraFace } from "./ui/KiraFace.js";
 import { Markdown } from "./ui/Markdown.js";
 import { Tab, TabList, TabPanel, Tabs } from "./ui/Tabs.js";
+import { matchCommands } from "./commands/registry.js";
 import { LogsPanel } from "./commands/LogsPanel.js";
 import { useLogsPref } from "../store/useLogsPref.js";
 import { useAgendaEvents } from "../api/agenda.js";
@@ -179,6 +180,12 @@ export function ConversationPanel() {
   // panel shows whenever the trimmed composer value starts with "/" or "!".
   const composerRef = useRef<HTMLDivElement>(null);
   const showCommandPanel = /^[/!]/.test(message.trim());
+  // F1: the popover only renders an actual `role="listbox"` when at least one
+  // command matches (zero matches shows the "comando desconocido" status hint
+  // instead, no listbox) — the input's combobox expanded/controls state must
+  // follow that reality, not just the raw "/"|"!" prefix. Derived straight from
+  // the same registry the popover itself filters through — no extra plumbing.
+  const commandListboxOpen = showCommandPanel && matchCommands(message).length > 0;
   // F3: the composer input's aria-activedescendant follows the popover's
   // keyboard-highlighted option (combobox pattern).
   const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
@@ -611,9 +618,9 @@ export function ConversationPanel() {
                   // F3: combobox pattern — the launcher popover is this input's
                   // listbox; aria-activedescendant follows its keyboard highlight.
                   role="combobox"
-                  aria-expanded={showCommandPanel}
-                  aria-controls={COMMAND_PALETTE_LISTBOX_ID}
-                  aria-activedescendant={showCommandPanel ? (activeDescendant ?? undefined) : undefined}
+                  aria-expanded={commandListboxOpen}
+                  aria-controls={commandListboxOpen ? COMMAND_PALETTE_LISTBOX_ID : undefined}
+                  aria-activedescendant={commandListboxOpen ? (activeDescendant ?? undefined) : undefined}
                   trailing={
                     <div className="flex items-stretch">
                       <button

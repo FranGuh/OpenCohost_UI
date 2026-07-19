@@ -880,6 +880,44 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
     expect(input).toHaveAttribute("aria-activedescendant", "cmd-opt-perfil");
   });
 
+  it("zero-match state collapses the combobox contract — no listbox, no controls/activedescendant, hint stays visible (F1)", () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    typeComposer("/xyz");
+
+    expect(launcher()).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    expect(input).not.toHaveAttribute("aria-controls");
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    // The unknown-command hint stays visible as a plain status element, not an option.
+    expect(screen.getByText("comando desconocido")).toHaveAttribute("role", "status");
+  });
+
+  it("activedescendant always references a currently-listed option while the filter narrows, even right after ArrowDown (F2)", () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+
+    typeComposer("/a"); // /agenda, /acciones
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight → /acciones (2nd match)
+    expect(input).toHaveAttribute("aria-activedescendant", "cmd-opt-acciones");
+
+    typeComposer("/ac"); // narrows to /acciones only — the highlighted option survives
+    let ids = within(launcher() as HTMLElement)
+      .getAllByRole("option")
+      .map((option) => option.id);
+    expect(ids).toContain(input.getAttribute("aria-activedescendant"));
+
+    typeComposer("/acc"); // still narrowed to /acciones only
+    ids = within(launcher() as HTMLElement)
+      .getAllByRole("option")
+      .map((option) => option.id);
+    expect(ids).toContain(input.getAttribute("aria-activedescendant"));
+
+    typeComposer("/xyz"); // narrows to zero matches — no listbox, no activedescendant
+    expect(launcher()).not.toBeInTheDocument();
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+  });
+
   it("closes when the operator clears the input back to plain text", () => {
     renderPanel();
     typeComposer("/ag");

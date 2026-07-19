@@ -66,7 +66,9 @@ export function CommandList({
   if (matches.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="flex items-center gap-1.5 px-1 py-2 text-xs text-dim">
+        {/* F1: zero matches means there is no listbox to be a combobox's
+         * aria-controls target — this is a plain status hint, not an option. */}
+        <p role="status" className="flex items-center gap-1.5 px-1 py-2 text-xs text-dim">
           <CircleSlash size={12} aria-hidden="true" />
           comando desconocido
         </p>
@@ -160,14 +162,27 @@ export function CommandPalettePopover({
 }) {
   const matches = matchCommands(query);
   const [activeIndex, setActiveIndex] = useState(0);
-
-  // Reset the highlight to the top whenever the filtered set changes.
-  useEffect(() => setActiveIndex(0), [query]);
+  // F2: track which query the `activeIndex` state was computed for. A query
+  // change resets the highlight to the top SYNCHRONOUSLY in this same render
+  // (React's "adjust state while rendering" pattern) instead of via a separate
+  // effect — an effect-based reset leaves aria-activedescendant referencing an
+  // option the filtered set already dropped for one commit before catching up.
+  const [queryForIndex, setQueryForIndex] = useState(query);
+  let liveIndex = activeIndex;
+  if (query !== queryForIndex) {
+    setQueryForIndex(query);
+    setActiveIndex(0);
+    liveIndex = 0;
+  }
+  // Clamp defensively to the CURRENT match count so the highlighted/reported
+  // option is always one that actually renders this render, never stale.
+  const clampedIndex = matches.length === 0 ? 0 : Math.min(liveIndex, matches.length - 1);
+  const activeCommand = matches[clampedIndex] ?? null;
+  const activeDescendantId = activeCommand ? `cmd-opt-${activeCommand.id}` : null;
 
   useEffect(() => {
-    const active = matches[activeIndex];
-    onActiveDescendantChange?.(active ? `cmd-opt-${active.id}` : null);
-  }, [matches, activeIndex, onActiveDescendantChange]);
+    onActiveDescendantChange?.(activeDescendantId);
+  }, [activeDescendantId, onActiveDescendantChange]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -185,16 +200,15 @@ export function CommandPalettePopover({
         event.preventDefault();
         setActiveIndex((i) => Math.max(i - 1, 0));
       } else if (event.key === "Enter") {
-        const command = matches[activeIndex];
-        if (command) {
+        if (activeCommand) {
           event.preventDefault();
-          onSelect(command.id);
+          onSelect(activeCommand.id);
         }
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [matches, activeIndex, onClose, onSelect, composerRef]);
+  }, [matches, activeCommand, onClose, onSelect, composerRef]);
 
   return (
     <div className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel">
@@ -202,7 +216,7 @@ export function CommandPalettePopover({
         <Terminal size={12} aria-hidden="true" />
         Comandos
       </div>
-      <CommandList variant="launcher" matches={matches} activeIndex={activeIndex} onPick={onSelect} />
+      <CommandList variant="launcher" matches={matches} activeIndex={clampedIndex} onPick={onSelect} />
     </div>
   );
 }
