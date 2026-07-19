@@ -2,10 +2,16 @@ import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL, defaultPersonalization } from "../test/handlers.js";
 import { PersonalizationCard } from "./PersonalizationCard.js";
+
+// Collapse state persists to localStorage (oc-collapse-*); clear between tests
+// so the default-closed destructive section can't leak an opened state forward.
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 function renderCard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -44,6 +50,35 @@ describe("PersonalizationCard loads from GET /api/personalization", () => {
     expect(screen.getByLabelText("Ocupación")).toHaveAttribute("maxLength", "120");
     expect(screen.getByLabelText("Intereses")).toHaveAttribute("maxLength", "240");
     expect(screen.getByLabelText("Instrucciones personalizadas")).toHaveAttribute("maxLength", "400");
+  });
+});
+
+describe("PersonalizationCard collapsible sections + textarea sizing", () => {
+  it("keeps the form open by default and the destructive section closed", async () => {
+    renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Tus datos" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Borrar datos guardados" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opening the destructive section persists under its own key", async () => {
+    renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Borrar datos guardados" }));
+    expect(screen.getByRole("button", { name: "Borrar datos guardados" })).toHaveAttribute("aria-expanded", "true");
+    expect(window.localStorage.getItem("oc-collapse-personalization-clear")).toBe("1");
+  });
+
+  it("gives the instructions textarea the tall narrative clamp", async () => {
+    renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Instrucciones personalizadas")).toBeInTheDocument());
+
+    const ta = screen.getByLabelText("Instrucciones personalizadas");
+    expect(ta.className).toContain("min-h-[96px]");
+    expect(ta.className).toContain("max-h-[240px]");
+    expect(ta.className).toContain("resize-y");
   });
 });
 

@@ -13,9 +13,14 @@ import { PlaybackProvider } from "../state/PlaybackProvider.js";
 import { MusicDuckingWatcher } from "../state/MusicDuckingWatcher.js";
 import { useWelcomeStore } from "../store/welcomeStore.js";
 
+// Chat/queue column width — single source for both grid definitions (the base
+// GRID_STYLE and the sidebar-aware runtime variant below), widened from 372px
+// so the conversation column has real breathing room.
+const CHAT_COLUMN_WIDTH = "465px";
+
 const GRID_STYLE = {
   display: "grid",
-  gridTemplateColumns: "248px 1fr 372px",
+  gridTemplateColumns: `248px 1fr ${CHAT_COLUMN_WIDTH}`,
   // The old top/player rows are gone (the merged window bar in App.tsx now owns
   // the header, PlayerBar is still shelved). One content row fills the body:
   // minmax(0,1fr) lets the side/main/queue columns shrink and scroll internally.
@@ -96,7 +101,7 @@ export function AppLayout() {
 
   const gridStyle = {
     ...GRID_STYLE,
-    gridTemplateColumns: `${sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded} 1fr 372px`,
+    gridTemplateColumns: `${sidebarCollapsed ? SIDEBAR_WIDTH.collapsed : SIDEBAR_WIDTH.expanded} 1fr ${CHAT_COLUMN_WIDTH}`,
     transition: "grid-template-columns var(--dur-base) var(--ease-io)"
   };
 
@@ -112,7 +117,7 @@ export function AppLayout() {
             </>,
             controlsSlot
           )}
-        <div className="min-w-[1180px] text-foreground" style={gridStyle}>
+        <div className="w-full min-w-0 text-foreground" style={gridStyle}>
           <div className="grid min-h-0 [grid-area:side]">
             <Sidebar
               activeSection={activeSection}
@@ -124,7 +129,7 @@ export function AppLayout() {
           <div className="grid min-h-0 min-w-0 [grid-area:main]">
             <MainStage activeSection={activeSection} />
           </div>
-          <div className="grid min-h-0 [grid-area:queue]">
+          <div className="grid min-h-0 min-w-0 [grid-area:queue]">
             <ConversationPanel />
           </div>
           {/* <div className="grid [grid-area:player]">

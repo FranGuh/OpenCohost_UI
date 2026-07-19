@@ -2,10 +2,16 @@ import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL } from "../test/handlers.js";
 import { EditorialCardsCard } from "./EditorialCardsCard.js";
+
+// Collapse state now persists to localStorage (oc-collapse-*); clear between
+// tests so section open/closed order-dependence can't leak across cases.
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 function renderCard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -40,6 +46,41 @@ describe("EditorialCardsCard form fields", () => {
     expect(screen.getByLabelText("Contrapuntos (uno por línea)")).toBeInTheDocument();
     expect(screen.getByLabelText("Ganchos de discusión (uno por línea)")).toBeInTheDocument();
     expect(screen.getByLabelText("Disparadores (uno por línea)")).toBeInTheDocument();
+  });
+});
+
+describe("EditorialCardsCard collapsible sections + textarea sizing", () => {
+  it("splits create/list into persisted SubCollapsibleSections", async () => {
+    server.use(emptyCardsHandler());
+    renderCard();
+
+    const createHeader = await screen.findByRole("button", { name: /Crear tarjeta/ });
+    expect(createHeader).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Tarjetas · borrador y armadas/ })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+
+    // Collapsing the create section persists under its own key.
+    fireEvent.click(createHeader);
+    expect(window.localStorage.getItem("oc-collapse-editorial-create")).toBe("0");
+  });
+
+  it("sizes narrative fields taller than compact one-per-line list fields", async () => {
+    server.use(emptyCardsHandler());
+    renderCard();
+
+    // Narrative textareas (Resumen / Postura) get the tall clamp.
+    const resumen = await screen.findByLabelText("Resumen");
+    expect(resumen.className).toContain("min-h-[96px]");
+    expect(resumen.className).toContain("max-h-[240px]");
+    expect(resumen.className).toContain("resize-y");
+    expect(screen.getByLabelText("Postura del streamer").className).toContain("min-h-[96px]");
+
+    // One-per-line list textareas get the compact clamp.
+    const list = screen.getByLabelText("Contrapuntos (uno por línea)");
+    expect(list.className).toContain("min-h-[64px]");
+    expect(list.className).toContain("max-h-[160px]");
   });
 });
 

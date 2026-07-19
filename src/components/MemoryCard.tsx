@@ -8,6 +8,7 @@ import { Select } from "./ui/Select.js";
 import { Alert } from "./ui/Alert.js";
 import { ConfirmFooter } from "./ui/ConfirmFooter.js";
 import { Segmented } from "./ui/Segmented.js";
+import { SubCollapsibleSection, useCollapsible } from "./ui/Collapsible.js";
 import { ApiError } from "../api/client.js";
 import type { MemoriaListItem } from "../api/client.js";
 import {
@@ -143,7 +144,7 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
                 value={editContent}
                 onChange={(event) => setEditContent(event.target.value)}
                 rows={4}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring resize-y overflow-y-auto min-h-[96px] max-h-[240px]"
               />
             )}
           </label>
@@ -395,7 +396,7 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
               onChange={(event) => setContent(event.target.value)}
               rows={4}
               placeholder="Pegá acá el texto del export…"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring resize-y overflow-y-auto min-h-[96px] max-h-[240px]"
             />
           </label>
 
@@ -487,7 +488,10 @@ export function MemoryCard() {
   const { data: listData, isError: listError } = useMemoriaListQuery(profileId);
   const purgeMutation = useMemoriaPurgeMutation(profileId);
   const [confirmingPurge, setConfirmingPurge] = useState(false);
-  const [listOpen, setListOpen] = useState(false);
+  // Shared collapse primitive (persists under oc-collapse-memoria-list) replaces
+  // the former bespoke listOpen useState — the detail list's open state now
+  // survives panel navigation like every other section.
+  const [listOpen, toggleList] = useCollapsible(false, "memoria-list");
   const [tierFilter, setTierFilter] = useState<MemoriaTierFilter>("all");
   const filteredItems = listData ? filterByTier(listData.items, tierFilter) : [];
 
@@ -515,10 +519,7 @@ export function MemoryCard() {
           </p>
         )}
 
-        <section aria-labelledby="memory-clear-label" className="space-y-2">
-          <span id="memory-clear-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Acciones
-          </span>
+        <SubCollapsibleSection title="Acciones" persistKey="memoria-actions">
           {confirming ? (
             // Severe (wipes ALL conversation history, irreversible) — so it gets
             // the same ack-gated single-stage ConfirmFooter as the profile delete.
@@ -545,7 +546,7 @@ export function MemoryCard() {
               </Button>
             </div>
           )}
-        </section>
+        </SubCollapsibleSection>
 
         <section aria-labelledby="memory-counts-label" className="space-y-2">
           <span id="memory-counts-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
@@ -588,7 +589,7 @@ export function MemoryCard() {
               type="button"
               variant="ghost"
               aria-expanded={listOpen}
-              onClick={() => setListOpen((open) => !open)}
+              onClick={toggleList}
             >
               {listOpen ? "Ocultar" : "Ver"}
               <span

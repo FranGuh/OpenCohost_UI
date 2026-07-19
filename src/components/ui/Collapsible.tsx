@@ -108,3 +108,37 @@ export function useCollapsible(defaultOpen = true, persistKey?: string): [boolea
   }
   return [isOpen, toggle];
 }
+
+/* ------------------------------------------------------------------ */
+/*  SubCollapsibleSection — subordinate collapsible inside a card      */
+/* ------------------------------------------------------------------ */
+
+export interface SubCollapsibleSectionProps {
+  /** Sub-section label — rendered in the card sub-label type ramp, so it reads
+   *  one level below the card's bold h2 (ControlsPanel.ControlGroup is the
+   *  card-level sibling of this). */
+  title: ReactNode;
+  /** Persists open/collapsed under localStorage["oc-collapse-<persistKey>"]. */
+  persistKey: string;
+  /** Initial state before any stored value hydrates (default open). */
+  defaultOpen?: boolean;
+  children: ReactNode;
+}
+
+/**
+ * A thin, subordinate collapsible for the interior of a card — composes the
+ * shared CollapsibleHeader/CollapsibleBody/useCollapsible so its open state
+ * persists like every other section, but its header uses the smaller uppercase
+ * sub-label ramp instead of the card's bold heading.
+ */
+export function SubCollapsibleSection({ title, persistKey, defaultOpen = true, children }: SubCollapsibleSectionProps) {
+  const [isOpen, toggle] = useCollapsible(defaultOpen, persistKey);
+  return (
+    <section>
+      <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{title}</span>
+      </CollapsibleHeader>
+      <CollapsibleBody isOpen={isOpen}>{children}</CollapsibleBody>
+    </section>
+  );
+}

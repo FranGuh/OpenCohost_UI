@@ -14,7 +14,9 @@
 
 body {
   margin: 0;
-  min-width: 1280px;
+  /* No min-width here: a fixed 1280px floor forced the whole app to scroll
+     horizontally below that width. The window's real floor stays authoritative
+     via tauri.conf.json's minWidth. */
 }
 
 button {

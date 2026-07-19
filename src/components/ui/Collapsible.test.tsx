@@ -1,6 +1,6 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useCollapsible } from "./Collapsible.js";
+import { SubCollapsibleSection, useCollapsible } from "./Collapsible.js";
 
 const KEY = "oc-collapse-test-section";
 
@@ -61,5 +61,54 @@ describe("useCollapsible", () => {
     act(() => result.current[1]());
     expect(result.current[0]).toBe(true);
     expect(window.localStorage.getItem(KEY)).toBe("1");
+  });
+});
+
+describe("SubCollapsibleSection", () => {
+  it("renders its children and is open by default", () => {
+    render(
+      <SubCollapsibleSection title="Sub" persistKey="sub-a">
+        <p>sub child</p>
+      </SubCollapsibleSection>
+    );
+    expect(screen.getByText("sub child")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sub/ })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("honours defaultOpen=false and persists the toggle through to localStorage", () => {
+    render(
+      <SubCollapsibleSection title="Sub" persistKey="sub-b" defaultOpen={false}>
+        <p>sub child</p>
+      </SubCollapsibleSection>
+    );
+    const header = screen.getByRole("button", { name: /Sub/ });
+    expect(header).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(window.localStorage.getItem("oc-collapse-sub-b")).toBe("1");
+  });
+
+  it("hydrates its initial open state from localStorage (persistKey)", () => {
+    window.localStorage.setItem("oc-collapse-sub-c", "0");
+    render(
+      <SubCollapsibleSection title="Sub" persistKey="sub-c" defaultOpen>
+        <p>sub child</p>
+      </SubCollapsibleSection>
+    );
+    // Stored "0" wins over defaultOpen=true.
+    expect(screen.getByRole("button", { name: /Sub/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("toggles via the keyboard (Enter) — reuses CollapsibleHeader semantics", () => {
+    render(
+      <SubCollapsibleSection title="Sub" persistKey="sub-d" defaultOpen={false}>
+        <p>sub child</p>
+      </SubCollapsibleSection>
+    );
+    const header = screen.getByRole("button", { name: /Sub/ });
+    fireEvent.keyDown(header, { key: "Enter" });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(window.localStorage.getItem("oc-collapse-sub-d")).toBe("1");
   });
 });

@@ -2,7 +2,7 @@ import { delay, http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import {
   API_BASE_URL,
@@ -25,6 +25,14 @@ function renderCard() {
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(MemoryCard)));
 }
 
+// The Acciones and memoria-detail sections now persist their open state
+// (oc-collapse-*). Clear between tests so a section opened in one case can't
+// hydrate open in the next (the detail list starting closed is load-bearing:
+// existing cases click "Ver" to open it).
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 describe("MemoryCard populates from GET /api/memoria/stats", () => {
   it("renders the counts-only inspector with no raw chat content", async () => {
     renderCard();
@@ -41,6 +49,46 @@ describe("MemoryCard populates from GET /api/memoria/stats", () => {
     );
     renderCard();
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+  });
+});
+
+describe("MemoryCard collapsible sections + textarea sizing", () => {
+  it("keeps Acciones open by default and persists its toggle under memoria-actions", async () => {
+    renderCard();
+    const acciones = await screen.findByRole("button", { name: "Acciones" });
+    expect(acciones).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(acciones);
+    expect(window.localStorage.getItem("oc-collapse-memoria-actions")).toBe("0");
+  });
+
+  it("persists the memoria detail list open state under memoria-list", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    expect(window.localStorage.getItem("oc-collapse-memoria-list")).toBe("1");
+  });
+
+  it("gives the import paste textarea the tall narrative clamp", async () => {
+    renderCard();
+    const paste = await screen.findByLabelText("Pegar memorias");
+    expect(paste.className).toContain("min-h-[96px]");
+    expect(paste.className).toContain("max-h-[240px]");
+    expect(paste.className).toContain("resize-y");
+  });
+
+  it("keeps per-row memory expansion local and non-persisted (privacy: lazy fetch on open)", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
+
+    const [firstRow] = screen.getAllByRole("button", { name: "Ver memoria" });
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(screen.getByText(defaultMemoriaRows.mem_a.content)).toBeInTheDocument());
+
+    // Per-row expansion must NOT persist — it lazy-loads privacy-sensitive
+    // detail on open, so a stored "open" would auto-refetch it on remount.
+    const collapseKeys = Object.keys(window.localStorage).filter((k) => k.startsWith("oc-collapse-"));
+    expect(collapseKeys.some((k) => k.includes("mem_a"))).toBe(false);
   });
 });
 

@@ -5,6 +5,7 @@ import { Button } from "./ui/Button.js";
 import { Input } from "./ui/Input.js";
 import { Alert } from "./ui/Alert.js";
 import { ConfirmFooter } from "./ui/ConfirmFooter.js";
+import { SubCollapsibleSection } from "./ui/Collapsible.js";
 import { ApiError, ConflictError, NotFoundError, ValidationError } from "../api/client.js";
 import { useArmCardMutation, useCardsQuery, useCreateCardMutation } from "../api/editorialCards.js";
 
@@ -54,8 +55,13 @@ function cardErrorMessage(error: Error | null): string {
   return "No se pudo completar la acción.";
 }
 
-const textareaClass =
-  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+// Shared textarea chrome + growth policy (resize handle + inner scroll past
+// the clamp). Two size ramps: narrative fields (summary/take) get a taller
+// clamp than the compact one-per-line list fields.
+const textareaBase =
+  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring resize-y overflow-y-auto";
+const textareaNarrative = `${textareaBase} min-h-[96px] max-h-[240px]`;
+const textareaCompact = `${textareaBase} min-h-[64px] max-h-[160px]`;
 
 /**
  * "Tarjetas editoriales" — operator creates a structured editorial cue card
@@ -129,161 +135,151 @@ export function EditorialCardsCard() {
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <section aria-labelledby="editorial-cards-form-label" className="space-y-2">
-          <span
-            id="editorial-cards-form-label"
-            className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-          >
-            Crear tarjeta
-          </span>
+        <SubCollapsibleSection title="Crear tarjeta" persistKey="editorial-create">
+          <div className="space-y-2">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Tema
+              <Input
+                aria-label="Tema"
+                value={topic}
+                maxLength={TOPIC_MAX}
+                onChange={(event) => setTopic(event.target.value)}
+              />
+            </label>
 
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-            Tema
-            <Input
-              aria-label="Tema"
-              value={topic}
-              maxLength={TOPIC_MAX}
-              onChange={(event) => setTopic(event.target.value)}
-            />
-          </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Resumen
+              <textarea
+                aria-label="Resumen"
+                value={summary}
+                maxLength={SUMMARY_MAX}
+                onChange={(event) => setSummary(event.target.value)}
+                rows={3}
+                className={textareaNarrative}
+              />
+            </label>
 
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-            Resumen
-            <textarea
-              aria-label="Resumen"
-              value={summary}
-              maxLength={SUMMARY_MAX}
-              onChange={(event) => setSummary(event.target.value)}
-              rows={3}
-              className={textareaClass}
-            />
-          </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Postura del streamer
+              <textarea
+                aria-label="Postura del streamer"
+                value={streamerTake}
+                maxLength={TAKE_MAX}
+                onChange={(event) => setStreamerTake(event.target.value)}
+                rows={3}
+                className={textareaNarrative}
+              />
+            </label>
 
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-            Postura del streamer
-            <textarea
-              aria-label="Postura del streamer"
-              value={streamerTake}
-              maxLength={TAKE_MAX}
-              onChange={(event) => setStreamerTake(event.target.value)}
-              rows={3}
-              className={textareaClass}
-            />
-          </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Contrapuntos (uno por línea)
+              <textarea
+                aria-label="Contrapuntos (uno por línea)"
+                value={counterpoints}
+                onChange={(event) => setCounterpoints(event.target.value)}
+                rows={2}
+                className={textareaCompact}
+              />
+            </label>
 
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-            Contrapuntos (uno por línea)
-            <textarea
-              aria-label="Contrapuntos (uno por línea)"
-              value={counterpoints}
-              onChange={(event) => setCounterpoints(event.target.value)}
-              rows={2}
-              className={textareaClass}
-            />
-          </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Ganchos de discusión (uno por línea)
+              <textarea
+                aria-label="Ganchos de discusión (uno por línea)"
+                value={discussionHooks}
+                onChange={(event) => setDiscussionHooks(event.target.value)}
+                rows={2}
+                className={textareaCompact}
+              />
+            </label>
 
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-            Ganchos de discusión (uno por línea)
-            <textarea
-              aria-label="Ganchos de discusión (uno por línea)"
-              value={discussionHooks}
-              onChange={(event) => setDiscussionHooks(event.target.value)}
-              rows={2}
-              className={textareaClass}
-            />
-          </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+              Disparadores (uno por línea)
+              <textarea
+                aria-label="Disparadores (uno por línea)"
+                value={triggers}
+                onChange={(event) => setTriggers(event.target.value)}
+                rows={2}
+                className={textareaCompact}
+              />
+            </label>
 
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-            Disparadores (uno por línea)
-            <textarea
-              aria-label="Disparadores (uno por línea)"
-              value={triggers}
-              onChange={(event) => setTriggers(event.target.value)}
-              rows={2}
-              className={textareaClass}
-            />
-          </label>
+            {anyLongLine && (
+              <p className="text-xs leading-relaxed text-warn">Cada línea puede tener hasta 240 caracteres.</p>
+            )}
+            {anyTooManyLines && (
+              <p className="text-xs leading-relaxed text-warn">Solo se guardan las primeras 8 líneas.</p>
+            )}
 
-          {anyLongLine && (
-            <p className="text-xs leading-relaxed text-warn">Cada línea puede tener hasta 240 caracteres.</p>
-          )}
-          {anyTooManyLines && (
-            <p className="text-xs leading-relaxed text-warn">Solo se guardan las primeras 8 líneas.</p>
-          )}
+            {createMutation.isError && <Alert tone="danger">{cardErrorMessage(createMutation.error)}</Alert>}
+            {createMutation.data && (
+              <p className="text-xs leading-relaxed text-foreground">
+                {createMutation.data.demoted
+                  ? "Guardaste cambios: la tarjeta volvió a borrador. Armala de nuevo cuando quieras."
+                  : "Tarjeta guardada como borrador. Armala cuando quieras."}
+              </p>
+            )}
 
-          {createMutation.isError && <Alert tone="danger">{cardErrorMessage(createMutation.error)}</Alert>}
-          {createMutation.data && (
-            <p className="text-xs leading-relaxed text-foreground">
-              {createMutation.data.demoted
-                ? "Guardaste cambios: la tarjeta volvió a borrador. Armala de nuevo cuando quieras."
-                : "Tarjeta guardada como borrador. Armala cuando quieras."}
-            </p>
-          )}
+            {confirming ? (
+              <ConfirmFooter
+                active
+                tone="neutral"
+                stages={[{ message: `Vas a crear la tarjeta "${topic.trim()}".`, advanceLabel: "Confirmar" }]}
+                onConfirm={handleConfirm}
+                onCancel={() => setConfirming(false)}
+                busy={createMutation.isPending}
+              />
+            ) : (
+              <Button type="button" variant="outline" disabled={!canSubmit} onClick={openConfirm}>
+                Guardar tarjeta
+              </Button>
+            )}
+          </div>
+        </SubCollapsibleSection>
 
-          {confirming ? (
-            <ConfirmFooter
-              active
-              tone="neutral"
-              stages={[{ message: `Vas a crear la tarjeta "${topic.trim()}".`, advanceLabel: "Confirmar" }]}
-              onConfirm={handleConfirm}
-              onCancel={() => setConfirming(false)}
-              busy={createMutation.isPending}
-            />
-          ) : (
-            <Button type="button" variant="outline" disabled={!canSubmit} onClick={openConfirm}>
-              Guardar tarjeta
-            </Button>
-          )}
-        </section>
+        <SubCollapsibleSection title="Tarjetas · borrador y armadas" persistKey="editorial-list">
+          <div className="space-y-2">
+            {cardsQuery.isError && (
+              <p role="alert" className="text-xs leading-relaxed text-danger">
+                No se pudo leer la lista de tarjetas.
+              </p>
+            )}
+            {armMutation.isError && <Alert tone="danger">{cardErrorMessage(armMutation.error)}</Alert>}
+            {armMutation.data && (
+              <p className="text-xs leading-relaxed text-foreground">
+                Tarjeta armada. Kira puede usarla cuando el tema salga.
+              </p>
+            )}
 
-        <section aria-labelledby="editorial-cards-list-label" className="space-y-2">
-          <span
-            id="editorial-cards-list-label"
-            className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-          >
-            Tarjetas · borrador y armadas
-          </span>
-
-          {cardsQuery.isError && (
-            <p role="alert" className="text-xs leading-relaxed text-danger">
-              No se pudo leer la lista de tarjetas.
-            </p>
-          )}
-          {armMutation.isError && <Alert tone="danger">{cardErrorMessage(armMutation.error)}</Alert>}
-          {armMutation.data && (
-            <p className="text-xs leading-relaxed text-foreground">
-              Tarjeta armada. Kira puede usarla cuando el tema salga.
-            </p>
-          )}
-
-          {visibleCards.length === 0 ? (
-            <p className="text-xs text-dim">No hay tarjetas en borrador o armadas todavía.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {visibleCards.map((card) => (
-                <li
-                  key={card.id}
-                  className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-md border border-border bg-surface-2 p-3"
-                >
-                  <span className="text-sm text-foreground">{card.topic}</span>
-                  <Badge tone={card.status === "armed" ? "info" : "neutral"}>
-                    {card.status === "armed" ? "armada" : "borrador"}
-                  </Badge>
-                  {card.status === "draft" && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={armMutation.isPending}
-                      onClick={() => armMutation.mutate(card.id)}
-                    >
-                      Armar
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            {visibleCards.length === 0 ? (
+              <p className="text-xs text-dim">No hay tarjetas en borrador o armadas todavía.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {visibleCards.map((card) => (
+                  <li
+                    key={card.id}
+                    className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-md border border-border bg-surface-2 p-3"
+                  >
+                    <span className="text-sm text-foreground">{card.topic}</span>
+                    <Badge tone={card.status === "armed" ? "info" : "neutral"}>
+                      {card.status === "armed" ? "armada" : "borrador"}
+                    </Badge>
+                    {card.status === "draft" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={armMutation.isPending}
+                        onClick={() => armMutation.mutate(card.id)}
+                      >
+                        Armar
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </SubCollapsibleSection>
       </div>
     </Card>
   );

@@ -5,6 +5,7 @@ import { Button } from "./ui/Button.js";
 import { Input } from "./ui/Input.js";
 import { Switch } from "./ui/Switch.js";
 import { ConfirmFooter } from "./ui/ConfirmFooter.js";
+import { SubCollapsibleSection } from "./ui/Collapsible.js";
 import {
   PERSONALIZATION_INSTRUCTIONS_MAX,
   PERSONALIZATION_INTERESTS_MAX,
@@ -100,78 +101,76 @@ export function PersonalizationCard() {
 
         {data && (
           <>
-            <section className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">Habilitar personalización</span>
-              <Switch
-                aria-label="Habilitar personalización"
-                checked={form.enabled}
-                onChange={(checked) => setForm((prev) => ({ ...prev, enabled: checked }))}
-              />
-            </section>
+            <SubCollapsibleSection title="Tus datos" persistKey="personalization-form">
+              <div className="flex flex-col gap-3.5">
+                <section className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <span className="text-[13px] text-foreground">Habilitar personalización</span>
+                  <Switch
+                    aria-label="Habilitar personalización"
+                    checked={form.enabled}
+                    onChange={(checked) => setForm((prev) => ({ ...prev, enabled: checked }))}
+                  />
+                </section>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {`Apodo (máx. ${PERSONALIZATION_NICKNAME_MAX})`}
-              <Input
-                aria-label="Apodo"
-                value={form.nickname}
-                maxLength={PERSONALIZATION_NICKNAME_MAX}
-                onChange={(event) => setForm((prev) => ({ ...prev, nickname: event.target.value }))}
-              />
-            </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+                  {`Apodo (máx. ${PERSONALIZATION_NICKNAME_MAX})`}
+                  <Input
+                    aria-label="Apodo"
+                    value={form.nickname}
+                    maxLength={PERSONALIZATION_NICKNAME_MAX}
+                    onChange={(event) => setForm((prev) => ({ ...prev, nickname: event.target.value }))}
+                  />
+                </label>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {`Ocupación (máx. ${PERSONALIZATION_OCCUPATION_MAX})`}
-              <Input
-                aria-label="Ocupación"
-                value={form.occupation}
-                maxLength={PERSONALIZATION_OCCUPATION_MAX}
-                onChange={(event) => setForm((prev) => ({ ...prev, occupation: event.target.value }))}
-              />
-            </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+                  {`Ocupación (máx. ${PERSONALIZATION_OCCUPATION_MAX})`}
+                  <Input
+                    aria-label="Ocupación"
+                    value={form.occupation}
+                    maxLength={PERSONALIZATION_OCCUPATION_MAX}
+                    onChange={(event) => setForm((prev) => ({ ...prev, occupation: event.target.value }))}
+                  />
+                </label>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {`Intereses (máx. ${PERSONALIZATION_INTERESTS_MAX})`}
-              <Input
-                aria-label="Intereses"
-                value={form.interests}
-                maxLength={PERSONALIZATION_INTERESTS_MAX}
-                onChange={(event) => setForm((prev) => ({ ...prev, interests: event.target.value }))}
-              />
-            </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+                  {`Intereses (máx. ${PERSONALIZATION_INTERESTS_MAX})`}
+                  <Input
+                    aria-label="Intereses"
+                    value={form.interests}
+                    maxLength={PERSONALIZATION_INTERESTS_MAX}
+                    onChange={(event) => setForm((prev) => ({ ...prev, interests: event.target.value }))}
+                  />
+                </label>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {`Instrucciones personalizadas (máx. ${PERSONALIZATION_INSTRUCTIONS_MAX})`}
-              <textarea
-                aria-label="Instrucciones personalizadas"
-                value={form.custom_instructions}
-                maxLength={PERSONALIZATION_INSTRUCTIONS_MAX}
-                onChange={(event) => setForm((prev) => ({ ...prev, custom_instructions: event.target.value }))}
-                rows={4}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              />
-            </label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
+                  {`Instrucciones personalizadas (máx. ${PERSONALIZATION_INSTRUCTIONS_MAX})`}
+                  <textarea
+                    aria-label="Instrucciones personalizadas"
+                    value={form.custom_instructions}
+                    maxLength={PERSONALIZATION_INSTRUCTIONS_MAX}
+                    onChange={(event) => setForm((prev) => ({ ...prev, custom_instructions: event.target.value }))}
+                    rows={4}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring resize-y overflow-y-auto min-h-[96px] max-h-[240px]"
+                  />
+                </label>
 
-            <div className="flex items-center justify-end gap-2 border-t border-border-soft pt-3">
-              <button
-                type="button"
-                className={SAVE_BUTTON_CLASS}
-                disabled={updateMutation.isPending}
-                onClick={() => updateMutation.mutate(form)}
-              >
-                {updateMutation.isPending ? "Guardando…" : "Guardar"}
-              </button>
-            </div>
+                <div className="flex items-center justify-end gap-2 border-t border-border-soft pt-3">
+                  <button
+                    type="button"
+                    className={SAVE_BUTTON_CLASS}
+                    disabled={updateMutation.isPending}
+                    onClick={() => updateMutation.mutate(form)}
+                  >
+                    {updateMutation.isPending ? "Guardando…" : "Guardar"}
+                  </button>
+                </div>
+              </div>
+            </SubCollapsibleSection>
 
-            <section
-              aria-labelledby="personalization-clear-label"
-              className="space-y-2 border-t border-border-soft pt-3.5"
-            >
-              <span
-                id="personalization-clear-label"
-                className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-              >
-                Borrar personalización
-              </span>
+            {/* Destructive group defaults CLOSED — a distinct header title
+                ("Borrar datos guardados") avoids colliding with the confirm
+                footer's own "Borrar personalización" advance button. */}
+            <SubCollapsibleSection title="Borrar datos guardados" persistKey="personalization-clear" defaultOpen={false}>
               {confirmingClear ? (
                 <ConfirmFooter
                   active
@@ -202,7 +201,7 @@ export function PersonalizationCard() {
                   </Button>
                 </div>
               )}
-            </section>
+            </SubCollapsibleSection>
           </>
         )}
       </div>

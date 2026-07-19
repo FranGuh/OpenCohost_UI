@@ -42,6 +42,15 @@ describe("AppLayout", () => {
     expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
   });
 
+  it("gives the chat/queue column 465px and drops the fixed 1180px min-width (horizontal-scroll fix)", () => {
+    const { container } = renderApp();
+    // The runtime grid variant carries the widened chat column…
+    expect(container.innerHTML).toContain("465px");
+    // …and the shell no longer forces a 1180px min-width that caused the
+    // whole app to scroll horizontally below that width.
+    expect(container.innerHTML).not.toContain("min-w-[1180px]");
+  });
+
   it("restores Welcome from Settings and returns section ownership to Experiencia", () => {
     useWelcomeStore.setState({ dismissed: true });
     renderApp();
