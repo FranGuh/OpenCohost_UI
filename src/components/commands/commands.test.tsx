@@ -11,8 +11,19 @@ import {
   API_BASE_URL,
   agendaGetErrorHandler,
   agendaGetHandler,
+  agendaSessionActionCaptureHandler,
+  agendaSessionActionEmptyQueueHandler,
+  agendaSessionCaptureHandler,
+  agendaTopicCaptureHandler,
+  agendaTopicValidationHandler,
+  cohostProfileSaveCaptureHandler,
   defaultAgenda,
-  defaultStreamChatLive
+  defaultMusicLibrary,
+  defaultStreamChatLive,
+  musicLibraryGetHandler,
+  musicMoodHandler,
+  streamConnectBusyHandler,
+  streamConnectInvalidUrlHandler
 } from "../../test/handlers.js";
 
 /**
@@ -99,7 +110,7 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("/perfil renders the Identidad and Sesión sections", () => {
     renderPanel("/perfil");
-    enterCommand(/perfil — creá o ajustá/);
+    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
 
     // Step 0 (nombre) is under Identidad.
     expect(screen.getByText("Identidad")).toBeInTheDocument();
@@ -233,52 +244,6 @@ describe("command palette — registry + primitives (mockup)", () => {
     expect(urls.some((url) => url.includes("/chat-live/disconnect"))).toBe(false);
   });
 
-  it("/sesion emergency button is inert (only a maquetado acknowledgement)", () => {
-    renderPanel("/sesion");
-    enterCommand(/sesion — controlá la sesión/);
-
-    const emergency = screen.getByRole("button", { name: "Parada de emergencia" });
-    expect(screen.queryByText("maquetado — sin efecto todavía")).not.toBeInTheDocument();
-
-    fireEvent.click(emergency);
-    expect(screen.getByText("maquetado — sin efecto todavía")).toBeInTheDocument();
-  });
-
-  it("/musica goes straight to the summary for a transport action (no song step)", () => {
-    renderPanel("/musica");
-    enterCommand(/musica — controlá la música/);
-
-    // Default action is Reproducir → a single visible step, so "Revisar" leads
-    // straight to the summary and the conditional song step never appears.
-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
-    expect(screen.queryByText("¿Qué canción?")).not.toBeInTheDocument();
-
-    const primary = screen.getByRole("button", { name: "Aplicar" });
-    expect(primary).toBeDisabled();
-  });
-
-  it("/musica reveals the song step only for 'Poner una canción' and keeps the action disabled", () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    renderPanel("/musica");
-    enterCommand(/musica — controlá la música/);
-
-    // The song step is gated until the action is switched to "Poner una canción".
-    expect(screen.queryByText("¿Qué canción?")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("combobox", { name: "¿Qué querés hacer?" }));
-    fireEvent.click(screen.getByRole("option", { name: "Poner una canción" }));
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
-
-    const song = screen.getByLabelText("¿Qué canción?") as HTMLInputElement;
-    fireEvent.change(song, { target: { value: "Gorillaz — Feel Good Inc" } });
-    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
-
-    const primary = screen.getByRole("button", { name: "Poner canción" });
-    expect(primary).toBeDisabled();
-    // The song collapses to a chip (top row + SummaryCard both render it).
-    expect(screen.getAllByText("Gorillaz — Feel Good Inc").length).toBeGreaterThan(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
   it("Descartar at the summary returns to the command list", () => {
     renderPanel("/vivo");
     enterCommand(/vivo — conectá el chat en vivo/);
@@ -296,23 +261,6 @@ describe("command palette — registry + primitives (mockup)", () => {
     expect(screen.queryByRole("button", { name: "Descartar" })).not.toBeInTheDocument();
   });
 
-  it("makes NO network call while driving commands and screens", () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-    // A stepper command…
-    const { unmount } = renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
-    fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "mods retro" } });
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
-    unmount();
-
-    // …and an action screen. (Fresh mount — activeId is internal panel state.)
-    renderPanel("/sesion");
-    enterCommand(/sesion — controlá la sesión/);
-    fireEvent.click(screen.getByRole("button", { name: "Activar" }));
-
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
 });
 
 // ─── WU2: ActionRow real submit pipe (R1/R2/R3) ──────────────────────────────
@@ -385,16 +333,332 @@ describe("ActionRow submit pipe (WU2 — R1/R2/R3)", () => {
   });
 
   it("regression: a command with no submit fn keeps today's disabled maquetado ActionRow", () => {
-    renderPanel("/perfil");
-    enterCommand(/perfil — creá o ajustá/);
-    fireEvent.change(screen.getByLabelText("¿Cómo se llama el perfil?"), { target: { value: "Kira" } });
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → estilo
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → turnos
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → modo
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → ritmo
-    fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
+    // WU10 wired /perfil (all 7 commands now dispatch), so the inert-ActionRow
+    // regression is guarded with a submit-less inline fixture instead.
+    renderStepperToSummary(oneStepCommand());
 
-    expect(screen.getByRole("button", { name: "Guardar perfil" })).toBeDisabled();
-    expect(screen.getByText("Guarda el nombre y el estilo como un perfil reutilizable.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+    expect(screen.getByText("maquetado — todavía no envía")).toBeInTheDocument();
+  });
+});
+
+// ─── WU7: /agenda → postAgendaTopic (R12-R15, R33-R35) ────────────────────────
+
+/** Walk /agenda's steps (tema → angulo → prioridad → largo → etiquetas) to the
+ * summary. Pass option LABELS for prioridad/largo; omit to accept defaults. */
+function driveAgenda(input: { tema: string; prioridad?: string; largo?: string; etiquetas?: string[] }) {
+  fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: input.tema } });
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → angulo (optional)
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
+  if (input.prioridad) selectOption("¿Qué prioridad tiene?", input.prioridad);
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → largo
+  if (input.largo) selectOption("¿Qué largo de respuesta?", input.largo);
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → etiquetas
+  for (const tag of input.etiquetas ?? []) {
+    const tagInput = screen.getByLabelText("Etiquetas (opcional)");
+    fireEvent.change(tagInput, { target: { value: tag } });
+    fireEvent.keyDown(tagInput, { key: "Enter" });
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
+}
+
+describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
+  it("submits mapped priority/length wire values + constraints in entry order (R12/R13/R14)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(agendaTopicCaptureHandler(capture));
+    renderPanel("/agenda");
+    enterCommand(/agenda — programá un tema/);
+
+    driveAgenda({ tema: "mods retro", prioridad: "Alta", largo: "Profundo", etiquetas: ["retro", "mods", "gaming"] });
+    fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
+
+    await screen.findByText(/tema agregado a la cola/i);
+    // Wire values (not raw UI labels), etiquetas → constraints in entry order,
+    // and no `angle` key when the optional step was left empty.
+    expect(capture.body).toEqual({
+      title: "mods retro",
+      priority: "alta",
+      response_length: "expandida",
+      constraints: ["retro", "mods", "gaming"]
+    });
+  });
+
+  it("surfaces the backend 422 rejection reason instead of a generic failure (R15)", async () => {
+    server.use(agendaTopicValidationHandler("tema inválido"));
+    renderPanel("/agenda");
+    enterCommand(/agenda — programá un tema/);
+
+    driveAgenda({ tema: "x" });
+    fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
+
+    expect(await screen.findByText(/tema inválido/i)).toBeInTheDocument();
+  });
+});
+
+// ─── WU8: /vivo → postStreamConnect (R20/R21) ────────────────────────────────
+
+/** Walk /vivo's two steps (plataforma → canal) to the summary. */
+function driveVivo(plataforma: string, canal: string) {
+  selectOption("¿Qué plataforma?", plataforma);
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → canal
+  fireEvent.change(screen.getByLabelText("Canal o URL"), { target: { value: canal } });
+  fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
+}
+
+describe("/vivo → postStreamConnect (WU8 — R20/R21)", () => {
+  it("composes ONE url (no separate platform field) and acks the connect result (R20/R21)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, async ({ request }) => {
+        capture.body = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" });
+      })
+    );
+    renderPanel("/vivo");
+    enterCommand(/vivo — conectá el chat en vivo/);
+
+    driveVivo("Twitch", "kira");
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+
+    expect(await screen.findByText(/conectado a twitch \(kira\)/i)).toBeInTheDocument();
+    // Only { url } — plataforma is UI-only, never a separate wire field.
+    expect(capture.body).toEqual({ url: "twitch.tv/kira" });
+  });
+
+  it("surfaces the 422 invalid_url inline instead of a generic failure (R21)", async () => {
+    server.use(streamConnectInvalidUrlHandler());
+    renderPanel("/vivo");
+    enterCommand(/vivo — conectá el chat en vivo/);
+
+    driveVivo("Twitch", "no es una url");
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+
+    expect(await screen.findByText(/invalid_url/i)).toBeInTheDocument();
+  });
+
+  it("surfaces a 409 busy conflict rather than a silent failure (R21)", async () => {
+    server.use(streamConnectBusyHandler());
+    renderPanel("/vivo");
+    enterCommand(/vivo — conectá el chat en vivo/);
+
+    driveVivo("Twitch", "kira");
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+
+    expect(await screen.findByText(/en curso/i)).toBeInTheDocument();
+  });
+});
+
+// ─── WU9: /sesion → postAgendaSessionAction (R27/R28) ────────────────────────
+
+async function openSesion() {
+  renderPanel("/sesion");
+  enterCommand(/sesion — controlá la sesión/);
+}
+
+describe("/sesion → postAgendaSessionAction (WU9 — R27/R28)", () => {
+  it("running state shows one 'Pausar' control that dispatches soft_stop (R27)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(agendaSessionActionCaptureHandler(capture)); // default agenda = OPEN_TOPIC (running)
+    await openSesion();
+
+    const pausar = await screen.findByRole("button", { name: "Pausar" });
+    // Activar/Reanudar collapse into the single state-driven toggle — not shown here.
+    expect(screen.queryByRole("button", { name: "Reanudar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Activar" })).not.toBeInTheDocument();
+
+    fireEvent.click(pausar);
+    await waitFor(() => expect(capture.body).toEqual({ action: "soft_stop" }));
+  });
+
+  it("OFF state with a non-empty queue reads 'Activar' and dispatches enable (R27)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      agendaGetHandler({ ...defaultAgenda, state: "OFF", active_topic: null }),
+      agendaSessionActionCaptureHandler(capture)
+    );
+    await openSesion();
+
+    const activar = await screen.findByRole("button", { name: "Activar" });
+    expect(screen.queryByRole("button", { name: "Pausar" })).not.toBeInTheDocument();
+
+    fireEvent.click(activar);
+    await waitFor(() => expect(capture.body).toEqual({ action: "enable" }));
+  });
+
+  it("paused state reads 'Reanudar' and dispatches the same enable action (R27)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      agendaGetHandler({ ...defaultAgenda, state: "HARD_PAUSED" }),
+      agendaSessionActionCaptureHandler(capture)
+    );
+    await openSesion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reanudar" }));
+    await waitFor(() => expect(capture.body).toEqual({ action: "enable" }));
+  });
+
+  it("emergency stop always dispatches emergency_stop regardless of state (R27)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(agendaSessionActionCaptureHandler(capture));
+    await openSesion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Parada de emergencia" }));
+    await waitFor(() => expect(capture.body).toEqual({ action: "emergency_stop" }));
+  });
+
+  it("an empty-queue enable is reported honestly, never as success (R28)", async () => {
+    server.use(
+      agendaGetHandler({ ...defaultAgenda, state: "OFF", active_topic: null, queued_topics: [] }),
+      agendaSessionActionEmptyQueueHandler()
+    );
+    await openSesion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Activar" }));
+    expect(await screen.findByText(/cola está vacía/i)).toBeInTheDocument();
+  });
+
+  it("a guardrails_missing enable is reported as a refusal, not success (R28)", async () => {
+    server.use(
+      agendaGetHandler({ ...defaultAgenda, state: "OFF", active_topic: null }),
+      http.post(`${API_BASE_URL}/api/agenda/session/action`, () =>
+        HttpResponse.json({ ...defaultAgenda, applied: false, reason: "guardrails_missing" })
+      )
+    );
+    await openSesion();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Activar" }));
+    expect(await screen.findByText(/salvaguardas/i)).toBeInTheDocument();
+  });
+});
+
+// ─── WU10: /perfil → saveCohostProfile + putAgendaSession (R16-R19) ───────────
+
+/** Walk /perfil's steps (nombre → estilo → turnos → modo → ritmo) to the
+ * summary. Pass option LABELS; omit to accept defaults. */
+function drivePerfil(input: { nombre: string; turnos?: string; modo?: string; ritmo?: string }) {
+  fireEvent.change(screen.getByLabelText("¿Cómo se llama el perfil?"), { target: { value: input.nombre } });
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → estilo (optional)
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → turnos
+  if (input.turnos) selectOption("Turnos por tema", input.turnos);
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → modo
+  if (input.modo) selectOption("Modo de seguridad en vivo", input.modo);
+  fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → ritmo
+  if (input.ritmo) fireEvent.click(screen.getByRole("button", { name: input.ritmo })); // segmented control
+  fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
+}
+
+describe("/perfil → saveCohostProfile + putAgendaSession (WU10 — R16-R19)", () => {
+  it("saves the cohost profile AND puts the session, never touching the LLM persona (R16/R17)", async () => {
+    const profileCapture: { body?: unknown } = {};
+    const sessionCapture: { body?: unknown } = {};
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    server.use(cohostProfileSaveCaptureHandler(profileCapture), agendaSessionCaptureHandler(sessionCapture));
+    renderPanel("/perfil");
+    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+
+    drivePerfil({ nombre: "Kira dry", turnos: "8", ritmo: "Dinámico" });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
+
+    await screen.findByText(/perfil de co-host guardado/i);
+    expect(profileCapture.body).toEqual({ name: "Kira dry", style: "" });
+    expect(sessionCapture.body).toEqual({ max_turns_per_topic: 8, safety_mode: "live_safe", rhythm: "dinamico" });
+
+    // R16 negative: the LLM-persona endpoint (POST /api/perfiles) is never called.
+    const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/api/perfiles"))).toBe(false);
+  });
+
+  it("maps modo 'Estándar' to safety_mode monologue, never the raw string (R19)", async () => {
+    const sessionCapture: { body?: unknown } = {};
+    server.use(agendaSessionCaptureHandler(sessionCapture)); // default POST cohost-profiles handles the save
+    renderPanel("/perfil");
+    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+
+    drivePerfil({ nombre: "Kira", modo: "Estándar" });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
+
+    await waitFor(() => expect(sessionCapture.body).toBeDefined());
+    const body = sessionCapture.body as { safety_mode: string };
+    expect(body.safety_mode).toBe("monologue");
+    expect(body.safety_mode).not.toBe("estandar");
+  });
+
+  it("names the cohost profile in its list + summary copy, not the LLM persona (R18)", () => {
+    renderPanel("/perfil");
+    // The list description names the co-host profile unambiguously.
+    expect(screen.getByText(/perfil de co-host de Kira/i)).toBeInTheDocument();
+
+    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+    drivePerfil({ nombre: "Kira" });
+    // The summary heading names the co-host profile too.
+    expect(screen.getByText(/perfil de co-host listo para guardar/i)).toBeInTheDocument();
+  });
+});
+
+// ─── WU11: /musica screen → library moods + postMusicMood (R29-R31) ──────────
+
+async function openMusica() {
+  renderPanel("/musica");
+  enterCommand(/musica — controlá la música/);
+  return screen.findByRole("combobox", { name: "Mood de la música" });
+}
+
+describe("/musica → library moods + postMusicMood (WU11 — R29-R31)", () => {
+  it("offers exactly the live library moods, not the full KNOWN_MOODS set (R30)", async () => {
+    server.use(musicLibraryGetHandler({ ...defaultMusicLibrary, moods: ["normal", "hype", "calm"] }));
+    const combobox = await openMusica();
+    fireEvent.click(combobox);
+
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+    expect(screen.getByRole("option", { name: "normal" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "hype" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "calm" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "tension" })).not.toBeInTheDocument();
+  });
+
+  it("dispatches POST /api/music/mood with the selected mood (R30)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      musicLibraryGetHandler({ ...defaultMusicLibrary, moods: ["normal", "hype", "calm"] }),
+      http.post(`${API_BASE_URL}/api/music/mood`, async ({ request }) => {
+        capture.body = await request.json();
+        return HttpResponse.json({ active_mood: "hype", tracks: [], suggested_track_id: null });
+      })
+    );
+    const combobox = await openMusica();
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "hype" }));
+
+    await waitFor(() => expect(capture.body).toEqual({ mood: "hype" }));
+  });
+
+  it("acks a fallback selection honestly instead of claiming the mood is active (R30)", async () => {
+    server.use(
+      musicLibraryGetHandler({ ...defaultMusicLibrary, moods: ["normal", "hype", "calm"] }),
+      musicMoodHandler({ active_mood: "hype", tracks: [], suggested_track_id: null, fallback: true })
+    );
+    const combobox = await openMusica();
+    fireEvent.click(combobox);
+    fireEvent.click(screen.getByRole("option", { name: "hype" }));
+
+    expect(await screen.findByText(/pool normal\/general/i)).toBeInTheDocument();
+  });
+
+  it("keeps the transport controls inert — no network call, no false ack (R31)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await openMusica();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reproducir" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pausar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    const moodCalls = fetchSpy.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/api/music/mood"));
+    expect(moodCalls).toHaveLength(0);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("has no free-text song step anywhere (R29)", async () => {
+    await openMusica();
+    expect(screen.queryByLabelText("¿Qué canción?")).not.toBeInTheDocument();
   });
 });

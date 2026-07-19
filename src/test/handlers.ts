@@ -1044,6 +1044,16 @@ export function agendaTopicValidationHandler(detail = "invalid topic") {
   return http.post(`${API_BASE_URL}/api/agenda/topic`, () => HttpResponse.json({ detail }, { status: 422 }));
 }
 
+/** Per-test override: POST /api/agenda/topic captures the request body for
+ * assertions (WU7 — the only capture variant this endpoint lacked; mirrors
+ * agendaSessionCaptureHandler). */
+export function agendaTopicCaptureHandler(capture: { body?: unknown }, response: AgendaResponse = defaultAgenda) {
+  return http.post(`${API_BASE_URL}/api/agenda/topic`, async ({ request }) => {
+    capture.body = await request.json();
+    return HttpResponse.json(response);
+  });
+}
+
 /** Per-test override: POST /api/agenda/topic/action rejected (e.g. agenda unavailable). */
 export function agendaTopicActionErrorHandler(status = 503, detail = "agenda_unavailable") {
   return http.post(`${API_BASE_URL}/api/agenda/topic/action`, () => HttpResponse.json({ detail }, { status }));

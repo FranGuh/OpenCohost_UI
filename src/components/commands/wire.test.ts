@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
+import type { AgendaResponse } from "../../api/agenda.js";
 import { ApiError, ConflictError, ValidationError } from "../../api/client.js";
 import type { StreamChatLiveResponse } from "../../api/stream.js";
 import {
   COOLDOWN_WIRE,
   FILTER_POLICY,
+  LENGTH_WIRE,
+  PRIORITY_WIRE,
   REACCIONES_WIRE,
+  SAFETY_WIRE,
+  composeStreamUrl,
+  describeConnect,
+  describeMood,
+  describeSessionAction,
   describeStreamLimits,
   errorCopy,
+  toAgendaSessionRequest,
+  toAgendaTopicRequest,
+  toCohostProfileRequest,
   toStreamLimits
 } from "./wire.js";
 
@@ -71,6 +82,110 @@ describe("describeStreamLimits (R26)", () => {
 
   it("not connected → saved-as-defaults copy", () => {
     expect(describeStreamLimits({ ...streamBase, connected: false })).toMatch(/próxima vez que conectes/i);
+  });
+});
+
+describe("/agenda vocab tables + request builder (R12-R14, R33-R35)", () => {
+  it("PRIORITY_WIRE maps the closed UI vocab to wire priority (R33)", () => {
+    expect(PRIORITY_WIRE.alta).toBe("alta");
+    expect(PRIORITY_WIRE.normal).toBe("normal");
+    expect(PRIORITY_WIRE.baja).toBe("baja");
+  });
+
+  it("LENGTH_WIRE maps corto→corta, normal→normal, profundo→expandida (R34)", () => {
+    expect(LENGTH_WIRE.corto).toBe("corta");
+    expect(LENGTH_WIRE.normal).toBe("normal");
+    expect(LENGTH_WIRE.profundo).toBe("expandida");
+  });
+
+  it("toAgendaTopicRequest maps values, keeps etiquetas in entry order, omits an empty angle", () => {
+    expect(
+      toAgendaTopicRequest({ tema: "  tema x ", angulo: "", prioridad: "alta", largo: "profundo", etiquetas: ["a", "b"] })
+    ).toEqual({
+      title: "tema x",
+      priority: "alta",
+      response_length: "expandida",
+      constraints: ["a", "b"]
+    });
+  });
+
+  it("toAgendaTopicRequest trims a present angle and caps constraints at 24 (R35)", () => {
+    const many = Array.from({ length: 30 }, (_, i) => `t${i}`);
+    const req = toAgendaTopicRequest({ tema: "t", angulo: " enfoque ", prioridad: "baja", largo: "normal", etiquetas: many });
+    expect(req.angle).toBe("enfoque");
+    expect(req.constraints).toHaveLength(24);
+  });
+});
+
+describe("/vivo url compose + connect ack (R20/R21)", () => {
+  it("composeStreamUrl builds twitch.tv/<canal> from a bare channel", () => {
+    expect(composeStreamUrl("twitch", "kira")).toBe("twitch.tv/kira");
+  });
+
+  it("composeStreamUrl passes a bare 11-char YouTube id through and builds a watch URL otherwise", () => {
+    expect(composeStreamUrl("youtube", "dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    expect(composeStreamUrl("youtube", "mychan")).toBe("youtube.com/watch?v=mychan");
+  });
+
+  it("composeStreamUrl passes a full URL through untouched", () => {
+    expect(composeStreamUrl("twitch", "https://twitch.tv/kira")).toBe("https://twitch.tv/kira");
+    expect(composeStreamUrl("youtube", "youtube.com/watch?v=abc")).toBe("youtube.com/watch?v=abc");
+  });
+
+  it("describeConnect names platform + source_id on success and is honest on a false connect", () => {
+    const ok = describeConnect({ ...streamBase, connected: true, platform: "twitch", source_id: "kira" });
+    expect(ok).toMatch(/twitch/i);
+    expect(ok).toMatch(/kira/i);
+    expect(describeConnect({ ...streamBase, connected: false })).toMatch(/no se pudo conectar/i);
+  });
+});
+
+describe("/perfil vocab + request builders (R16/R17/R19)", () => {
+  it("SAFETY_WIRE maps live_safe→live_safe and estandar→monologue, never raw estandar (R19)", () => {
+    expect(SAFETY_WIRE.live_safe).toBe("live_safe");
+    expect(SAFETY_WIRE.estandar).toBe("monologue");
+    expect(SAFETY_WIRE.estandar).not.toBe("estandar");
+  });
+
+  it("toCohostProfileRequest builds a trimmed {name, style} (R16)", () => {
+    expect(toCohostProfileRequest({ nombre: " Kira dry ", estilo: " seca " })).toEqual({ name: "Kira dry", style: "seca" });
+  });
+
+  it("toAgendaSessionRequest casts turnos to int and maps safety_mode/rhythm (R17/R19)", () => {
+    expect(toAgendaSessionRequest({ turnos: "8", modo: "estandar", ritmo: "dinamico" })).toEqual({
+      max_turns_per_topic: 8,
+      safety_mode: "monologue",
+      rhythm: "dinamico"
+    });
+  });
+});
+
+describe("describeSessionAction (R28)", () => {
+  it("reports empty_queue / guardrails refusals honestly, never a success claim", () => {
+    expect(describeSessionAction("enable", { applied: false, reason: "empty_queue" } as AgendaResponse)).toMatch(
+      /cola está vacía/i
+    );
+    expect(describeSessionAction("enable", { applied: false, reason: "guardrails_missing" } as AgendaResponse)).toMatch(
+      /salvaguardas/i
+    );
+  });
+
+  it("success copy reflects the dispatched action", () => {
+    expect(describeSessionAction("soft_stop", {} as AgendaResponse)).toMatch(/pausad/i);
+    expect(describeSessionAction("enable", {} as AgendaResponse)).toMatch(/activad/i);
+    expect(describeSessionAction("emergency_stop", {} as AgendaResponse)).toMatch(/emergencia/i);
+  });
+});
+
+describe("describeMood (R30)", () => {
+  it("names the active mood on a normal hit", () => {
+    expect(describeMood({ active_mood: "hype", tracks: [], suggested_track_id: null })).toMatch(/hype/i);
+  });
+
+  it("tells the operator when the selection fell back to the normal/any pool", () => {
+    expect(describeMood({ active_mood: "hype", tracks: [], suggested_track_id: null, fallback: true })).toMatch(
+      /pool normal\/general/i
+    );
   });
 });
 

@@ -1,4 +1,12 @@
+import type {
+  AgendaResponse,
+  AgendaSessionAction,
+  AgendaSessionRequest,
+  AgendaTopicRequest,
+  CohostProfileSaveRequest
+} from "../../api/agenda.js";
 import { ApiError, ConflictError, ValidationError } from "../../api/client.js";
+import type { MusicMoodResponse } from "../../api/music.js";
 import type { StreamChatLiveResponse, StreamLimitsRequest } from "../../api/stream.js";
 import type { StepValue } from "./primitives.js";
 
@@ -65,4 +73,135 @@ export function describeStreamLimits(response: StreamChatLiveResponse): string {
   return response.connected
     ? "Listo — se aplicó al chat en vivo conectado."
     : "Guardado — se va a usar la próxima vez que conectes el chat en vivo.";
+}
+
+// ─── /agenda → POST /api/agenda/topic (R12-R15, R33-R35) ─────────────────────
+
+/** `prioridad` UI value → wire `priority` (R33). Identity for the current
+ * closed UI vocab (`alta/normal/baja`). R33's table lists a "Media"→`normal`
+ * label the owner has NOT signed off on; the registry still emits `normal`, so
+ * this stays identity (conservative) until that sign-off lands — sending a raw
+ * out-of-vocab value would silently normalize to `normal` server-side anyway. */
+export const PRIORITY_WIRE: Record<string, string> = { alta: "alta", normal: "normal", baja: "baja" };
+
+/** `largo` UI value → wire `response_length` (R34). `corto`→`corta`,
+ * `profundo`→`expandida` are the verified backend values. The old mock's
+ * `extendido` was a latent defect (not a valid alias); WU7 migrates the UI
+ * value to `profundo`, so this maps the three live values only. */
+export const LENGTH_WIRE: Record<string, string> = { corto: "corta", normal: "normal", profundo: "expandida" };
+
+/** Builds the `POST /api/agenda/topic` body from the /agenda stepper values
+ * (R12-R14, R33-R35). Etiquetas map 1:1 to `constraints` in entry order, capped
+ * at 24 (server enforces the same `_AGENDA_CONSTRAINTS_RAW_MAX`). An empty
+ * optional angle is omitted rather than sent blank. */
+export function toAgendaTopicRequest(values: Record<string, StepValue>): AgendaTopicRequest {
+  const title = ((values.tema as string | undefined) ?? "").trim();
+  const angle = ((values.angulo as string | undefined) ?? "").trim();
+  const etiquetas = ((values.etiquetas as string[] | undefined) ?? []).slice(0, 24);
+  return {
+    title,
+    ...(angle ? { angle } : {}),
+    priority: PRIORITY_WIRE[values.prioridad as string] ?? "normal",
+    response_length: LENGTH_WIRE[values.largo as string] ?? "normal",
+    constraints: etiquetas
+  };
+}
+
+// ─── /vivo → POST /api/stream/chat-live/connect (R20/R21) ────────────────────
+
+/** Composes the single `url` string /vivo sends to `postStreamConnect` (R20).
+ * `plataforma` is UI-only and never sent as a field. A value that already reads
+ * as a URL (or a bare 11-char YouTube id) passes through so the backend's
+ * `parse_chat_url` can infer the platform; otherwise a minimal per-platform URL
+ * is built from the accepted shapes in `smart_aggregator/url_parser.py`. */
+export function composeStreamUrl(plataforma: string, canal: string): string {
+  const trimmed = canal.trim();
+  if (/^https?:\/\//i.test(trimmed) || /youtube\.com|youtu\.be|twitch\.tv/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (plataforma === "twitch") return `twitch.tv/${trimmed}`;
+  // youtube: parse_chat_url accepts a bare 11-char id; otherwise best-effort watch URL.
+  return /^[\w-]{11}$/.test(trimmed) ? trimmed : `youtube.com/watch?v=${trimmed}`;
+}
+
+/** Ack for /vivo (R21). Names the resulting connection on success; honest on a
+ * `connected:false` response. The 422/409 paths throw and are surfaced by
+ * `errorCopy` (invalid_url / busy). */
+export function describeConnect(response: StreamChatLiveResponse): string {
+  if (!response.connected) {
+    return "No se pudo conectar el chat en vivo — probá de nuevo.";
+  }
+  const platform = response.platform ?? "el chat";
+  const source = response.source_id ? ` (${response.source_id})` : "";
+  return `Conectado a ${platform}${source}.`;
+}
+
+// ─── /sesion → POST /api/agenda/session/action (R27/R28) ─────────────────────
+
+/** Ack for /sesion actions (R28). A refused `enable` (`applied:false` + reason)
+ * is reported honestly — never as success; otherwise a short per-action
+ * confirmation. The action is passed in because the AgendaResponse does not
+ * echo which verb was dispatched. */
+export function describeSessionAction(action: AgendaSessionAction, response: AgendaResponse): string {
+  if (response.applied === false) {
+    if (response.reason === "empty_queue") {
+      return "No se activó: la cola está vacía. Agregá un tema antes de activar la sesión.";
+    }
+    if (response.reason === "guardrails_missing") {
+      return "No se activó: faltan las salvaguardas de seguridad. Revisá la configuración antes de activar.";
+    }
+    return `No se pudo aplicar${response.reason ? `: ${response.reason}` : ""}.`;
+  }
+  switch (action) {
+    case "soft_stop":
+      return "Sesión pausada.";
+    case "emergency_stop":
+      return "Parada de emergencia aplicada.";
+    default:
+      return "Sesión activada.";
+  }
+}
+
+// ─── /perfil → cohost profile save + session update (R16-R19) ────────────────
+
+/**
+ * `modo` UI value → session `safety_mode` (R19, FLAGGED — owner sign-off
+ * pending). `estandar` has no backend wire value or alias, so sending it raw
+ * would silently fall back to `live_safe`. This maps it to `monologue` (closest
+ * semantic: a less-capped, non-live-safe mode) per the spec's flagged R19
+ * assumption. See spec.md R19: only the FINAL target value is in question — the
+ * rule that `estandar` must never be sent raw is not.
+ */
+export const SAFETY_WIRE: Record<string, string> = { live_safe: "live_safe", estandar: "monologue" };
+
+/** Builds the `POST /api/agenda/cohost-profiles` body (R16) — the cohost
+ * IDENTITY, never the LLM persona (`POST /api/perfiles`). */
+export function toCohostProfileRequest(values: Record<string, StepValue>): CohostProfileSaveRequest {
+  return {
+    name: ((values.nombre as string | undefined) ?? "").trim(),
+    style: ((values.estilo as string | undefined) ?? "").trim()
+  };
+}
+
+/** Builds the `PUT /api/agenda/session` body (R17) — `turnos` cast to int,
+ * `safety_mode` mapped via SAFETY_WIRE (R19), `rhythm` passed through (already a
+ * canonical/alias value). */
+export function toAgendaSessionRequest(values: Record<string, StepValue>): AgendaSessionRequest {
+  return {
+    max_turns_per_topic: Number.parseInt(values.turnos as string, 10),
+    safety_mode: SAFETY_WIRE[values.modo as string] ?? "live_safe",
+    rhythm: values.ritmo as string
+  };
+}
+
+// ─── /musica → POST /api/music/mood (R30/R31) ───────────────────────────────
+
+/** Ack for /musica mood selection (R30). Honestly surfaces a `fallback:true`
+ * response (the requested mood had no tracks of its own, so the backend served
+ * its normal/any pool) rather than claiming the requested mood is active. */
+export function describeMood(response: MusicMoodResponse): string {
+  if (response.fallback) {
+    return `No había pistas para ese mood — se usó el pool normal/general (mood activo: ${response.active_mood}).`;
+  }
+  return `Mood activo: ${response.active_mood}.`;
 }

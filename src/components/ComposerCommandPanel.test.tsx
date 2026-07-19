@@ -79,12 +79,13 @@ describe("ComposerCommandPanel (chat command palette — mockup)", () => {
     expect(screen.queryByText("¿Qué tema querés agendar?")).not.toBeInTheDocument();
   });
 
-  it("keeps the primary 'Programar tema' action disabled (maquetado) at the summary", () => {
+  it("enables the primary 'Programar tema' action at the summary (WU7 — wired, no maquetado)", () => {
     renderPanel();
     typeComposer("/agenda");
     fireEvent.click(screen.getByRole("button", { name: /agenda — programá un tema/ }));
 
-    // The inert action now lives on the SummaryCard — walk the whole flow.
+    // WU7 wired /agenda to postAgendaTopic, so the summary action is a real,
+    // enabled submit — the old inert "maquetado" note is gone.
     fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "mods retro" } });
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → ángulo
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
@@ -93,8 +94,8 @@ describe("ComposerCommandPanel (chat command palette — mockup)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar" })); // → summary
 
     const programar = screen.getByRole("button", { name: "Programar tema" });
-    expect(programar).toBeDisabled();
-    expect(screen.getByText("maquetado — todavía no envía")).toBeInTheDocument();
+    expect(programar).toBeEnabled();
+    expect(screen.queryByText("maquetado — todavía no envía")).not.toBeInTheDocument();
   });
 
   it("closes on Escape and clears the composer", () => {
@@ -114,7 +115,7 @@ describe("ComposerCommandPanel (chat command palette — mockup)", () => {
     expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
   });
 
-  it("makes NO agenda/chat network calls while mocking up (inert final action)", async () => {
+  it("makes NO agenda/chat network calls before the summary submit (partial drive + composer Enter)", async () => {
     let agendaPosts = 0;
     let chatPosts = 0;
     server.use(
@@ -129,7 +130,8 @@ describe("ComposerCommandPanel (chat command palette — mockup)", () => {
     );
     renderPanel();
 
-    // Drive the flow through several steps of the mockup stepper.
+    // Drive the stepper partway (never reaching the summary submit) — the topic
+    // POST only fires on "Programar tema" at the summary, not while stepping.
     typeComposer("/agenda");
     fireEvent.click(screen.getByRole("button", { name: /agenda — programá un tema/ }));
     fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "mods retro" } });
