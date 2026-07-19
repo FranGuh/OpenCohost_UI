@@ -7,7 +7,7 @@ import type {
 } from "react";
 import { ChevronDown, MessageSquareOff, Mic, MicOff } from "lucide-react";
 import { Alert } from "./ui/Alert.js";
-import { CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
+import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
 import { Input } from "./ui/Input.js";
 import { KiraFace } from "./ui/KiraFace.js";
 import { Markdown } from "./ui/Markdown.js";
@@ -179,6 +179,9 @@ export function ConversationPanel() {
   // panel shows whenever the trimmed composer value starts with "/" or "!".
   const composerRef = useRef<HTMLDivElement>(null);
   const showCommandPanel = /^[/!]/.test(message.trim());
+  // F3: the composer input's aria-activedescendant follows the popover's
+  // keyboard-highlighted option (combobox pattern).
+  const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
   // Session-local transcript: operator turns (appended on successful send)
   // interleaved with accumulated Kira replies (appended as new turn_ids land
   // on the last-reply poll). This is the fix for the "each new reply erases
@@ -561,6 +564,8 @@ export function ConversationPanel() {
               {showCommandPanel && (
                 <CommandPalettePopover
                   query={message}
+                  composerRef={composerRef}
+                  onActiveDescendantChange={setActiveDescendant}
                   onSelect={(id) => {
                     setComandoId(id);
                     setActiveTab("comandos");
@@ -603,6 +608,12 @@ export function ConversationPanel() {
                   onChange={handleMessageChange}
                   placeholder="Escribí un mensaje para Kira…"
                   aria-label="Mensaje para Kira"
+                  // F3: combobox pattern — the launcher popover is this input's
+                  // listbox; aria-activedescendant follows its keyboard highlight.
+                  role="combobox"
+                  aria-expanded={showCommandPanel}
+                  aria-controls={COMMAND_PALETTE_LISTBOX_ID}
+                  aria-activedescendant={showCommandPanel ? (activeDescendant ?? undefined) : undefined}
                   trailing={
                     <div className="flex items-stretch">
                       <button

@@ -18,17 +18,52 @@ import type { StepValue } from "./primitives.js";
  */
 
 /**
+ * One descriptor per closed UI vocabulary (F6): pairs the UI `value`/`label`
+ * the registry's Select options (and, for `badgeTone`, its live-agenda
+ * badges) need with the `wire` value the backend expects. The registry
+ * derives its `options`/badge tables from these; `wireMap` derives the
+ * `*_WIRE` lookup used by the `to*Request` builders below — one array per
+ * vocab, never two hand-kept copies that can drift.
+ */
+export interface VocabEntry {
+  /** UI value — also the StepOption `value` and the wire lookup key. */
+  value: string;
+  /** UI label — the StepOption `label`. */
+  label: string;
+  /** Value sent to the backend for this UI value. */
+  wire: string;
+}
+
+function wireMap(vocab: readonly VocabEntry[]): Record<string, string> {
+  return Object.fromEntries(vocab.map((entry) => [entry.value, entry.wire]));
+}
+
+/** Known 422 `detail` codes the wired command endpoints can send back (R20's
+ * `invalid_url`, R25's `invalid_filter_policy`). Everything else is an
+ * untranslated backend string (validation sentences, unmapped codes) that
+ * must never render verbatim in operator-facing copy. */
+const VALIDATION_COPY: Record<string, string> = {
+  invalid_url: "Esa URL o canal no es válida — revisá el link.",
+  invalid_filter_policy: "Ese contrato de entrada no es válido — probá con otra opción."
+};
+
+/**
  * Maps a thrown `api/*` error to voseo operator copy. Order matters: the
  * typed subclasses (`ValidationError`/`ConflictError`) extend `ApiError`, so
  * they must be checked before the generic `ApiError` branch. Anything else
  * (network failure, unknown throw) falls back to a generic retryable line.
+ * Only KNOWN codes (`VALIDATION_COPY`) or a numeric status ever reach the
+ * operator — raw backend detail text is never interpolated (F4).
  */
 export function errorCopy(err: unknown): string {
   if (err instanceof ValidationError) {
-    return `No se pudo aplicar: ${err.message}`;
+    return VALIDATION_COPY[err.message] ?? "No se pudo aplicar — revisá los datos y probá de nuevo.";
   }
   if (err instanceof ConflictError) {
     return "Ya hay una operación en curso — probá de nuevo en un momento.";
+  }
+  if (err instanceof ApiError && err.status === 503) {
+    return "El motor no está disponible ahora — probá de nuevo en un momento.";
   }
   if (err instanceof ApiError) {
     return `Falló la operación (${err.status}) — probá de nuevo.`;
@@ -77,18 +112,29 @@ export function describeStreamLimits(response: StreamChatLiveResponse): string {
 
 // ─── /agenda → POST /api/agenda/topic (R12-R15, R33-R35) ─────────────────────
 
-/** `prioridad` UI value → wire `priority` (R33). Identity for the current
- * closed UI vocab (`alta/normal/baja`). R33's table lists a "Media"→`normal`
- * label the owner has NOT signed off on; the registry still emits `normal`, so
- * this stays identity (conservative) until that sign-off lands — sending a raw
- * out-of-vocab value would silently normalize to `normal` server-side anyway. */
-export const PRIORITY_WIRE: Record<string, string> = { alta: "alta", normal: "normal", baja: "baja" };
+/** `prioridad` UI vocab → wire `priority` (R33) + the /temas badge tone.
+ * Identity for the current closed UI vocab (`alta/normal/baja`). R33's table
+ * lists a "Media"→`normal` label the owner has NOT signed off on; the
+ * registry still emits `normal`, so this stays identity (conservative) until
+ * that sign-off lands — sending a raw out-of-vocab value would silently
+ * normalize to `normal` server-side anyway. */
+export const PRIORITY_VOCAB: readonly (VocabEntry & { badgeTone: "ok" | "info" | "warn" })[] = [
+  { value: "baja", label: "Baja", wire: "baja", badgeTone: "ok" },
+  { value: "normal", label: "Normal", wire: "normal", badgeTone: "info" },
+  { value: "alta", label: "Alta", wire: "alta", badgeTone: "warn" }
+];
+export const PRIORITY_WIRE: Record<string, string> = wireMap(PRIORITY_VOCAB);
 
-/** `largo` UI value → wire `response_length` (R34). `corto`→`corta`,
+/** `largo` UI vocab → wire `response_length` (R34). `corto`→`corta`,
  * `profundo`→`expandida` are the verified backend values. The old mock's
- * `extendido` was a latent defect (not a valid alias); WU7 migrates the UI
- * value to `profundo`, so this maps the three live values only. */
-export const LENGTH_WIRE: Record<string, string> = { corto: "corta", normal: "normal", profundo: "expandida" };
+ * `extendido` was a latent defect (not a valid alias); WU7 migrated the UI
+ * value to `profundo`, so this covers the three live values only. */
+export const LENGTH_VOCAB: readonly VocabEntry[] = [
+  { value: "corto", label: "Corto", wire: "corta" },
+  { value: "normal", label: "Normal", wire: "normal" },
+  { value: "profundo", label: "Profundo", wire: "expandida" }
+];
+export const LENGTH_WIRE: Record<string, string> = wireMap(LENGTH_VOCAB);
 
 /** Builds the `POST /api/agenda/topic` body from the /agenda stepper values
  * (R12-R14, R33-R35). Etiquetas map 1:1 to `constraints` in entry order, capped
@@ -150,7 +196,8 @@ export function describeSessionAction(action: AgendaSessionAction, response: Age
     if (response.reason === "guardrails_missing") {
       return "No se activó: faltan las salvaguardas de seguridad. Revisá la configuración antes de activar.";
     }
-    return `No se pudo aplicar${response.reason ? `: ${response.reason}` : ""}.`;
+    // Unknown refusal reason — never interpolate the raw backend code (F4).
+    return "No se pudo aplicar — probá de nuevo.";
   }
   switch (action) {
     case "soft_stop":
@@ -165,14 +212,18 @@ export function describeSessionAction(action: AgendaSessionAction, response: Age
 // ─── /perfil → cohost profile save + session update (R16-R19) ────────────────
 
 /**
- * `modo` UI value → session `safety_mode` (R19, FLAGGED — owner sign-off
+ * `modo` UI vocab → session `safety_mode` (R19, FLAGGED — owner sign-off
  * pending). `estandar` has no backend wire value or alias, so sending it raw
  * would silently fall back to `live_safe`. This maps it to `monologue` (closest
  * semantic: a less-capped, non-live-safe mode) per the spec's flagged R19
  * assumption. See spec.md R19: only the FINAL target value is in question — the
  * rule that `estandar` must never be sent raw is not.
  */
-export const SAFETY_WIRE: Record<string, string> = { live_safe: "live_safe", estandar: "monologue" };
+export const SAFETY_VOCAB: readonly VocabEntry[] = [
+  { value: "live_safe", label: "Live-safe", wire: "live_safe" },
+  { value: "estandar", label: "Estándar", wire: "monologue" }
+];
+export const SAFETY_WIRE: Record<string, string> = wireMap(SAFETY_VOCAB);
 
 /** Builds the `POST /api/agenda/cohost-profiles` body (R16) — the cohost
  * IDENTITY, never the LLM persona (`POST /api/perfiles`). */

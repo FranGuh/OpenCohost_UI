@@ -826,8 +826,9 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
   it("ArrowDown + Enter selects a command, opens it in the Comandos tab, and closes the launcher (R8/R9)", () => {
     renderPanel();
     typeComposer("/"); // all 7, highlight on /agenda
-    fireEvent.keyDown(document, { key: "ArrowDown" }); // → /perfil
-    fireEvent.keyDown(document, { key: "Enter" });
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // → /perfil
+    fireEvent.keyDown(input, { key: "Enter" });
 
     // Routed to the Comandos tab, with /perfil opened (its first step renders).
     expect(tab("Comandos")).toHaveAttribute("aria-selected", "true");
@@ -844,10 +845,39 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
     typeComposer("/ag");
     expect(launcher()).toBeInTheDocument();
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(input, { key: "Escape" });
     expect(launcher()).not.toBeInTheDocument();
     expect(input.value).toBe("");
     expect(input).toHaveFocus();
+  });
+
+  it("Enter/arrows from another focused composer control (e.g. the mic button) do NOT navigate or select (F2)", () => {
+    renderPanel();
+    typeComposer("/"); // all 7, highlight on /agenda
+    const mic = screen.getByRole("button", { name: "Mantené para hablar con Kira" });
+    fireEvent.keyDown(mic, { key: "ArrowDown" });
+    fireEvent.keyDown(mic, { key: "Enter" });
+
+    // Launcher stays open, still highlighting the first option — nothing selected.
+    expect(launcher()).toBeInTheDocument();
+    expect(within(launcher() as HTMLElement).getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+    expect(tab("Comandos")).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("composer input carries the combobox pattern — expanded/controls/activedescendant follow the highlight (F3)", () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    expect(input).toHaveAttribute("role", "combobox");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+
+    typeComposer("/"); // all 7, highlight on /agenda
+    expect(input).toHaveAttribute("aria-expanded", "true");
+    const listbox = launcher() as HTMLElement;
+    expect(input).toHaveAttribute("aria-controls", listbox.id);
+    expect(input).toHaveAttribute("aria-activedescendant", "cmd-opt-agenda");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // → /perfil
+    expect(input).toHaveAttribute("aria-activedescendant", "cmd-opt-perfil");
   });
 
   it("closes when the operator clears the input back to plain text", () => {

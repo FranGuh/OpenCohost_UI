@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import { cn } from "../../lib/cn.js";
@@ -298,6 +298,10 @@ export function ActionRow({
   const [phase, setPhase] = useState<"idle" | "pending" | "settled">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  // Synchronous guard (F1/F7): `phase` is React state, so two synchronous
+  // clicks can both fire before "pending" re-renders and disables the button.
+  // A ref reads/writes immediately, so the second click is dropped in-line.
+  const submittingRef = useRef(false);
 
   const cancelButton = (
     <button
@@ -325,6 +329,8 @@ export function ActionRow({
   }
 
   async function handleSubmit() {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setPhase("pending");
     setMessage(null);
     setFailed(false);
@@ -332,8 +338,11 @@ export function ActionRow({
       const ack = await onSubmit!();
       setPhase("settled");
       setMessage(ack);
+      // Settled is terminal (button stays disabled via `busy || done`) — no
+      // reset needed here, this row is never resubmitted.
     } catch (err) {
       // R2: entered values live in the parent Stepper — reset nothing here.
+      submittingRef.current = false;
       setPhase("idle");
       setFailed(true);
       setMessage(errorCopy(err));

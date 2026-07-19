@@ -189,17 +189,31 @@ describe("describeMood (R30)", () => {
   });
 });
 
-describe("errorCopy (D5)", () => {
-  it("ValidationError surfaces the backend detail", () => {
-    expect(errorCopy(new ValidationError("invalid_filter_policy"))).toContain("invalid_filter_policy");
+describe("errorCopy (D5/F4 — never interpolate raw backend text)", () => {
+  it("ValidationError with a KNOWN 422 code → localized copy, not the raw code", () => {
+    const copy = errorCopy(new ValidationError("invalid_filter_policy"));
+    expect(copy).not.toContain("invalid_filter_policy");
+    expect(copy).toMatch(/contrato de entrada/i);
+  });
+
+  it("ValidationError with an UNKNOWN 422 detail → generic fallback, never the raw text", () => {
+    const copy = errorCopy(new ValidationError("tema inválido"));
+    expect(copy).not.toContain("tema inválido");
+    expect(copy).toMatch(/probá de nuevo/i);
   });
 
   it("ConflictError → busy copy", () => {
     expect(errorCopy(new ConflictError("busy"))).toMatch(/en curso/i);
   });
 
-  it("generic ApiError → status-tagged retry copy", () => {
-    expect(errorCopy(new ApiError("boom", 503))).toMatch(/503/);
+  it("ApiError 503 → localized service-unavailable copy, not the raw status/detail", () => {
+    const copy = errorCopy(new ApiError("cohost_write_failed", 503));
+    expect(copy).not.toContain("cohost_write_failed");
+    expect(copy).toMatch(/no está disponible/i);
+  });
+
+  it("generic ApiError (other status) → status-tagged retry copy", () => {
+    expect(errorCopy(new ApiError("boom", 500))).toMatch(/500/);
   });
 
   it("unknown/network error → generic retry copy", () => {

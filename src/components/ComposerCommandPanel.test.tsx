@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import React from "react";
+import React, { useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEventStore } from "../store/eventStore.js";
 import { CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
@@ -19,13 +19,54 @@ beforeEach(() => {
  * stepper behaviour is covered in commands/commands.test.tsx.
  */
 
+/**
+ * Minimal composer shape for CommandPalettePopover's target-scoped keydown
+ * (F2): a container ref wrapping the popover, the real text input the
+ * handler must scope to, and an optional decoy control to prove that focus
+ * elsewhere in the composer does NOT navigate/select. Also surfaces the
+ * reported `aria-activedescendant` id on the input (F3).
+ */
+function Harness({
+  query,
+  onSelect,
+  onClose,
+  extraControl = false
+}: {
+  query: string;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+  extraControl?: boolean;
+}) {
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
+  return (
+    <div ref={composerRef}>
+      <CommandPalettePopover
+        query={query}
+        onSelect={onSelect}
+        onClose={onClose}
+        composerRef={composerRef}
+        onActiveDescendantChange={setActiveDescendant}
+      />
+      <input aria-label="Mensaje para Kira" aria-activedescendant={activeDescendant ?? undefined} readOnly value={query} />
+      {extraControl && (
+        <button type="button" aria-label="otro control">
+          otro control
+        </button>
+      )}
+    </div>
+  );
+}
+
 describe("CommandPalettePopover (emergent launcher)", () => {
-  function renderLauncher(query: string) {
+  function renderLauncher(query: string, options?: { extraControl?: boolean }) {
     const onSelect = vi.fn();
     const onClose = vi.fn();
-    render(<CommandPalettePopover query={query} onSelect={onSelect} onClose={onClose} />);
+    render(<Harness query={query} onSelect={onSelect} onClose={onClose} extraControl={options?.extraControl} />);
     return { onSelect, onClose };
   }
+
+  const composerInput = () => screen.getByLabelText("Mensaje para Kira");
 
   it("renders a labelled listbox of the commands matching the query", () => {
     renderLauncher("/ag");
@@ -43,23 +84,39 @@ describe("CommandPalettePopover (emergent launcher)", () => {
     expect(options[1]).toHaveAttribute("aria-selected", "false");
   });
 
+  it("each launcher option carries a stable cmd-opt-<command> id (F3)", () => {
+    renderLauncher("/ag");
+    expect(screen.getByRole("option", { name: /\/agenda/ })).toHaveAttribute("id", "cmd-opt-agenda");
+  });
+
   it("moves the highlight with ArrowDown/ArrowUp and clamps at both ends", () => {
     renderLauncher("/");
+    const input = composerInput();
     const options = () => screen.getAllByRole("option");
 
-    fireEvent.keyDown(document, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(options()[1]).toHaveAttribute("aria-selected", "true");
 
     // Clamp at the top: many ups never wrap past the first option.
-    fireEvent.keyDown(document, { key: "ArrowUp" });
-    fireEvent.keyDown(document, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(options()[0]).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("reports the highlighted option's DOM id via onActiveDescendantChange, following the highlight (F3)", () => {
+    renderLauncher("/");
+    const input = composerInput();
+    expect(input).toHaveAttribute("aria-activedescendant", "cmd-opt-agenda");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input).toHaveAttribute("aria-activedescendant", "cmd-opt-perfil");
   });
 
   it("selects the highlighted command on Enter", () => {
     const { onSelect } = renderLauncher("/");
-    fireEvent.keyDown(document, { key: "ArrowDown" }); // → /perfil (second)
-    fireEvent.keyDown(document, { key: "Enter" });
+    const input = composerInput();
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // → /perfil (second)
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith("perfil");
   });
 
@@ -69,9 +126,9 @@ describe("CommandPalettePopover (emergent launcher)", () => {
     expect(onSelect).toHaveBeenCalledWith("temas");
   });
 
-  it("closes on Escape", () => {
+  it("closes on Escape from the composer input", () => {
     const { onClose } = renderLauncher("/");
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(composerInput(), { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -79,8 +136,22 @@ describe("CommandPalettePopover (emergent launcher)", () => {
     const { onSelect } = renderLauncher("/xyz");
     expect(screen.getByText("comando desconocido")).toBeInTheDocument();
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
-    fireEvent.keyDown(document, { key: "Enter" });
+    fireEvent.keyDown(composerInput(), { key: "Enter" });
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("Enter/arrows from a focused control OTHER than the composer input do NOT navigate or select (F2)", () => {
+    const { onSelect, onClose } = renderLauncher("/", { extraControl: true });
+    const other = screen.getByRole("button", { name: "otro control" });
+
+    fireEvent.keyDown(other, { key: "ArrowDown" });
+    fireEvent.keyDown(other, { key: "Enter" });
+    fireEvent.keyDown(other, { key: "Escape" });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // Highlight never moved off the first option either.
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
   });
 });
 

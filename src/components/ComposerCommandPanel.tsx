@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { RefObject } from "react";
 import { CircleSlash, Terminal } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { COMMANDS, matchCommands, type Command } from "./commands/registry.js";
@@ -39,6 +40,11 @@ interface ComposerCommandPanelProps {
   visible?: boolean;
 }
 
+/** Fixed id for the launcher's `role="listbox"` (F3 combobox pattern) — the
+ * composer input's `aria-controls` target. Each launcher option's DOM id
+ * follows `cmd-opt-<command>`, the composer input's `aria-activedescendant`. */
+export const COMMAND_PALETTE_LISTBOX_ID = "command-palette-listbox";
+
 /** Shared command list. `browse` = the button list + Cancelar footer (Comandos
  * tab / floating palette). `launcher` = a keyboard-highlighted listbox of
  * `option`s for the emergent composer popover. One registry, two skins. */
@@ -72,6 +78,7 @@ export function CommandList({
   const rows = matches.map((command, index) => (
     <button
       key={command.id}
+      id={launcher ? `cmd-opt-${command.id}` : undefined}
       type="button"
       role={launcher ? "option" : undefined}
       aria-selected={launcher ? index === activeIndex : undefined}
@@ -94,7 +101,7 @@ export function CommandList({
 
   if (launcher) {
     return (
-      <div role="listbox" aria-label="Comandos disponibles" className="flex flex-col gap-1.5">
+      <div id={COMMAND_PALETTE_LISTBOX_ID} role="listbox" aria-label="Comandos disponibles" className="flex flex-col gap-1.5">
         {rows}
       </div>
     );
@@ -135,11 +142,21 @@ function CancelRow({ onClose }: { onClose?: () => void }) {
 export function CommandPalettePopover({
   query,
   onSelect,
-  onClose
+  onClose,
+  composerRef,
+  onActiveDescendantChange
 }: {
   query: string;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /** The composer's outer container (ConversationPanel's `composerRef`, F2).
+   * Keydown only navigates/selects when it originates from the composer's
+   * text input — otherwise Enter/arrows from ANY focused control inside the
+   * composer (e.g. the mic button) would hijack the popover while visible. */
+  composerRef: RefObject<HTMLDivElement>;
+  /** Reports the highlighted option's DOM id (`cmd-opt-<command>`, or null)
+   * so the composer input can carry `aria-activedescendant` (F3). */
+  onActiveDescendantChange?: (id: string | null) => void;
 }) {
   const matches = matchCommands(query);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -148,7 +165,14 @@ export function CommandPalettePopover({
   useEffect(() => setActiveIndex(0), [query]);
 
   useEffect(() => {
+    const active = matches[activeIndex];
+    onActiveDescendantChange?.(active ? `cmd-opt-${active.id}` : null);
+  }, [matches, activeIndex, onActiveDescendantChange]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      const input = composerRef.current?.querySelector("input");
+      if (!input || event.target !== input) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();
@@ -170,7 +194,7 @@ export function CommandPalettePopover({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [matches, activeIndex, onClose, onSelect]);
+  }, [matches, activeIndex, onClose, onSelect, composerRef]);
 
   return (
     <div className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel">

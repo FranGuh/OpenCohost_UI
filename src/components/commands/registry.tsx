@@ -18,6 +18,9 @@ import { Button } from "../ui/Button.js";
 import { Select } from "../ui/Select.js";
 import { type StepDef, type StepValue } from "./primitives.js";
 import {
+  LENGTH_VOCAB,
+  PRIORITY_VOCAB,
+  SAFETY_VOCAB,
   composeStreamUrl,
   describeConnect,
   describeMood,
@@ -65,29 +68,17 @@ export interface Command {
 
 // ─── Shared option sets ─────────────────────────────────────────────────────
 
-const PRIORITY_OPTIONS = [
-  { value: "baja", label: "Baja" },
-  { value: "normal", label: "Normal" },
-  { value: "alta", label: "Alta" }
-] as const;
-
-const LENGTH_OPTIONS = [
-  { value: "corto", label: "Corto" },
-  { value: "normal", label: "Normal" },
-  // WU7/R34: `profundo` → `expandida` wire value. The old `extendido` was never
-  // a valid backend alias (latent defect) — migrated to the R34 vocab.
-  { value: "profundo", label: "Profundo" }
-] as const;
+// Options derived from wire.ts's vocab descriptors (F6) — value/label live in
+// ONE place per vocab; wire.ts's `*_WIRE` maps derive from the same array, so
+// the UI options and the backend mapping can never drift apart.
+const PRIORITY_OPTIONS = PRIORITY_VOCAB.map(({ value, label }) => ({ value, label }));
+const LENGTH_OPTIONS = LENGTH_VOCAB.map(({ value, label }) => ({ value, label }));
+const SAFETY_OPTIONS = SAFETY_VOCAB.map(({ value, label }) => ({ value, label }));
 
 const TURN_OPTIONS = [
   { value: "3", label: "3" },
   { value: "5", label: "5" },
   { value: "8", label: "8" }
-] as const;
-
-const SAFETY_OPTIONS = [
-  { value: "live_safe", label: "Live-safe" },
-  { value: "estandar", label: "Estándar" }
 ] as const;
 
 const RHYTHM_OPTIONS = [
@@ -98,17 +89,17 @@ const RHYTHM_OPTIONS = [
 
 // ─── /temas — read-only agenda review screen ────────────────────────────────
 
-const PRIORITY_BADGE = {
-  alta: { tone: "warn" as BadgeTone, label: "Alta" },
-  normal: { tone: "info" as BadgeTone, label: "Normal" },
-  baja: { tone: "ok" as BadgeTone, label: "Baja" }
-};
+// Badge tone/label derived from PRIORITY_VOCAB (F6) — same source as the
+// /agenda priority Select above.
+const PRIORITY_BADGE: Record<string, { tone: BadgeTone; label: string }> = Object.fromEntries(
+  PRIORITY_VOCAB.map((entry) => [entry.value, { tone: entry.badgeTone, label: entry.label }])
+);
 
 /** Live `AgendaTopicOut.priority` is a free backend string (canonical
  * alta/normal/baja, but unknowns are possible). Map defensively — an unknown
  * priority falls to a neutral badge showing the raw value, never crashes. */
 function priorityBadge(priority: string): { tone: BadgeTone; label: string } {
-  return PRIORITY_BADGE[priority as keyof typeof PRIORITY_BADGE] ?? { tone: "neutral" as BadgeTone, label: priority };
+  return PRIORITY_BADGE[priority] ?? { tone: "neutral" as BadgeTone, label: priority };
 }
 
 function TemasScreen({ onClose }: { onClose: () => void }) {

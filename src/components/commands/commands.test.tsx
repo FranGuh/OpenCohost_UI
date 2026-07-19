@@ -6,6 +6,7 @@ import { ComposerCommandPanel } from "../ComposerCommandPanel.js";
 import { Stepper } from "./Stepper.js";
 import type { Command } from "./registry.js";
 import type { StepValue } from "./primitives.js";
+import { PRIORITY_VOCAB } from "./wire.js";
 import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
@@ -106,6 +107,20 @@ describe("command palette — registry + primitives (mockup)", () => {
 
     expect(tema.value).toHaveLength(90);
     expect(screen.getByText("90/90")).toBeInTheDocument();
+  });
+
+  it("/agenda prioridad options are derived from wire.ts's PRIORITY_VOCAB, not a second hardcoded list (F6)", () => {
+    renderPanel("/agenda");
+    enterCommand(/agenda — programá un tema/);
+    fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "tema x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → angulo
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
+
+    fireEvent.click(screen.getByRole("combobox", { name: "¿Qué prioridad tiene?" }));
+    expect(screen.getAllByRole("option")).toHaveLength(PRIORITY_VOCAB.length);
+    for (const entry of PRIORITY_VOCAB) {
+      expect(screen.getByRole("option", { name: entry.label })).toBeInTheDocument();
+    }
   });
 
   it("/perfil renders the Identidad and Sesión sections", () => {
@@ -310,6 +325,27 @@ describe("ActionRow submit pipe (WU2 — R1/R2/R3)", () => {
     expect(await screen.findByText("Tema agregado a la cola")).toBeInTheDocument();
   });
 
+  it("rapid double-click calls the submit fn exactly once (F1/F7)", async () => {
+    let calls = 0;
+    let resolve!: (ack: string) => void;
+    const submit = () => {
+      calls += 1;
+      return new Promise<string>((res) => (resolve = res));
+    };
+    renderStepperToSummary(oneStepCommand(submit));
+
+    const primary = screen.getByRole("button", { name: "Enviar" });
+    // Two synchronous clicks in the same tick, before React re-renders the
+    // "pending" (disabled) state — the useRef guard must block the second
+    // call even though `phase` state hasn't updated yet.
+    fireEvent.click(primary);
+    fireEvent.click(primary);
+    expect(calls).toBe(1);
+
+    resolve("¡Enviado!");
+    expect(await screen.findByText("¡Enviado!")).toBeInTheDocument();
+  });
+
   it("failure keeps entered values and re-enables the primary for a retry (R2)", async () => {
     let attempt = 0;
     const submit = () => {
@@ -383,7 +419,27 @@ describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
     });
   });
 
-  it("surfaces the backend 422 rejection reason instead of a generic failure (R15)", async () => {
+  it("rapid double-click hits the MSW handler exactly once (F1/F7)", async () => {
+    let hits = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/topic`, () => {
+        hits += 1;
+        return HttpResponse.json(defaultAgenda);
+      })
+    );
+    renderPanel("/agenda");
+    enterCommand(/agenda — programá un tema/);
+
+    driveAgenda({ tema: "mods retro" });
+    const primary = screen.getByRole("button", { name: "Programar tema" });
+    fireEvent.click(primary);
+    fireEvent.click(primary);
+
+    await screen.findByText(/tema agregado a la cola/i);
+    expect(hits).toBe(1);
+  });
+
+  it("surfaces a localized 422 failure, never the raw backend detail (R15/F4)", async () => {
     server.use(agendaTopicValidationHandler("tema inválido"));
     renderPanel("/agenda");
     enterCommand(/agenda — programá un tema/);
@@ -391,7 +447,8 @@ describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
     driveAgenda({ tema: "x" });
     fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
 
-    expect(await screen.findByText(/tema inválido/i)).toBeInTheDocument();
+    expect(await screen.findByText(/probá de nuevo/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tema inválido/i)).not.toBeInTheDocument();
   });
 });
 
@@ -425,7 +482,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21)", () => {
     expect(capture.body).toEqual({ url: "twitch.tv/kira" });
   });
 
-  it("surfaces the 422 invalid_url inline instead of a generic failure (R21)", async () => {
+  it("surfaces a localized invalid_url copy inline, never the raw code (R21/F4)", async () => {
     server.use(streamConnectInvalidUrlHandler());
     renderPanel("/vivo");
     enterCommand(/vivo — conectá el chat en vivo/);
@@ -433,7 +490,8 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21)", () => {
     driveVivo("Twitch", "no es una url");
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
 
-    expect(await screen.findByText(/invalid_url/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no es válida/i)).toBeInTheDocument();
+    expect(screen.queryByText(/invalid_url/i)).not.toBeInTheDocument();
   });
 
   it("surfaces a 409 busy conflict rather than a silent failure (R21)", async () => {
