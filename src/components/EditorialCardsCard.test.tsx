@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
@@ -105,6 +105,49 @@ describe("EditorialCardsCard submit flow", () => {
     await waitFor(() => expect(capturedBody).toMatchObject({ agent: "operator", expires_at: null }));
   });
 
+  it("renders the single_use checkbox unchecked by default", async () => {
+    server.use(emptyCardsHandler());
+    renderCard();
+
+    const checkbox = await screen.findByLabelText("De un solo uso");
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it("checking single_use includes single_use:true in the POST body", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    server.use(emptyCardsHandler());
+    server.use(
+      http.post(`${API_BASE_URL}/api/agent/cards`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: "card_a", topic_slug: "tema-de-prueba", status: "draft", demoted: false });
+      })
+    );
+    renderCard();
+    await fillRequiredFields();
+    fireEvent.click(screen.getByLabelText("De un solo uso"));
+
+    submitAndConfirm();
+
+    await waitFor(() => expect(capturedBody).toMatchObject({ single_use: true }));
+  });
+
+  it("leaves single_use:false in the POST body when the checkbox is left unchecked", async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    server.use(emptyCardsHandler());
+    server.use(
+      http.post(`${API_BASE_URL}/api/agent/cards`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: "card_a", topic_slug: "tema-de-prueba", status: "draft", demoted: false });
+      })
+    );
+    renderCard();
+    await fillRequiredFields();
+
+    submitAndConfirm();
+
+    await waitFor(() => expect(capturedBody).toMatchObject({ single_use: false }));
+  });
+
   it("splits one-item-per-line textareas into string arrays on submit", async () => {
     let capturedBody: Record<string, unknown> | undefined;
     server.use(emptyCardsHandler());
@@ -198,6 +241,7 @@ describe("EditorialCardsCard list", () => {
       origin: "operator",
       expires_at: null,
       updated_at: "2026-07-18T00:00:00+00:00",
+      single_use: false,
       ...overrides
     };
   }
@@ -219,6 +263,22 @@ describe("EditorialCardsCard list", () => {
     expect(screen.queryByText("Used topic")).not.toBeInTheDocument();
     expect(screen.queryByText("Expired topic")).not.toBeInTheDocument();
     expect(screen.queryByText("Disabled topic")).not.toBeInTheDocument();
+  });
+
+  it("shows a 'de un solo uso' badge only on single_use rows", async () => {
+    server.use(
+      listWith([
+        card({ id: "c1", topic: "Reusable topic", status: "draft", single_use: false }),
+        card({ id: "c2", topic: "Single use topic", status: "armed", single_use: true })
+      ])
+    );
+    renderCard();
+
+    await waitFor(() => expect(screen.getByText("Reusable topic")).toBeInTheDocument());
+    const reusableRow = screen.getByText("Reusable topic").closest("li") as HTMLElement;
+    const singleUseRow = screen.getByText("Single use topic").closest("li") as HTMLElement;
+    expect(within(reusableRow).queryByText("de un solo uso")).not.toBeInTheDocument();
+    expect(within(singleUseRow).getByText("de un solo uso")).toBeInTheDocument();
   });
 
   it("Armar button is shown only on draft rows", async () => {

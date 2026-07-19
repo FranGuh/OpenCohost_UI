@@ -78,6 +78,7 @@ export function EditorialCardsCard() {
   const [counterpoints, setCounterpoints] = useState("");
   const [discussionHooks, setDiscussionHooks] = useState("");
   const [triggers, setTriggers] = useState("");
+  const [singleUse, setSingleUse] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
   const createMutation = useCreateCardMutation();
@@ -97,6 +98,7 @@ export function EditorialCardsCard() {
     setCounterpoints("");
     setDiscussionHooks("");
     setTriggers("");
+    setSingleUse(false);
   }
 
   function openConfirm() {
@@ -116,7 +118,8 @@ export function EditorialCardsCard() {
         counterpoints: splitLines(counterpoints),
         discussion_hooks: splitLines(discussionHooks),
         triggers: splitLines(triggers),
-        expires_at: null
+        expires_at: null,
+        single_use: singleUse
       },
       { onSuccess: resetForm }
     );
@@ -204,6 +207,16 @@ export function EditorialCardsCard() {
               />
             </label>
 
+            <label className="flex items-center gap-2 text-[11px] font-semibold text-dim">
+              <input
+                type="checkbox"
+                aria-label="De un solo uso"
+                checked={singleUse}
+                onChange={(event) => setSingleUse(event.target.checked)}
+              />
+              De un solo uso
+            </label>
+
             {anyLongLine && (
               <p className="text-xs leading-relaxed text-warn">Cada línea puede tener hasta 240 caracteres.</p>
             )}
@@ -261,9 +274,12 @@ export function EditorialCardsCard() {
                     className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-md border border-border bg-surface-2 p-3"
                   >
                     <span className="text-sm text-foreground">{card.topic}</span>
-                    <Badge tone={card.status === "armed" ? "info" : "neutral"}>
-                      {card.status === "armed" ? "armada" : "borrador"}
-                    </Badge>
+                    <span className="flex items-center gap-1.5">
+                      <Badge tone={card.status === "armed" ? "info" : "neutral"}>
+                        {card.status === "armed" ? "armada" : "borrador"}
+                      </Badge>
+                      {card.single_use && <Badge tone="warn">de un solo uso</Badge>}
+                    </span>
                     {card.status === "draft" && (
                       <Button
                         type="button"

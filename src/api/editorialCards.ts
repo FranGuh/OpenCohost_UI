@@ -28,6 +28,7 @@ export interface EditorialCardCreateRequest {
   discussion_hooks: string[];
   triggers: string[];
   expires_at: string | null;
+  single_use: boolean;
 }
 
 /** POST /api/agent/cards response — hand-typed from AgentCardResponse.
@@ -52,6 +53,7 @@ export interface EditorialCardListItem {
   origin: string;
   expires_at: string | null;
   updated_at: string;
+  single_use: boolean;
 }
 
 /** GET /api/agent/cards response — hand-typed from AgentCardsListResponse.

@@ -31,7 +31,8 @@ const sampleCard: EditorialCardListItem = {
   status: "draft",
   origin: "operator",
   expires_at: null,
-  updated_at: "2026-07-18T00:00:00+00:00"
+  updated_at: "2026-07-18T00:00:00+00:00",
+  single_use: false
 };
 
 const sampleCreateBody: EditorialCardCreateRequest = {
@@ -42,7 +43,8 @@ const sampleCreateBody: EditorialCardCreateRequest = {
   counterpoints: ["might be buggy on day one"],
   discussion_hooks: ["compare to Tarkov"],
   triggers: ["arc raiders", "extraction shooter"],
-  expires_at: null
+  expires_at: null,
+  single_use: false
 };
 
 describe("listEditorialCards", () => {
@@ -86,6 +88,23 @@ describe("postEditorialCard", () => {
       status: "draft",
       demoted: false
     });
+  });
+
+  it("sends single_use:true when the request sets it", async () => {
+    let capturedBody: unknown = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agent/cards`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          id: "card_a",
+          topic_slug: "arc-raiders-launch",
+          status: "draft",
+          demoted: false
+        });
+      })
+    );
+    await postEditorialCard({ ...sampleCreateBody, single_use: true });
+    expect(capturedBody).toMatchObject({ single_use: true });
   });
 
   it("throws ValidationError on 422", async () => {
