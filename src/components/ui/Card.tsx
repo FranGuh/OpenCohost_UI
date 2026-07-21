@@ -7,7 +7,7 @@ import { cn } from "../../lib/cn.js";
 export function Card({ className, style, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-xl border border-border-soft bg-card text-card-foreground shadow-panel", className)}
+      className={cn("rounded-md border border-border-soft bg-card text-card-foreground shadow-panel", className)}
       style={{ backdropFilter: "var(--surface-blur)", ...style }}
       {...props}
     />

@@ -128,6 +128,7 @@ function ChatLiveCard() {
                   >
                     Conectar
                   </button>
+                  // Este boton deberia heredar la misma responsabilidad de descoenctar y el boton de abajo de desconectar deberia ser eliminado
                 }
               />
             </form>

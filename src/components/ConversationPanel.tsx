@@ -519,10 +519,10 @@ export function ConversationPanel() {
             <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
             <span className="inline-flex items-center gap-1.5 text-xs text-ok">
               <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ok" />
+                {/* <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" /> */}
+                {/* <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ok" /> */}
               </span>
-              sesión en vivo
+              {/* sesión en vivo */}
             </span>
           </div>
 
@@ -556,7 +556,7 @@ export function ConversationPanel() {
               <button
                 type="button"
                 onClick={scrollToBottom}
-                className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-soft bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="absolute bottom-2 right-4 z-10 inline-flex -translate-x-1/2 items-center gap-3.5 rounded-full border border-border-soft bg-card px-3 py-2.5 text-xs font-semibold text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <ChevronDown size={14} aria-hidden="true" />
                 Ver lo más reciente

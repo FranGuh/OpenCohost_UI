@@ -188,7 +188,7 @@ function ProfileSessionCard() {
           <section aria-labelledby="agenda-session-settings-label" className="space-y-2 pb-1">
             <div className="flex items-baseline gap-2">
               {sectionLabel("agenda-session-settings-label", "Sesión")}
-              <span className="mono text-[10px] text-dim">se aplica al instante</span>
+              <span className="mono text-[13px] text-dim">se aplica al instante</span>
             </div>
             {sessionErrorMessage && <Alert tone="danger">{sessionErrorMessage}</Alert>}
             <div className="grid grid-cols-2 gap-3">
@@ -219,14 +219,14 @@ function ProfileSessionCard() {
                 />
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 space-x-2">
               <span className="text-xs text-muted-foreground">Ritmo</span>
               <Segmented
                 ariaLabel="Ritmo"
                 options={RHYTHM_OPTIONS}
                 value={rhythm}
                 disabled={updateSession.isPending}
-                className="mb-1"
+                className="mb-1s"
                 onChange={(value) => {
                   updateSession.mutate({ rhythm: value });
                 }}
@@ -347,8 +347,8 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Cola de temas</h2>
-        <div className="flex items-center gap-2">
+        <h2 className="text-sm font-bold text-foreground w-full justify-between items-center">Cola de temas</h2>
+        <div className="flex gap-2 w-full justify-end">
           <Badge tone="info">{queue.length} en cola</Badge>
           {action.isPending && <Badge tone="info">aplicando…</Badge>}
         </div>
@@ -738,7 +738,7 @@ function AddTopicCard() {
                 {constraints.map((constraint) => (
                   <li
                     key={constraint}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-foreground"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1 text-xs text-foreground"
                   >
                     {constraint}
                     <button
@@ -801,7 +801,7 @@ function AddTopicCard() {
               key={template.title}
               type="button"
               variant="ghost"
-              className="h-8 rounded-full border border-border-soft px-3 text-xs"
+              className="h-8 rounded-md border border-border-soft px-3 py-3 text-xs"
               disabled={addTopic.isPending}
               aria-label={`Plantilla: ${template.title}`}
               onClick={() => applyTemplate(template)}
@@ -846,7 +846,7 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Control de sesión</h2>
+        <h2 className="text-sm font-bold text-foreground w-full">Control de sesión</h2>
         <div className="flex items-center gap-2">
           <Badge tone={badge.tone}>{badge.label}</Badge>
           {action.isPending && <Badge tone="info">aplicando…</Badge>}
@@ -918,7 +918,7 @@ export function AgendaPanel() {
 
   return (
     <>
-      <TestToastsCard />
+      {/* <TestToastsCard /> */}
       <ProfileSessionCard />
       {getError ? (
         <Card className="flex flex-col p-4">

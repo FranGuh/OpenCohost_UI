@@ -34,13 +34,13 @@ export function Badge({ tone = "neutral", children, className, mono = false }: B
     <span
       data-tone={tone}
       className={cn(
-        "inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border px-[11px] py-[6px] text-[12.5px] font-semibold",
+        "inline-flex items-center gap-[7px] whitespace-nowrap rounded-md border px-[11px] py-[6px] text-[12.5px] font-semibold",
         toneClasses[tone],
         mono && "mono",
         className
       )}
     >
-      <span aria-hidden="true" className={cn("h-[6px] w-[6px] rounded-full", dotClasses[tone])} />
+      <span aria-hidden="true" className={cn("h-[10px] w-[5px] rounded-full", dotClasses[tone])} />
       {children}
     </span>
   );
