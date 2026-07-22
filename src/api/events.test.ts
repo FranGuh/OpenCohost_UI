@@ -165,6 +165,31 @@ describe("useServerEventLog", () => {
     expect(labels).not.toContain("Kira guardó 1 memorias");
   });
 
+  it("passes a kira-agenda guardrail event through to the feed, chronologically interleaved with other events (WU4-4b)", async () => {
+    const batch: EventLogResponse = {
+      events: [
+        { seq: 1, ts: 0, source: "motor", action: "ready", detail: null },
+        { seq: 2, ts: 0, source: "kira-agenda", action: "guardrail:contains_internal_leak", detail: null }
+      ],
+      cursor: 2,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+
+    renderHook(() => useServerEventLog(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(2);
+    expect(events[0].id).toBe("srv-1");
+    expect(events[1]).toMatchObject({
+      id: "srv-2",
+      source: "kira-agenda",
+      label: "Guardrail: prefetch rechazado — fuga de contenido interno",
+      tone: "warn"
+    });
+  });
+
   it("on a boot change, adopts the new cursor WITHOUT emitting that batch; later genuinely-new events still emit", async () => {
     const first: EventLogResponse = {
       events: [{ seq: 1, ts: 0, source: "motor", action: "ready", detail: null }],

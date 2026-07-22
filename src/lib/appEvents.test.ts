@@ -176,6 +176,58 @@ describe("emitAppEvent — motor.memoria_captured (E1, feed line + coalesced plu
   });
 });
 
+describe("emitAppEvent — kira-agenda guardrail refusals (WU4-4b)", () => {
+  it("maps a known guardrail code to its voseo label with the warn tone (server-originated, no toast)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    emitAppEvent({ source: "kira-agenda", action: "guardrail:contains_internal_leak" }, "srv-1", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Guardrail: prefetch rechazado — fuga de contenido interno");
+    expect(events[0].tone).toBe("warn");
+    expect(sink).not.toHaveBeenCalled();
+  });
+
+  it("renders an unknown guardrail code safely as the raw code — never crashes, never drops the event", () => {
+    emitAppEvent({ source: "kira-agenda", action: "guardrail:some_future_code" }, "srv-2", { toast: false });
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Guardrail: prefetch rechazado — some_future_code");
+    expect(events[0].tone).toBe("warn");
+  });
+
+  it("keeps guardrail rows in call order alongside other events, all with the warn tone", () => {
+    emitAppEvent({ source: "motor", action: "ready" }, "srv-a", { toast: false });
+    emitAppEvent({ source: "kira-agenda", action: "guardrail:is_repetition" }, "srv-b", { toast: false });
+    emitAppEvent({ source: "kira-agenda", action: "guardrail:banned_closure" }, "srv-c", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events.map((e) => e.label)).toEqual([
+      "Motor: listo",
+      "Guardrail: prefetch rechazado — repetición detectada",
+      "Guardrail: prefetch rechazado — cierre artificial"
+    ]);
+    expect(events[1].tone).toBe("warn");
+    expect(events[2].tone).toBe("warn");
+  });
+
+  it("regression: a non-guardrail action on the same new source is still gated by the whitelist (dropped + DEV warn)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    emitAppEvent({ source: "kira-agenda", action: "not-a-guardrail" });
+    expect(useEventStore.getState().events).toHaveLength(0);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it("regression: an existing mapped action (agenda.session-action) is unaffected — own label, default 'ok' tone", () => {
+    emitAppEvent({ source: "agenda", action: "session-action", detail: "activada" });
+    const events = useEventStore.getState().events;
+    expect(events[0].label).toBe("Agenda: activada");
+    expect(events[0].tone).toBe("ok");
+  });
+});
+
 describe("subscribeMutationEvents", () => {
   function buildQueryClient() {
     return new QueryClient({ defaultOptions: { mutations: { retry: false } } });

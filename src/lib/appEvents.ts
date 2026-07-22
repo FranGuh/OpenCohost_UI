@@ -92,6 +92,24 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   }
 };
 
+/** kira-agenda prefetch guardrail refusals (WU4-4b). `action` is dynamic —
+ * `guardrail:<code>` — so it cannot live as a fixed EVENT_LABELS key; the
+ * code vocabulary is also NOT closed client-side (server can ship new codes),
+ * so an unrecognized code renders its own (code-shaped, safe) text instead of
+ * dropping the event or crashing. `detail` is always null server-side — the
+ * code rides in `action`, never dialogue. */
+const GUARDRAIL_ACTION_PREFIX = "guardrail:";
+const GUARDRAIL_CODE_LABELS: Record<string, string> = {
+  contains_internal_leak: "fuga de contenido interno",
+  is_repetition: "repetición detectada",
+  banned_closure: "cierre artificial"
+};
+
+function guardrailLabel(action: string): string {
+  const code = action.slice(GUARDRAIL_ACTION_PREFIX.length);
+  return `Guardrail: prefetch rechazado — ${GUARDRAIL_CODE_LABELS[code] ?? code}`;
+}
+
 /* KNOWN-but-unmapped: valid backend actions (engine_host.py / ptt_session.py)
  * we deliberately DON'T surface — per-turn engine churn and PTT flush internals
  * that would spam the feed. They drop silently, without the DEV "unknown event"
@@ -141,22 +159,25 @@ let manualSeq = 0;
  * lets server-originated events keep their real timestamp on backfill;
  * operator events omit it and get Date.now(). */
 export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?: boolean; ts?: number }): void {
+  const isGuardrail = input.source === "kira-agenda" && input.action.startsWith(GUARDRAIL_ACTION_PREFIX);
   const key = `${input.source}.${input.action}`;
-  const template = EVENT_LABELS[key];
-  if (!template) {
+  const template = isGuardrail ? undefined : EVENT_LABELS[key];
+  if (!isGuardrail && !template) {
     // KNOWN_SILENT keys drop quietly; only genuinely unrecognized keys warn.
     if (import.meta.env.DEV && !KNOWN_SILENT.has(key)) {
       console.warn(`[appEvents] dropped unknown event ${key}`);
     }
     return; // not whitelisted → no event, no toast. Free text cannot enter.
   }
-  const label = template(sanitizeDetail(input.detail));
+  const label = isGuardrail ? guardrailLabel(input.action) : template!(sanitizeDetail(input.detail));
   const event: AppEvent = {
     id: id ?? `evt-${++manualSeq}-${Date.now()}`,
     ts: opts?.ts ?? Date.now(),
     source: input.source,
     label,
-    tone: input.tone ?? "ok"
+    // Guardrail refusals always warn-tint regardless of caller — a refused
+    // prefetch is a notable-but-not-fatal event (I2).
+    tone: isGuardrail ? "warn" : (input.tone ?? "ok")
   };
   useEventStore.getState().append(event);
   // Toast unless suppressed. EXCEPTION: ptt.* server echoes pass toast:false
