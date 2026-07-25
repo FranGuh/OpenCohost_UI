@@ -45,6 +45,13 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "music.delete": () => "Pista eliminada",
   "obs.toggle": (d) => (d === "on" ? "OBS activado" : "OBS desactivado"),
   "obs.config": (d) => (d ? `OBS escena → ${d}` : "OBS config actualizada"),
+  // multi_provider_llm — operator provider actions. `detail` is a provider id
+  // or "Local" only (identifier-shaped); an api_key NEVER reaches here (the
+  // mutation's meta.event only ever passes active_provider/profile_id).
+  "llm-provider.activate": (d) => (d ? `Proveedor LLM → ${d}` : "Proveedor LLM cambiado"),
+  "llm-provider.profile": (d) => (d ? `Proveedor ${d} guardado` : "Proveedor guardado"),
+  "llm-provider.delete": (d) => (d ? `Proveedor ${d} eliminado` : "Proveedor eliminado"),
+  "llm-provider.posture": () => "Preferencias de proveedor guardadas",
   "stream.connect": () => "Stream conectado",
   "stream.disconnect": () => "Stream desconectado",
   "stream.limits": () => "Límites de chat actualizados",
@@ -89,7 +96,11 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "motor.memoria_captured": (d) => {
     const n = Number(d);
     return Number.isFinite(n) && n > 1 ? `Kira guardó ${n} memorias` : "Kira guardó una memoria";
-  }
+  },
+  // multi_provider_llm — the engine hit a cloud LLM failure. Feed-only (motor.*
+  // is never toasted), honest and actionable: it does NOT auto-switch, so the
+  // operator stays on cloud and must act. `detail` is always null server-side.
+  "motor.cloud_llm_error": () => "Proveedor cloud falló — seguís en cloud; revisá el proveedor o cambiá a Local"
 };
 
 /** kira-agenda prefetch guardrail refusals (WU4-4b). `action` is dynamic —

@@ -176,6 +176,26 @@ describe("emitAppEvent — motor.memoria_captured (E1, feed line + coalesced plu
   });
 });
 
+describe("emitAppEvent — motor.cloud_llm_error (item 2: cloud fallback notice, feed-only)", () => {
+  it("maps motor.cloud_llm_error to a feed-visible honest voseo line (no toast, no DEV warn, detail stays null)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Server-originated (toast:false), detail null server-side (schema parity).
+    emitAppEvent({ source: "motor", action: "cloud_llm_error" }, "srv-1", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe(
+      "Proveedor cloud falló — seguís en cloud; revisá el proveedor o cambiá a Local"
+    );
+    expect(events[0].source).toBe("motor");
+    expect(sink).not.toHaveBeenCalled(); // motor.* is feed-only, never toasted
+    expect(warn).not.toHaveBeenCalled(); // it IS mapped now — not an unknown key
+    warn.mockRestore();
+  });
+});
+
 describe("emitAppEvent — kira-agenda guardrail refusals (WU4-4b)", () => {
   it("maps a known guardrail code to its voseo label with the warn tone (server-originated, no toast)", () => {
     const sink = vi.fn();
