@@ -7,9 +7,13 @@ import { server } from "../test/server.js";
 import {
   API_BASE_URL,
   defaultPttStart,
+  defaultPttState,
   evolvingLastReplyHandler,
+  pttConfigValidationErrorHandler,
   pttSessionFlowHandlers,
-  pttStartUnreachableHandler
+  pttStartUnreachableHandler,
+  pttStateHandler,
+  pttTestHandler
 } from "../test/handlers.js";
 import { PTTCard } from "./PTTCard.js";
 
@@ -200,4 +204,113 @@ describe("PTTCard: reply arrives via the existing last-reply poll", () => {
     },
     10000
   );
+});
+
+describe("PTTCard: LiveAudio (WhisperLive) URL configuration", () => {
+  it("renders the currently active URL from GET /api/ptt/state", async () => {
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText(defaultPttState.stt_ws_url as string)).toBeInTheDocument();
+    expect(screen.getByLabelText("URL de conexión")).toHaveValue(defaultPttState.stt_ws_url);
+  });
+
+  it("shows 'sin configurar' when the backend has no URL saved yet", async () => {
+    server.use(pttStateHandler({ ...defaultPttState, stt_ws_url: null }));
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText("sin configurar")).toBeInTheDocument();
+  });
+
+  it("saves a new URL via Guardar and reflects it in the active-URL readout", async () => {
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.change(screen.getByLabelText("URL de conexión"), {
+      target: { value: "ws://192.168.1.5:9090" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText("ws://192.168.1.5:9090")).toBeInTheDocument();
+  });
+
+  it("surfaces the server's 422 reason instead of a generic failure", async () => {
+    server.use(pttConfigValidationErrorHandler("stt_ws_uri must use ws:// or wss://"));
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.change(screen.getByLabelText("URL de conexión"), { target: { value: "ws://" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText("stt_ws_uri must use ws:// or wss://")).toBeInTheDocument();
+  });
+
+  it("catches an invalid scheme client-side, without hitting the network", async () => {
+    let putCalls = 0;
+    server.use(
+      http.put(`${API_BASE_URL}/api/ptt/config`, () => {
+        putCalls += 1;
+        return HttpResponse.json({ stt_ws_uri: "http://127.0.0.1:9090" });
+      })
+    );
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.change(screen.getByLabelText("URL de conexión"), {
+      target: { value: "http://127.0.0.1:9090" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText(/debe empezar con ws:\/\/ o wss:\/\//)).toBeInTheDocument();
+    expect(putCalls).toBe(0);
+  });
+
+  it("Probar conexión renders a reachable result distinctly from a failed one", async () => {
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText("Conectado.").closest("[data-tone]")).toHaveAttribute("data-tone", "ok");
+
+    server.use(pttTestHandler({ ok: false, detail: "Connection refused" }));
+    fireEvent.click(screen.getByRole("button", { name: "Probar conexión" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText("Connection refused").closest("[data-tone]")).toHaveAttribute(
+      "data-tone",
+      "danger"
+    );
+  });
+
+  it("disables Guardar while the save mutation is in flight", async () => {
+    let resolvePut: (() => void) | undefined;
+    server.use(
+      http.put(
+        `${API_BASE_URL}/api/ptt/config`,
+        () =>
+          new Promise((resolve) => {
+            resolvePut = () => resolve(HttpResponse.json({ stt_ws_uri: "ws://192.168.1.5:9090" }));
+          })
+      )
+    );
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.change(screen.getByLabelText("URL de conexión"), {
+      target: { value: "ws://192.168.1.5:9090" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
+
+    await act(async () => {
+      resolvePut?.();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, authFetch, getApiBaseUrl } from "./client.js";
 import { emitAppEvent } from "../lib/appEvents.js";
 
@@ -40,6 +40,7 @@ export interface PttStateResponse {
   session_id: string | null;
   buffered_chars: number;
   last_error: string | null;
+  stt_ws_url?: string | null;
 }
 
 async function pttErrorDetail(res: Response, fallback: string): Promise<string> {

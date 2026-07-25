@@ -8,15 +8,20 @@ import { server } from "../test/server.js";
 import {
   API_BASE_URL,
   defaultPttStart,
+  defaultPttState,
+  pttConfigValidationErrorHandler,
   pttKeepaliveNetworkErrorHandler,
   pttKeepaliveNotActiveHandler,
   pttSessionFlowHandlers,
   pttStartConflictHandler,
-  pttStartUnreachableHandler
+  pttStartUnreachableHandler,
+  pttStateHandler,
+  pttTestHandler
 } from "../test/handlers.js";
 import { subscribeMutationEvents } from "../lib/appEvents.js";
 import { useEventStore } from "../store/eventStore.js";
-import { usePttHold } from "./ptt.js";
+import { ValidationError } from "./client.js";
+import { postPttTest, putPttConfig, usePttHold } from "./ptt.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -307,6 +312,33 @@ describe("usePttHold: unmount safety net", () => {
     await act(async () => {
       resolveStart();
       await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+});
+
+describe("putPttConfig / postPttTest: liveaudio_url_config", () => {
+  it("putPttConfig saves and echoes back the new stt_ws_uri", async () => {
+    await expect(putPttConfig("ws://192.168.1.5:9090")).resolves.toEqual({
+      stt_ws_uri: "ws://192.168.1.5:9090"
+    });
+  });
+
+  it("putPttConfig maps a 422 (bad scheme) to ValidationError carrying the backend reason", async () => {
+    server.use(pttConfigValidationErrorHandler("stt_ws_uri must use ws:// or wss://"));
+    await expect(putPttConfig("http://nope")).rejects.toBeInstanceOf(ValidationError);
+    await expect(putPttConfig("http://nope")).rejects.toThrow("stt_ws_uri must use ws:// or wss://");
+  });
+
+  it("postPttTest returns ok:true with a detail on a reachable probe", async () => {
+    server.use(pttTestHandler({ ok: true, detail: "Conectado." }));
+    await expect(postPttTest("ws://127.0.0.1:9090")).resolves.toEqual({ ok: true, detail: "Conectado." });
+  });
+
+  it("postPttTest returns ok:false as a normal 200 response, NOT a thrown error", async () => {
+    server.use(pttTestHandler({ ok: false, detail: "Connection refused" }));
+    await expect(postPttTest("ws://127.0.0.1:9999")).resolves.toEqual({
+      ok: false,
+      detail: "Connection refused"
     });
   });
 });

@@ -16,7 +16,7 @@ import type {
   MusicTrackOut
 } from "../api/music.js";
 import type { EventLogResponse } from "../api/events.js";
-import type { PttStartResponse, PttStateResponse, PttStopResponse } from "../api/ptt.js";
+import type { PttConfigResponse, PttStartResponse, PttStateResponse, PttStopResponse, PttTestResponse } from "../api/ptt.js";
 
 // Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
 // handlers always match whatever base URL the app under test actually uses —
@@ -491,7 +491,13 @@ export const defaultEvents: EventLogResponse = { events: [], cursor: 0, boot: 0 
  * PRIVACY: never a text field, `buffered_chars` is a count only. ponytail: keep in sync manually. */
 export const defaultPttStart: PttStartResponse = { session_id: "ptt-session-1", state: "listening" };
 export const defaultPttStop: PttStopResponse = { state: "flushing" };
-export const defaultPttState: PttStateResponse = { state: "idle", session_id: null, buffered_chars: 0, last_error: null };
+export const defaultPttState: PttStateResponse = {
+  state: "idle",
+  session_id: null,
+  buffered_chars: 0,
+  last_error: null,
+  stt_ws_url: "ws://127.0.0.1:9090"
+};
 
 function musicTracksForMood(library: MusicLibraryResponse, mood: string): MusicTrackOut[] {
   return library.tracks.filter((track) => track.mood === mood && track.status === "ok");
@@ -751,7 +757,12 @@ export const handlers = [
     return HttpResponse.json({ session_id: body.session_id, state: "listening", buffered_chars: 12 });
   }),
   http.post(`${API_BASE_URL}/api/ptt/stop`, () => HttpResponse.json(defaultPttStop)),
-  http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(defaultPttState))
+  http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(defaultPttState)),
+  http.put(`${API_BASE_URL}/api/ptt/config`, async ({ request }) => {
+    const body = (await request.json()) as { stt_ws_uri: string };
+    return HttpResponse.json({ stt_ws_uri: body.stt_ws_uri });
+  }),
+  http.post(`${API_BASE_URL}/api/ptt/test`, () => HttpResponse.json({ ok: true, detail: "Conectado." }))
 ];
 
 /** Per-test override: switch rejected with 409 conflict. */
@@ -1005,48 +1016,6 @@ export function streamConnectInvalidUrlHandler() {
   return http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
     HttpResponse.json({ detail: "invalid_url" }, { status: 422 })
   );
-}
-
-/** Per-test override: GET /api/llm/provider returns a caller-supplied response
- * (e.g. an active cloud profile, an incomplete draft, or a no-key profile). */
-export function llmProviderGetHandler(response: LlmProviderResponseFixture) {
-  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json(response));
-}
-
-/** Per-test override: GET /api/llm/provider fails (generic 500). */
-export function llmProviderGetErrorHandler() {
-  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail: "boom" }, { status: 500 }));
-}
-
-/** Per-test override: GET /api/llm/provider 404 — the running backend predates
- * the route (older build). The card must show the "reopen the app" copy. */
-export function llmProviderRouteMissingHandler(detail = "llm_provider_route_missing") {
-  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 404 }));
-}
-
-/** Per-test override: PUT /api/llm/provider rejected with 422 — the activation
- * ladder / validation detail string (e.g. "api_key required for active cloud
- * profile", "invalid profile_id"). */
-export function llmProviderValidationHandler(detail = "api_key required for active cloud profile") {
-  return http.put(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 422 }));
-}
-
-/** Per-test override: PUT /api/llm/provider rejected with 503 (key_store_write_failed
- * or provider_config_write_failed). */
-export function llmProviderWriteFailedHandler(detail = "key_store_write_failed") {
-  return http.put(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 503 }));
-}
-
-/** Per-test override: PUT /api/llm/provider captures the request body for
- * assertions (mirrors agendaSessionCaptureHandler). */
-export function llmProviderPutCaptureHandler(
-  capture: { body?: unknown },
-  response: LlmProviderResponseFixture = defaultLlmProvider
-) {
-  return http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
-    capture.body = await request.json();
-    return HttpResponse.json(response);
-  });
 }
 
 /** Per-test override: POST /api/stream/chat-live/connect rejected with 409 busy (aggregator lock held). */
@@ -1452,6 +1421,24 @@ export function pttKeepaliveNetworkErrorHandler() {
  * (e.g. a fixed flushing/buffered_chars snapshot). */
 export function pttStateHandler(response: PttStateResponse) {
   return http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: PUT /api/ptt/config rejected with 422 (bad scheme —
+ * server only accepts ws:// or wss://). */
+export function pttConfigValidationErrorHandler(detail = "stt_ws_uri must use ws:// or wss://") {
+  return http.put(`${API_BASE_URL}/api/ptt/config`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: PUT /api/ptt/config succeeds with a caller-supplied
+ * response (echoes back whatever URI the caller wants saved). */
+export function pttConfigHandler(response: PttConfigResponse) {
+  return http.put(`${API_BASE_URL}/api/ptt/config`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: POST /api/ptt/test reports a specific ok/detail pair —
+ * still 200 even for a failed probe (never an HTTP error). */
+export function pttTestHandler(response: PttTestResponse) {
+  return http.post(`${API_BASE_URL}/api/ptt/test`, () => HttpResponse.json(response));
 }
 
 /**

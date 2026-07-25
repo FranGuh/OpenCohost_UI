@@ -2,10 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Card } from "./ui/Card.js";
 import { Button } from "./ui/Button.js";
+import { Alert } from "./ui/Alert.js";
 import { cn } from "../lib/cn.js";
-import { usePttHold } from "../api/ptt.js";
+import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../api/ptt.js";
 import { ERROR_COPY, STATE_COPY } from "../api/pttCopy.js";
 import { useLastReply } from "../api/chat.js";
+
+const inputClass =
+  "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
+
+/** Server only accepts ws:// or wss:// (liveaudio_url_config contract) —
+ * caught client-side so an obviously wrong scheme never wastes a round trip. */
+function isValidWsScheme(url: string): boolean {
+  return /^wss?:\/\//i.test(url.trim());
+}
 
 /** Text-entry focus (chat box, profile/OBS fields, memoria editing, …) must
  * never be hijacked by the in-app Space/Enter hold shortcut.
@@ -30,6 +40,48 @@ export function PTTCard() {
   const { state, error, start, stop } = usePttHold();
   const lastReply = useLastReply();
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // LiveAudio (WhisperLive) URL configuration (liveaudio_url_config track).
+  // GET /api/ptt/state already carries the active stt_ws_url — hydrated once
+  // below, then re-hydrated whenever the save mutation patches that cache.
+  const pttState = usePttStateQuery();
+  const updateWsConfig = useUpdatePttConfigMutation();
+  const testWsConnection = useTestPttConnectionMutation();
+  const [wsUrl, setWsUrl] = useState("");
+  const [schemeError, setSchemeError] = useState<string | null>(null);
+  const activeWsUrl = pttState.data?.stt_ws_url ?? null;
+
+  useEffect(() => {
+    if (activeWsUrl != null) setWsUrl(activeWsUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWsUrl]);
+
+  function onWsUrlChange(next: string) {
+    setSchemeError(null);
+    if (updateWsConfig.isError) updateWsConfig.reset();
+    if (testWsConnection.isSuccess || testWsConnection.isError) testWsConnection.reset();
+    setWsUrl(next);
+  }
+
+  function saveWsUrl() {
+    const trimmed = wsUrl.trim();
+    if (!isValidWsScheme(trimmed)) {
+      setSchemeError("La URL debe empezar con ws:// o wss://.");
+      return;
+    }
+    setSchemeError(null);
+    updateWsConfig.mutate(trimmed);
+  }
+
+  function runWsTest() {
+    const trimmed = wsUrl.trim();
+    if (!isValidWsScheme(trimmed)) {
+      setSchemeError("La URL debe empezar con ws:// o wss://.");
+      return;
+    }
+    setSchemeError(null);
+    testWsConnection.mutate(trimmed);
+  }
   // Read at render time, not just inside effects/handlers below: react-query
   // v5's "tracked queries" optimization only re-renders this component for
   // properties it saw ACCESSED DURING RENDER — touching `.data` only inside
@@ -179,6 +231,52 @@ export function PTTCard() {
             Mapear atajo requiere la app de escritorio (Tauri) — un tab de navegador no puede registrar un atajo
             global.
           </p>
+        </section>
+
+        <section aria-labelledby="ptt-liveaudio-label" className="space-y-3 border-t border-border-soft pt-3.5">
+          <span id="ptt-liveaudio-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            LiveAudio (WhisperLive)
+          </span>
+
+          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+            <span className="text-[13px] text-foreground">URL activa</span>
+            <span className="mono text-[11px] text-dim">{activeWsUrl ?? "sin configurar"}</span>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="ptt-ws-url" className="text-[13px] text-foreground">
+              URL de conexión
+            </label>
+            <input
+              id="ptt-ws-url"
+              type="text"
+              inputMode="url"
+              value={wsUrl}
+              onChange={(e) => onWsUrlChange(e.target.value)}
+              placeholder="ws://127.0.0.1:9090"
+              className={inputClass}
+            />
+          </div>
+
+          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+            <Button type="button" disabled={updateWsConfig.isPending} onClick={saveWsUrl}>
+              Guardar
+            </Button>
+            <Button type="button" variant="outline" disabled={testWsConnection.isPending} onClick={runWsTest}>
+              Probar conexión
+            </Button>
+          </div>
+
+          {schemeError && <Alert tone="warn">{schemeError}</Alert>}
+          {updateWsConfig.isError && (
+            <Alert tone="danger">{updateWsConfig.error?.message ?? "No se pudo guardar la URL de LiveAudio."}</Alert>
+          )}
+          {testWsConnection.isError && (
+            <Alert tone="danger">{testWsConnection.error?.message ?? "No se pudo probar la conexión con LiveAudio."}</Alert>
+          )}
+          {testWsConnection.data && (
+            <Alert tone={testWsConnection.data.ok ? "ok" : "danger"}>{testWsConnection.data.detail}</Alert>
+          )}
         </section>
       </div>
     </Card>
