@@ -22,11 +22,16 @@ import {
   postAgendaTopic,
   saveCohostProfile,
   selectCohostProfile,
+  useAgendaEvents,
   useAgendaSessionActionMutation,
   useCohostProfilesQuery,
   useSaveCohostProfileMutation,
-  useSelectCohostProfileMutation
+  useSelectCohostProfileMutation,
+  AGENDA_EVENT_CAP,
+  AGENDA_QUERY_KEY
 } from "./agenda.js";
+import { act } from "@testing-library/react";
+import type { AgendaResponse } from "./agenda.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -157,5 +162,80 @@ describe("useSelectCohostProfileMutation", () => {
     result.current.mutate({ name: "Natural" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidatedKeys).toEqual([["agenda"]]);
+  });
+});
+
+/**
+ * Progressive-slowdown guard (2026-07-24). `useAgendaEvents` accumulated its
+ * event array forever, and BOTH that array and the internal `seen` dedup Set
+ * grew unbounded for the whole life of a stream. Every one of those events
+ * becomes a row that ConversationPanel re-maps/re-sorts/re-filters on every
+ * render, so an uncapped list is a per-render cost multiplier over a multi-hour
+ * session. Same ring-buffer contract as eventStore's EVENT_CAP: bounded length,
+ * oldest-first eviction, newest kept.
+ */
+describe("useAgendaEvents ring buffer (progressive-slowdown guard)", () => {
+  /** Snapshot whose active topic has spoken `turns` turns — each new value
+   * diffs into exactly one "turno N" event. */
+  function snapshotAtTurn(turns: number): AgendaResponse {
+    return {
+      ...defaultAgenda,
+      active_topic: { ...defaultAgenda.active_topic!, turns_spoken: turns }
+    };
+  }
+
+  it("caps the accumulated event stream at AGENDA_EVENT_CAP, evicting oldest-first", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+
+    // Seed the cache before mount so the hook has data on first render; the
+    // first snapshot only anchors the baseline and emits nothing.
+    queryClient.setQueryData(AGENDA_QUERY_KEY, snapshotAtTurn(0));
+    const { result } = renderHook(() => useAgendaEvents(), { wrapper });
+
+    // Every id the hook has EVER emitted, in order. react-query coalesces
+    // rapid cache writes, so not every pushed snapshot becomes an event — we
+    // record what actually landed instead of assuming a 1:1 mapping, which
+    // makes the eviction assertion below exact rather than probabilistic.
+    const emitted: string[] = [];
+    const record = () => {
+      for (const event of result.current) {
+        if (!emitted.includes(event.id)) emitted.push(event.id);
+      }
+    };
+
+    const target = AGENDA_EVENT_CAP + 25;
+    for (let turn = 1; emitted.length < target && turn <= target * 20; turn++) {
+      // Push snapshots straight into the shared cache — the same observer the
+      // poll feeds, without paying a real 1500ms interval per event.
+      await act(async () => {
+        queryClient.setQueryData(AGENDA_QUERY_KEY, snapshotAtTurn(turn));
+      });
+      record();
+    }
+    expect(emitted.length).toBeGreaterThan(AGENDA_EVENT_CAP); // the flood really overflowed
+
+    const events = result.current;
+    // Bounded: this is the whole point — an uncapped stream grew forever.
+    expect(events).toHaveLength(AGENDA_EVENT_CAP);
+    // Oldest-first eviction, order preserved oldest -> newest (what the
+    // timeline sorts on): the survivors are exactly the last CAP emitted.
+    expect(events.map((e) => e.id)).toEqual(emitted.slice(emitted.length - AGENDA_EVENT_CAP));
+    expect(events.some((e) => e.id === emitted[0])).toBe(false); // the very first is gone
+
+    // Dedup survives the cap change: the old implementation deduped against an
+    // unbounded `seen` Set that grew for the whole stream. Dedup now rides on
+    // the retained window instead, so re-observing a snapshot that is still in
+    // that window must NOT duplicate its event line.
+    await act(async () => {
+      queryClient.setQueryData(AGENDA_QUERY_KEY, snapshotAtTurn(0)); // rewind
+    });
+    await act(async () => {
+      queryClient.setQueryData(AGENDA_QUERY_KEY, snapshotAtTurn(target)); // replay a retained id
+    });
+    const ids = result.current.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(result.current.length).toBeLessThanOrEqual(AGENDA_EVENT_CAP);
   });
 });

@@ -304,6 +304,13 @@ export interface AgendaEvent {
   ts: number;
 }
 
+/** Ring-buffer cap, same contract and same rationale as eventStore's
+ * EVENT_CAP: every agenda event becomes a row ConversationPanel re-maps,
+ * re-sorts and re-filters on every render, so an unbounded stream is a
+ * per-render cost multiplier over a multi-hour session. Eviction is
+ * oldest-first — a timeline wants the recent end. */
+export const AGENDA_EVENT_CAP = 200;
+
 const AGENDA_PAUSED_STATES = new Set(["PAUSED", "HARD_PAUSED"]);
 
 /**
@@ -368,7 +375,6 @@ export function useAgendaEvents(): AgendaEvent[] {
     refetchIntervalInBackground: true
   });
   const prevRef = useRef<AgendaResponse | null>(null);
-  const seenRef = useRef<Set<string>>(new Set());
   const [events, setEvents] = useState<AgendaEvent[]>([]);
 
   useEffect(() => {
@@ -376,11 +382,21 @@ export function useAgendaEvents(): AgendaEvent[] {
     const prev = prevRef.current;
     prevRef.current = data;
     if (prev === null) return; // first snapshot only anchors the baseline
-    const fresh = diffAgendaSnapshots(prev, data).filter((event) => !seenRef.current.has(event.id));
-    if (fresh.length === 0) return;
+    const candidates = diffAgendaSnapshots(prev, data);
+    if (candidates.length === 0) return;
     const ts = Date.now();
-    for (const event of fresh) seenRef.current.add(event.id);
-    setEvents((current) => [...current, ...fresh.map((event) => ({ ...event, ts }))]);
+    setEvents((current) => {
+      // Dedup against the RETAINED window instead of a side `seen` Set. That
+      // Set used to grow for the entire stream (one entry per event, never
+      // released) alongside an equally unbounded `events` array — two leaks for
+      // one job. Deriving it here means the dedup window and the ring buffer
+      // are the same bounded thing, and there is nothing left to grow.
+      const seen = new Set(current.map((event) => event.id));
+      const fresh = candidates.filter((event) => !seen.has(event.id));
+      if (fresh.length === 0) return current;
+      const next = [...current, ...fresh.map((event) => ({ ...event, ts }))];
+      return next.length > AGENDA_EVENT_CAP ? next.slice(next.length - AGENDA_EVENT_CAP) : next;
+    });
   }, [data]);
 
   return events;
