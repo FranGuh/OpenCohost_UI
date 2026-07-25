@@ -8,6 +8,11 @@ import { ApiError, ValidationError, authFetch, getApiBaseUrl } from "./client.js
  * generated type — hand-typed from opencohost/api/models.py::
  * ObsConfigResponse/ObsConfigRequest/ObsTestResponse. R8/secret:
  * `password_set` is a bool only, the real password is never echoed back.
+ *
+ * SECRET (F1, same leak as llmProvider.ts's api_key): TanStack retains
+ * `mutation.state.variables` (the request body) on the MutationCache for
+ * ~gcTime after settle — both mutations below scrub `password` off that
+ * retained object in place in `onSettled` so it doesn't linger there either.
  * ponytail: keep in sync manually if those models change.
  */
 export interface ObsConfigResponse {
@@ -110,12 +115,23 @@ export function useUpdateObsConfigMutation() {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(OBS_CONFIG_QUERY_KEY, data);
+    },
+    onSettled: (_data, _error, variables) => {
+      // F1 (mirrors useUpdateLlmProvider's api_key scrub): `variables` here is
+      // the SAME object TanStack retains as mutation.state.variables — deleting
+      // password on it in place scrubs the secret from the retained
+      // MutationCache entry, not just a copy.
+      if ("password" in variables) delete variables.password;
     }
   });
 }
 
 export function useTestObsConnectionMutation() {
   return useMutation({
-    mutationFn: postObsTest
+    mutationFn: postObsTest,
+    onSettled: (_data, _error, variables) => {
+      // Same F1 leak, same fix: "Probar conexión" sends the same password field.
+      if ("password" in variables) delete variables.password;
+    }
   });
 }
