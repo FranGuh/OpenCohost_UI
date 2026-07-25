@@ -16,6 +16,7 @@ interface CustomProps {
   onChange: (value: string) => void;
   disabled?: boolean;
   "aria-label"?: string;
+  "aria-labelledby"?: string;
   "aria-describedby"?: string;
   className?: string;
 }
