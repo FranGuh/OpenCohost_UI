@@ -19,9 +19,10 @@ import {
   pttTestHandler
 } from "../test/handlers.js";
 import { subscribeMutationEvents } from "../lib/appEvents.js";
+import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import { useEventStore } from "../store/eventStore.js";
 import { ValidationError } from "./client.js";
-import { postPttTest, putPttConfig, usePttHold } from "./ptt.js";
+import { postPttTest, putPttConfig, usePttHold, usePttServerSignal } from "./ptt.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -40,7 +41,10 @@ function countingHandler<T extends object>(path: string, response: T) {
   return { counter, handler };
 }
 
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() => {
+  vi.useFakeTimers();
+  useAvatarLiveState.setState({ listening: false, lastPttTs: 0 });
+});
 afterEach(() => vi.useRealTimers());
 
 describe("usePttHold: start", () => {
@@ -314,6 +318,74 @@ describe("usePttHold: unmount safety net", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
   });
+});
+
+describe("usePttHold: shared avatar signal", () => {
+  it("publishes listening to the avatar store the instant the hold opens, and clears it on release", async () => {
+    const { result } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
+    expect(useAvatarLiveState.getState().listening).toBe(false);
+
+    act(() => result.current.start());
+    // "connecting" is not listening — the avatar must not lie any earlier than
+    // the button does.
+    expect(useAvatarLiveState.getState().listening).toBe(false);
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.state).toBe("listening");
+    expect(useAvatarLiveState.getState().listening).toBe(true);
+
+    act(() => result.current.stop());
+    expect(result.current.state).toBe("flushing");
+    expect(useAvatarLiveState.getState().listening).toBe(false); // flushing = "procesando", not a live mic
+  });
+
+  it("beats the heartbeat on every keepalive so a hold longer than the freshness window stays live", async () => {
+    const { result } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
+    act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const opened = useAvatarLiveState.getState().lastPttTs;
+
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(useAvatarLiveState.getState().listening).toBe(true);
+    expect(useAvatarLiveState.getState().lastPttTs).toBeGreaterThan(opened);
+  });
+
+  it("clears the signal when the server guillotines the session", async () => {
+    const { result } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
+    act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(useAvatarLiveState.getState().listening).toBe(true);
+
+    server.use(pttKeepaliveNotActiveHandler());
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(result.current.state).toBe("idle");
+    expect(useAvatarLiveState.getState().listening).toBe(false);
+  });
+});
+
+describe("usePttServerSignal: covers the EXTERNAL F10 bridge", () => {
+  it("publishes listening from the server poll, with no in-app hold involved at all", async () => {
+    // The owner's real surface: an OS-level F10 bridge posts /api/ptt/start
+    // directly, so no usePttHold instance ever sees it. The polled server state
+    // is the ONLY signal that observes that session.
+    server.use(pttStateHandler({ ...defaultPttState, state: "listening", session_id: "f10-bridge" }));
+    renderHook(() => usePttServerSignal(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(useAvatarLiveState.getState().listening).toBe(true);
+  });
+
+  it("clears the signal once the server session is no longer listening", async () => {
+    useAvatarLiveState.setState({ listening: true, lastPttTs: Date.now() });
+    server.use(pttStateHandler({ ...defaultPttState, state: "flushing" }));
+    renderHook(() => usePttServerSignal(), { wrapper: createWrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(useAvatarLiveState.getState().listening).toBe(false);
+  });
+
+  // Background cadence (the window is covered while F10 is held) is pinned
+  // alongside the other live polls in backgroundPolling.test.ts.
 });
 
 describe("putPttConfig / postPttTest: liveaudio_url_config", () => {

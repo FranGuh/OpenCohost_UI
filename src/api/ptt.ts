@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, authFetch, getApiBaseUrl } from "./client.js";
+import { ApiError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 import { emitAppEvent } from "../lib/appEvents.js";
+import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 
 /**
  * Push-to-Talk endpoints (opencohost/api/main.py ~1794-1828, WU2) are brand
@@ -40,7 +41,22 @@ export interface PttStateResponse {
   session_id: string | null;
   buffered_chars: number;
   last_error: string | null;
+  /** LiveAudio (WhisperLive) connection URL currently configured on the
+   * server (liveaudio_url_config track). Read-only here — change it via
+   * PUT /api/ptt/config below. Optional: older backends omit the field. */
   stt_ws_url?: string | null;
+}
+
+/** PUT /api/ptt/config body/response (liveaudio_url_config track). Field is
+ * spelled `stt_ws_uri` here (write side) vs. `stt_ws_url` on GET /api/ptt/state
+ * (read side) — that mismatch is the pinned backend contract, not a typo. */
+export interface PttConfigResponse {
+  stt_ws_uri: string;
+}
+
+export interface PttTestResponse {
+  ok: boolean;
+  detail: string;
 }
 
 async function pttErrorDetail(res: Response, fallback: string): Promise<string> {
@@ -119,6 +135,110 @@ export async function getPttState(): Promise<PttStateResponse> {
   return (await res.json()) as PttStateResponse;
 }
 
+/**
+ * PUT /api/ptt/config — sets the LiveAudio (WhisperLive) connection URL.
+ * 422 (bad scheme: server only accepts ws:// or wss://) carries a specific
+ * reason and must render honestly, never a generic failure.
+ */
+export async function putPttConfig(sttWsUri: string): Promise<PttConfigResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/ptt/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stt_ws_uri: sttWsUri })
+  });
+  if (res.status === 422) {
+    throw new ValidationError(await pttErrorDetail(res, "invalid stt_ws_uri"));
+  }
+  if (!res.ok) {
+    throw new ApiError(`PUT /api/ptt/config failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as PttConfigResponse;
+}
+
+/**
+ * POST /api/ptt/test — probes LiveAudio reachability. `sttWsUri` omitted
+ * tests the currently saved URL. ALWAYS 200: a failed probe is `ok:false`
+ * with a `detail` reason, never an HTTP error — do not treat it as a
+ * mutation failure.
+ */
+export async function postPttTest(sttWsUri?: string): Promise<PttTestResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/ptt/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sttWsUri ? { stt_ws_uri: sttWsUri } : {})
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST /api/ptt/test failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as PttTestResponse;
+}
+
+export const PTT_STATE_QUERY_KEY = ["ptt-state"] as const;
+
+/** Read-only current LiveAudio config (and lifecycle state) — powers the
+ * "URL activa" readout in PTTCard. One-shot fetch, no polling: the
+ * save mutation below patches this same cache entry on success instead. */
+export function usePttStateQuery() {
+  return useQuery({ queryKey: PTT_STATE_QUERY_KEY, queryFn: getPttState });
+}
+
+export function useUpdatePttConfigMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putPttConfig,
+    onSuccess: (data) => {
+      // Field-name mismatch is the pinned contract (uri here, url on GET) —
+      // map explicitly rather than spreading the response into the cache.
+      queryClient.setQueryData<PttStateResponse>(PTT_STATE_QUERY_KEY, (old) =>
+        old ? { ...old, stt_ws_url: data.stt_ws_uri } : old
+      );
+    }
+  });
+}
+
+export function useTestPttConnectionMutation() {
+  return useMutation({ mutationFn: postPttTest });
+}
+
+/** Cadence of the app-wide PTT presence poll below — same 1Hz as the keepalive
+ * and as useLiveTranscript, which shares this exact query entry. */
+const PTT_SIGNAL_POLL_MS = 1000;
+
+/**
+ * App-wide "is a PTT hold open" signal, mirrored into `avatarLiveStore` so the
+ * avatar can show "escuchando". Mount ONCE (EventBridge); it returns nothing.
+ *
+ * This is the ONLY signal that sees the EXTERNAL F10 bridge: that hotkey posts
+ * /api/ptt/start from outside the webview, so no `usePttHold` instance ever
+ * learns the session exists. `usePttHold` publishes the same flag on its own
+ * transitions for instant in-app feedback — both describe the same single-slot
+ * server session, so they cannot disagree, they only differ in latency.
+ *
+ * Deliberately NOT merged with usePttHold's flush poll: that one must only ever
+ * observe state fetched AFTER its own release, or a cached "idle" from before
+ * the hold would converge it to idle the instant it starts flushing.
+ */
+export function usePttServerSignal(): void {
+  const query = useQuery({
+    queryKey: PTT_STATE_QUERY_KEY,
+    queryFn: getPttState,
+    refetchInterval: PTT_SIGNAL_POLL_MS,
+    // The external F10 bridge is held precisely while the window sits behind
+    // the game, so this poll above all others must survive backgrounding.
+    refetchIntervalInBackground: true
+  });
+
+  const listening = query.data?.state === "listening";
+  // `dataUpdatedAt` (not `data`) is the dep on purpose: react-query's structural
+  // sharing keeps the SAME object across identical responses, so `data` alone
+  // would fire once and then let the store's freshness stamp go stale mid-hold.
+  // Every tick re-asserting is what makes the stamp a heartbeat; the store
+  // no-ops the idle ticks, so this costs nothing while nothing is held.
+  useEffect(() => {
+    useAvatarLiveState.getState().setListening(listening);
+  }, [listening, query.dataUpdatedAt]);
+}
+
 const KEEPALIVE_MS = 1000;
 const PTT_FLUSH_POLL_QUERY_KEY = ["ptt-flush-poll"] as const;
 
@@ -155,7 +275,14 @@ export function usePttHold(): UsePttHoldResult {
   const mountedRef = useRef(true);
 
   const setUiState = useCallback((next: PttUiState) => {
+    const prev = stateRef.current;
     stateRef.current = next;
+    // Shared avatar signal: only real EDGES of the live-mic state are published,
+    // so a second hook instance idling on another surface can never stomp an
+    // open hold. "listening" is the only state that means a live mic —
+    // connecting and flushing must not light the avatar up.
+    if (next === "listening") useAvatarLiveState.getState().setListening(true);
+    else if (prev === "listening") useAvatarLiveState.getState().setListening(false);
     if (mountedRef.current) setState(next);
   }, []);
 
@@ -194,7 +321,10 @@ export function usePttHold(): UsePttHoldResult {
       keepaliveRef.current = setInterval(() => {
         postPttKeepalive(sessionId)
           .then((res) => {
-            if (res.state !== "listening") goIdle(); // server moved on without us
+            if (res.state !== "listening") return goIdle(); // server moved on without us
+            // Heartbeat for the shared avatar signal: re-stamping it every beat
+            // is what lets a hold outlive the freshness window in KiraCover.
+            useAvatarLiveState.getState().setListening(true);
           })
           .catch((err: unknown) => {
             // 409 = server guillotined us (missed 3 beats); anything else =
@@ -251,7 +381,10 @@ export function usePttHold(): UsePttHoldResult {
     queryFn: getPttState,
     enabled: state === "flushing",
     refetchInterval: 1000,
-    refetchIntervalInBackground: false
+    // Keeps polling while the window is covered: releasing a hold from behind
+    // OBS or a fullscreen game must still converge to idle, otherwise the card
+    // sits on "Procesando…" until the operator focuses the window.
+    refetchIntervalInBackground: true
   });
 
   useEffect(() => {
