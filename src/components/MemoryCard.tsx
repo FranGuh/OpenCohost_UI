@@ -110,6 +110,10 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
         {item.private && <Badge tone="neutral">privada</Badge>}
         {item.inactive && <Badge tone="warn">inactiva</Badge>}
         {item.imported && <Badge tone="neutral">importada</Badge>}
+        {/* memoria_draft_visibility_20260725: an auto-captured row with no
+            operator confirmation — display-only, mirrors EditorialCardsCard's
+            existing neutral "borrador" badge (same word, same tone). */}
+        {item.draft && <Badge tone="neutral">borrador</Badge>}
         <Button type="button" variant="ghost" onClick={toggle}>
           {expanded ? "Ocultar memoria" : "Ver memoria"}
         </Button>

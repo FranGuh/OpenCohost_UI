@@ -72,6 +72,11 @@ export interface MemoriaListItem {
   // the fields above) — the orchestrator regenerates the snapshot via the
   // openapi prebuild. ponytail: keep in sync manually until then.
   imported: boolean;
+  // memoria_draft_visibility_20260725: True when status='draft' — an
+  // auto-captured row with no operator confirmation yet. Mirrors `imported`'s
+  // derivation shape (opencohost/api/models.py::MemoriaListItem.draft).
+  // ponytail: keep in sync manually until the snapshot is regenerated.
+  draft: boolean;
 }
 export interface MemoriaListResponse {
   items: MemoriaListItem[];
@@ -97,6 +102,8 @@ export interface MemoriaRowResponse {
   pinned: boolean;
   private: boolean;
   inactive: boolean;
+  // memoria_draft_visibility_20260725: mirrors MemoriaListItem.draft above.
+  draft: boolean;
 }
 
 /**

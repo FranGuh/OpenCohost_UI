@@ -802,6 +802,50 @@ describe("MemoryCard importada badge (WU4)", () => {
   });
 });
 
+describe("MemoryCard draft visibility (WU-D)", () => {
+  function listWith(items: Array<Record<string, unknown>>) {
+    return http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json({ items }));
+  }
+
+  it("marks a draft row as provisional and leaves a curated row unmarked", async () => {
+    server.use(
+      listWith([
+        {
+          id: "mem_draft",
+          title: "Memoria en borrador",
+          created_at: "2026-01-01T00:00:00+00:00",
+          updated_at: "2026-01-01T00:00:00+00:00",
+          revision: 1,
+          pinned: false,
+          private: false,
+          inactive: false,
+          imported: false,
+          draft: true
+        },
+        {
+          id: "mem_curated",
+          title: "Memoria curada",
+          created_at: "2026-01-02T00:00:00+00:00",
+          updated_at: "2026-01-02T00:00:00+00:00",
+          revision: 1,
+          pinned: false,
+          private: false,
+          inactive: false,
+          imported: false,
+          draft: false
+        }
+      ])
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria en borrador")).toBeInTheDocument());
+
+    expect(screen.getByText("Memoria curada")).toBeInTheDocument();
+    // Exactly one row carries the "borrador" badge — the curated row has none.
+    expect(screen.getAllByText("borrador")).toHaveLength(1);
+  });
+});
+
 describe("MemoryCard memoria list — provenance filter chips (Ticket C)", () => {
   function listWith(items: Array<Record<string, unknown>>) {
     return http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json({ items }));

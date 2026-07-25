@@ -141,6 +141,9 @@ export interface MemoriaListItemFixture {
   // (opencohost/api/main.py::get_memoria_list computes it from the row status)
   // so MemoriaRow can render the "importada" badge. ponytail: keep in sync.
   imported: boolean;
+  // memoria_draft_visibility_20260725: mirrors `imported`'s derivation shape
+  // (status='draft' -> true) so MemoriaRow can render the "borrador" badge.
+  draft: boolean;
 }
 
 export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
@@ -154,7 +157,10 @@ export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
       pinned: true,
       private: false,
       inactive: false,
-      imported: false
+      imported: false,
+      // Pin promotes to 'curated' one-way server-side (F5) — a pinned row is
+      // never a draft.
+      draft: false
     },
     {
       id: "mem_b",
@@ -165,7 +171,22 @@ export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
       pinned: false,
       private: true,
       inactive: false,
-      imported: false
+      imported: false,
+      // Private also promotes to 'curated' one-way (F5) — same reasoning.
+      draft: false
+    },
+    {
+      id: "mem_c",
+      title: "Título memoria C",
+      created_at: "2026-01-03T00:00:00+00:00",
+      updated_at: "2026-01-03T00:00:00+00:00",
+      revision: 1,
+      pinned: false,
+      private: false,
+      inactive: false,
+      imported: false,
+      // memoria_draft_visibility_20260725: a genuine unconfirmed auto-capture.
+      draft: true
     }
   ]
 };
@@ -204,6 +225,10 @@ export interface MemoriaRowResponseFixture {
   pinned: boolean;
   private: boolean;
   inactive: boolean;
+  /** memoria_draft_visibility_20260725 — required on MemoriaRowResponse
+   * (src/api/client.ts). No consumer reads it yet, so nothing fails without it;
+   * it is here so the fixture cannot disagree with the contract it mirrors. */
+  draft: boolean;
 }
 
 export const defaultMemoriaRows: Record<string, MemoriaRowResponseFixture> = {
@@ -215,7 +240,8 @@ export const defaultMemoriaRows: Record<string, MemoriaRowResponseFixture> = {
     updated_at: "2026-01-01T00:00:00+00:00",
     pinned: true,
     private: false,
-    inactive: false
+    inactive: false,
+    draft: false
   },
   mem_b: {
     id: "mem_b",
@@ -225,7 +251,8 @@ export const defaultMemoriaRows: Record<string, MemoriaRowResponseFixture> = {
     updated_at: "2026-01-02T00:00:00+00:00",
     pinned: false,
     private: true,
-    inactive: false
+    inactive: false,
+    draft: false
   }
 };
 
