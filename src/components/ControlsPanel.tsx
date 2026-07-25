@@ -3,6 +3,7 @@ import { Card } from "./ui/Card.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "./ui/Collapsible.js";
 import { ProfileSwitcher } from "./ProfileSwitcher.js";
 import { ModelCard } from "./ModelCard.js";
+import { ProviderCard } from "./ProviderCard.js";
 import { VoiceCard } from "./VoiceCard.js";
 import { PTTCard } from "./PTTCard.js";
 import { MemoryCard } from "./MemoryCard.js";
@@ -48,6 +49,7 @@ export function ControlsPanel() {
       <ControlGroup title="Perfil y modelo" persistKey="controles-perfil-modelo">
         <ProfileSwitcher />
         <ModelCard />
+        <ProviderCard />
       </ControlGroup>
       <ControlGroup title="Voz y micrófono" persistKey="controles-voz-microfono">
         <VoiceCard />
