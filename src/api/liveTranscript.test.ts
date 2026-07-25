@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
 import { API_BASE_URL } from "../test/handlers.js";
+import { useEventStore } from "../store/eventStore.js";
 import { appendSegment, finalizeTranscript, useLiveTranscript } from "./liveTranscript.js";
 
 function createWrapper() {
@@ -48,6 +49,9 @@ beforeEach(() => {
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
   current = pttState("idle");
+  // Module singleton — the per-hold stamp below reads the server `ptt.*` echoes
+  // out of it, so every test starts with an empty feed.
+  useEventStore.setState({ events: [] });
   server.use(http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(current)));
 });
 afterEach(() => {
@@ -96,7 +100,9 @@ describe("useLiveTranscript: lifecycle", () => {
     current = pttState("idle");
     await pollTick(); // backend flushed -> resolve + disconnect
     expect(onTranscript).toHaveBeenCalledTimes(1);
-    expect(onTranscript).toHaveBeenCalledWith("probando el eco de voz");
+    // Second arg: this hold's borrowable server stamp — 0 here, no ptt echo was
+    // ever polled (see the per-hold stamp describe below).
+    expect(onTranscript).toHaveBeenCalledWith("probando el eco de voz", 0);
     expect(ws.closed).toBe(true);
 
     await pollTick(); // still idle: no re-fire, no re-dial
@@ -172,6 +178,92 @@ describe("useLiveTranscript: lifecycle", () => {
     unmount();
     expect(ws.closed).toBe(true);
     expect(onTranscript).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Per-hold ptt stamp (feed-inversion fix). The voice channel has NO server clock
+ * of its own — the words never cross the OpenCohost HTTP API — so a voice turn
+ * borrows the newest server `ptt.*` echo as its sort key. But this hook's
+ * GET /api/ptt/state poll (1s) and the GET /api/events poll (1.5s) are
+ * INDEPENDENT queries, throttled unevenly while a WebView2 window sits behind a
+ * game: at echo time the newest ptt row in the store can still be the PREVIOUS
+ * hold's. A running maximum accepts exactly that stale row and stamps the second
+ * spoken turn ABOVE the answer to the first.
+ *
+ * So the invariant is per-hold, not monotonic: snapshot the newest ptt ts at the
+ * hold's RISING EDGE as a baseline, and hand the consumer a stamp only when the
+ * newest ts at the echo is strictly GREATER — i.e. that reading demonstrably
+ * arrived while this hold was live. Otherwise hand over 0, meaning "nothing
+ * borrowable, use arrival time".
+ */
+describe("useLiveTranscript: per-hold ptt stamp", () => {
+  // Server-clock readings for one hold pair. ptt.auto_stopped/flushed/empty are
+  // KNOWN_SILENT (src/lib/appEvents.ts), so a watchdog-terminated hold leaves
+  // ONLY `ptt.started` behind — that is the single-reading case below.
+  const T_STARTED_H1 = 1_000_000;
+  const T_STOPPED_H1 = 1_030_000;
+
+  function appendPtt(id: string, ts: number) {
+    useEventStore.getState().append({ id, ts, source: "ptt", label: "PTT enviado a Kira", tone: "ok" });
+  }
+
+  /** One full hold: listening -> (optional mid-hold poll arrival) -> idle. */
+  async function hold(text: string, arrivesDuringHold?: () => void) {
+    current = pttState("listening");
+    await pollTick();
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    act(() => ws.emit(JSON.stringify({ text })));
+    arrivesDuringHold?.();
+    current = pttState("idle");
+    await pollTick();
+  }
+
+  it("borrows the ONLY reading a watchdog-terminated hold leaves (ptt.started), which arrived during the hold", async () => {
+    const onTranscript = vi.fn();
+    renderHook(() => useLiveTranscript(onTranscript), { wrapper: createWrapper() });
+    await tick(0);
+
+    await hold("primer turno de voz", () => appendPtt("srv-started-h1", T_STARTED_H1));
+
+    expect(onTranscript).toHaveBeenCalledWith("primer turno de voz", T_STARTED_H1);
+  });
+
+  it("hands over 0 for a second hold whose newest visible ptt row predates its rising edge", async () => {
+    const onTranscript = vi.fn();
+    renderHook(() => useLiveTranscript(onTranscript), { wrapper: createWrapper() });
+    await tick(0);
+
+    // Hold 1 borrows its own started(h1), the only row polled so far.
+    await hold("primer turno de voz", () => appendPtt("srv-started-h1", T_STARTED_H1));
+    expect(onTranscript).toHaveBeenNthCalledWith(1, "primer turno de voz", T_STARTED_H1);
+
+    // stopped(h1) is polled only BETWEEN the holds, so it is hold 2's baseline —
+    // never hold 2's stamp. A running maximum would hand it over (it is greater
+    // than the T_STARTED_H1 already used) and sort hold 2 above Kira's answer to
+    // hold 1, which sits between the two readings.
+    appendPtt("srv-stopped-h1", T_STOPPED_H1);
+    await hold("segundo turno de voz");
+
+    expect(onTranscript).toHaveBeenNthCalledWith(2, "segundo turno de voz", 0);
+  });
+
+  it("zero-baseline hold: nothing polled during hold 1, and hold 2 still cannot borrow the stale row", async () => {
+    const onTranscript = vi.fn();
+    renderHook(() => useLiveTranscript(onTranscript), { wrapper: createWrapper() });
+    await tick(0);
+
+    // Hold 1 echoes before ANY ptt row has been polled: nothing to borrow.
+    await hold("primer turno de voz");
+    expect(onTranscript).toHaveBeenNthCalledWith(1, "primer turno de voz", 0);
+
+    // stopped(h1) lands late — minutes stale by hold 2's rising edge. The running
+    // maximum left its ref at 0 in this exact case, so hold 2 borrowed this stale
+    // reading and sorted far above hold 1's own bubble.
+    appendPtt("srv-stopped-h1", T_STOPPED_H1);
+    await hold("segundo turno de voz");
+
+    expect(onTranscript).toHaveBeenNthCalledWith(2, "segundo turno de voz", 0);
   });
 });
 

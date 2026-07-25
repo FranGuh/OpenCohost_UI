@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PTT_STATE_QUERY_KEY, getPttState, type PttStateResponse } from "./ptt.js";
+import { useEventStore } from "../store/eventStore.js";
 
 /**
  * Live transcript echo (transcript-echo follow-up to liveaudio_ptt_tauri):
@@ -72,12 +73,42 @@ export function finalizeTranscript(buffer: string): string {
   return text.split(/\s+/).filter(Boolean).length >= MIN_WORDS ? text : "";
 }
 
+/** Newest server `ptt.*` echo timestamp sitting in the app-event store, or 0
+ * when none has been polled yet. Those echoes (`ptt.started`/`ptt.stopped`,
+ * carried with their REAL server ts by src/api/events.ts) are the ONLY
+ * server-clock reading the voice channel can get — the words themselves never
+ * cross the HTTP API. */
+function newestPttTs(): number {
+  return useEventStore
+    .getState()
+    .events.reduce((newest, event) => (event.source === "ptt" && event.ts > newest ? event.ts : newest), 0);
+}
+
 /**
  * Observe the server-side PTT lifecycle and echo the spoken text.
  * `onTranscript` fires at most once per hold, only with a valid (>= 2 words)
  * final transcript, after the backend has flushed (state back to idle).
+ *
+ * Second argument (`pttStamp`): a server-clock ms reading that belongs to THIS
+ * hold, or 0 when the hold produced none — the caller must then fall back to
+ * arrival time. Eligibility is per-hold, NOT a running maximum: this poll (1s)
+ * and the /api/events poll (1.5s) are independent queries that throttle unevenly
+ * while the window sits behind a game, so the newest `ptt.*` row at echo time can
+ * still be the PREVIOUS hold's `ptt.stopped` — older than Kira's answer to that
+ * previous hold, which is how the second spoken turn ended up rendering above it.
+ * So we snapshot the newest ts at the hold's RISING EDGE and only borrow a
+ * reading that is strictly greater, i.e. one that demonstrably arrived while this
+ * hold's attempt was live. Every such reading is taken inside the hold, before
+ * the grace window that dispatches the turn, so it is always strictly before the
+ * reply's own server ts.
+ *
+ * ponytail: a reading STAMPED before this hold but POLLED during it is still
+ * borrowable (one events-poll window wide). Closing that needs a server-side
+ * flush timestamp on the hold itself; the readings we do have carry no session
+ * id (appEvents.ts drops `detail` for every ptt.* label), so nothing client-side
+ * can bind a row to a hold.
  */
-export function useLiveTranscript(onTranscript: (text: string) => void): void {
+export function useLiveTranscript(onTranscript: (text: string, pttStamp: number) => void): void {
   const callbackRef = useRef(onTranscript);
   callbackRef.current = onTranscript;
   const wsRef = useRef<{ close: () => void } | null>(null);
@@ -85,6 +116,9 @@ export function useLiveTranscript(onTranscript: (text: string) => void): void {
   // True once a connect attempt for the CURRENT hold happened (even a failed
   // one) — a mid-hold failure must not retrigger connects every poll tick.
   const attemptedRef = useRef(false);
+  // Newest `ptt.*` reading already polled when THIS hold's attempt opened.
+  // Anything newer than this at echo time arrived during the hold.
+  const pttBaselineRef = useRef(0);
 
   const poll = useQuery({
     // Shared with usePttServerSignal (the avatar's listening signal), which
@@ -110,6 +144,7 @@ export function useLiveTranscript(onTranscript: (text: string) => void): void {
     if (active && !attemptedRef.current) {
       attemptedRef.current = true;
       bufferRef.current = "";
+      pttBaselineRef.current = newestPttTs(); // rising edge: this hold's baseline
       if (!wsUrl) return; // older backend / no URL — degrade silently, no echo
       try {
         const ws = new WebSocket(wsUrl);
@@ -125,11 +160,12 @@ export function useLiveTranscript(onTranscript: (text: string) => void): void {
       }
     } else if (!active && attemptedRef.current) {
       const text = finalizeTranscript(bufferRef.current);
+      const newest = newestPttTs();
       bufferRef.current = "";
       attemptedRef.current = false;
       wsRef.current?.close();
       wsRef.current = null;
-      if (text) callbackRef.current(text);
+      if (text) callbackRef.current(text, newest > pttBaselineRef.current ? newest : 0);
     }
   }, [active, wsUrl]);
 

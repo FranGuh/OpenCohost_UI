@@ -25,12 +25,19 @@ import { ConversationPanel, TRANSCRIPT_CAP } from "./ConversationPanel.js";
 // here it's mocked down to its contract — "fires the callback with the final
 // spoken text at most once per hold" — so panel tests drive the append/render
 // path directly instead of re-mocking WebSocket + the state poll.
-let liveTranscriptCb: ((text: string) => void) | null = null;
+let liveTranscriptCb: ((text: string, pttStamp: number) => void) | null = null;
 vi.mock("../api/liveTranscript.js", () => ({
-  useLiveTranscript: (cb: (text: string) => void) => {
+  useLiveTranscript: (cb: (text: string, pttStamp: number) => void) => {
     liveTranscriptCb = cb;
   }
 }));
+
+/** Fire the mocked echo for one hold. `pttStamp` is the hook's second contract
+ * half: the server `ptt.*` reading that arrived while THAT hold was live, or 0
+ * when the hold had none to borrow (see src/api/liveTranscript.test.ts). */
+function echo(text: string, pttStamp = 0) {
+  act(() => liveTranscriptCb?.(text, pttStamp));
+}
 
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -332,6 +339,67 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     fireEvent.click(jump);
     expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument());
+  });
+
+  // The transient "pensando" row is appended AFTER the sorted list and stays
+  // there for the WHOLE in-flight window — tens of seconds on a heavy local
+  // model (OLLAMA_CHAT_TIMEOUT is 180s). Anything that lands during it (agenda
+  // lifecycle line, memoria_captured on the events poll, a PTT voice echo) must
+  // still follow the stream instead of piling up below the viewport.
+  it("follows an append that lands while the 'pensando' indicator is on screen", async () => {
+    renderPanel();
+    const panel = timeline();
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+    scrollSpy.mockClear(); // the operator's own bubble already followed
+
+    appendEvent("e-mid-thinking");
+
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+  });
+
+  // At TRANSCRIPT_CAP every arrival evicts one turn, so the row count can never
+  // grow again. Auto-scroll must not die for the rest of the session.
+  it("still follows an append once the transcript sits at TRANSCRIPT_CAP", async () => {
+    renderPanel();
+    const panel = timeline();
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+    expect(liveTranscriptCb).not.toBeNull();
+
+    act(() => {
+      for (let i = 1; i <= TRANSCRIPT_CAP; i++) liveTranscriptCb?.(`turno de relleno ${i}`, 0);
+    });
+    scrollSpy.mockClear();
+
+    echo("turno pasado el tope");
+
+    await screen.findByText("turno pasado el tope");
+    expect(scrollSpy).toHaveBeenCalled();
+  });
+
+  // The commonest append of all: Kira's reply REPLACES the thinking row, so the
+  // row count goes 2 -> 2 in a single batched flush. The reply bubble is far
+  // taller than the placeholder it replaces, so an operator sitting at the
+  // bottom is left behind unless this follows.
+  it("follows Kira's reply even though it replaces the thinking row (row count unchanged)", async () => {
+    server.use(evolvingLastReplyHandler({ turn_id: 1 }, { text: "respuesta que reemplaza el placeholder", turn_id: 2 }, 1));
+    renderPanel();
+    const panel = timeline();
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+    scrollSpy.mockClear();
+
+    await screen.findByText("respuesta que reemplaza el placeholder", undefined, { timeout: 4000 });
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
   });
 });
 
@@ -716,7 +784,7 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
     renderPanel();
     expect(liveTranscriptCb).not.toBeNull(); // panel wired the echo hook
 
-    act(() => liveTranscriptCb?.("hola kira como andás"));
+    echo("hola kira como andás");
 
     expect(screen.getAllByText("hola kira como andás")).toHaveLength(1);
     expect(screen.getByText("Vos · voz")).toBeInTheDocument();
@@ -726,7 +794,7 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
 
   it("keeps typed turns labeled plain 'Vos' — the voice label never bleeds onto composer sends", async () => {
     renderPanel();
-    act(() => liveTranscriptCb?.("turno de voz previo"));
+    echo("turno de voz previo");
 
     fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
       target: { value: "turno tipeado" }
@@ -990,6 +1058,190 @@ describe("ConversationPanel — Logs tab (WU6: R7/R10/R32/R36)", () => {
 });
 
 /**
+ * Feed ordering (owner-reproduced 2026-07-24, PRE-DATES the background-polling
+ * fix). Every channel used to stamp its own CLIENT ARRIVAL time, so events from
+ * four independent polls were sorted against each other by whenever the webview
+ * happened to observe them. With the window backgrounded, Kira's reply rendered
+ * ABOVE the operator turn that caused it.
+ *
+ * Two of the four channels DO have a real server clock available and were
+ * throwing it away: GET /api/chat/last-reply carries `ts` (ChatReplySink.record,
+ * opencohost/api/engine_host.py) and GET /api/events carries the engine's own
+ * `ptt.*` echo with its server ts (src/api/events.ts). The spoken WORDS never
+ * cross the HTTP API by privacy design, so the PTT echo's stamp is the closest
+ * honest reading the voice channel can get.
+ */
+describe("ConversationPanel — feed ordering by real timestamps", () => {
+  const MINUTE = 60_000;
+
+  function appendEvent(id: string, ts: number, label: string, source: "model" | "obs" | "ptt" = "model") {
+    act(() => {
+      useEventStore.getState().append({ id, ts, source, label, tone: "ok" });
+    });
+  }
+
+  function order(...needles: string[]): number[] {
+    const text = timeline().textContent ?? "";
+    return needles.map((needle) => {
+      const at = text.indexOf(needle);
+      expect(at).toBeGreaterThanOrEqual(0); // guards a silent -1 vs -1 comparison
+      return at;
+    });
+  }
+
+  it("sorts Kira's reply by the SERVER ts it already carries, not by client arrival time", async () => {
+    const now = Date.now();
+    // The reply was generated an hour ago and is only polled NOW (backgrounded
+    // window / one catch-up burst). Arrival time would sort it below the event
+    // stamped 30 minutes ago; its own server ts must not.
+    server.use(lastReplyHandler({ text: "respuesta generada hace una hora", turn_id: 1, ts: (now - 60 * MINUTE) / 1000 }));
+    appendEvent("e-30m", now - 30 * MINUTE, "Modelo → qwen3:8b");
+    renderPanel();
+    await screen.findByText("respuesta generada hace una hora");
+
+    const [reply, event] = order("respuesta generada hace una hora", "Modelo → qwen3:8b");
+    expect(reply).toBeLessThan(event);
+  });
+
+  it("falls back to arrival time when the reply carries no server ts (older backend, ts: null)", async () => {
+    const now = Date.now();
+    server.use(lastReplyHandler({ text: "respuesta sin sello", turn_id: 1, ts: null }));
+    appendEvent("e-1h", now - 60 * MINUTE, "Modelo → qwen3:8b");
+    renderPanel();
+    await screen.findByText("respuesta sin sello");
+
+    const [event, reply] = order("Modelo → qwen3:8b", "respuesta sin sello");
+    expect(event).toBeLessThan(reply);
+  });
+
+  it("keeps a voice turn ABOVE the reply it caused when both channels are observed late in one burst", async () => {
+    const now = Date.now();
+    // The engine's PTT echo is the voice channel's only server clock reading:
+    // release at -10m, reply dispatched after the grace window at -9m. The
+    // transcript itself resolves NOW, ten minutes after the words were spoken.
+    appendEvent("srv-7", now - 10 * MINUTE, "PTT enviado a Kira", "ptt");
+    server.use(lastReplyHandler({ text: "sobre el benchmark de AGI", turn_id: 1, ts: (now - 9 * MINUTE) / 1000 }));
+    renderPanel();
+    await screen.findByText("sobre el benchmark de AGI");
+
+    // `ptt.stopped` is emitted at release, i.e. while the hook still counts the
+    // hold as active (flushing) — so it IS this hold's own reading and the hook
+    // hands it over.
+    echo("qué opinás del benchmark de AGI", now - 10 * MINUTE);
+
+    const [spoken, reply] = order("qué opinás del benchmark de AGI", "sobre el benchmark de AGI");
+    expect(spoken).toBeLessThan(reply);
+  });
+
+  // Judge scenario 1 (stale borrow across two holds). Server order:
+  // started(h1)@-10m, stopped(h1)@-9m30s, reply-to-h1@-9m, started(h2)@-8m.
+  // Hold 1's echo fires with only started(h1) ingested; by hold 2's rising edge
+  // the newest ptt row is stopped(h1), which is therefore hold 2's BASELINE, so
+  // the hook hands hold 2 nothing (0). A running maximum instead handed over
+  // stopped(h1)@-9m30s — earlier than the reply already in the feed, so the
+  // second spoken question rendered ABOVE the answer to the first.
+  it("never stamps a second voice turn with the PREVIOUS hold's reading", async () => {
+    const now = Date.now();
+    appendEvent("srv-started-h1", now - 10 * MINUTE, "PTT escuchando", "ptt");
+    server.use(lastReplyHandler({ text: "respuesta al primer turno", turn_id: 1, ts: (now - 9 * MINUTE) / 1000 }));
+    renderPanel();
+    await screen.findByText("respuesta al primer turno");
+
+    echo("primer turno de voz", now - 10 * MINUTE);
+    appendEvent("srv-stopped-h1", now - 9.5 * MINUTE, "PTT enviado a Kira", "ptt");
+    echo("segundo turno de voz"); // hold 2: nothing arrived while it was live
+
+    const [first, reply, second] = order("primer turno de voz", "respuesta al primer turno", "segundo turno de voz");
+    expect(first).toBeLessThan(reply);
+    expect(reply).toBeLessThan(second);
+  });
+
+  // Judge scenario 2 (zero-baseline hold). Hold 1's echo fires before ANY ptt row
+  // has been polled, so it takes arrival time — and the running maximum's ref
+  // stayed at 0, which let hold 2 borrow a ten-minute-old stopped(h1) and sort
+  // far above both the reply AND hold 1's own bubble.
+  it("never lets a hold that got no reading of its own be outranked by a stale one", async () => {
+    const now = Date.now();
+    server.use(lastReplyHandler({ text: "respuesta al primer turno", turn_id: 1, ts: (now - 9 * MINUTE) / 1000 }));
+    renderPanel();
+    await screen.findByText("respuesta al primer turno");
+
+    echo("primer turno de voz"); // nothing polled yet -> arrival time
+    appendEvent("srv-stopped-h1", now - 10 * MINUTE, "PTT enviado a Kira", "ptt");
+    echo("segundo turno de voz"); // stale row is hold 2's baseline, not its stamp
+
+    const [reply, first, second] = order("respuesta al primer turno", "primer turno de voz", "segundo turno de voz");
+    expect(reply).toBeLessThan(first);
+    expect(reply).toBeLessThan(second);
+    // Both fall back to arrival time and can land in the same millisecond; Array
+    // sort is stable (ES2019), so append order decides and hold 1 stays first.
+    expect(first).toBeLessThan(second);
+  });
+
+  it("does not force-scroll when a backfilled event sorts into the MIDDLE of the list", async () => {
+    const now = Date.now();
+    renderPanel();
+    const panel = timeline();
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+    // jsdom reports zero geometry, i.e. "near the bottom": an append that lands
+    // LAST does follow. Asserted first so the spy is proven live.
+    appendEvent("e-last", now, "Modelo → qwen3:8b");
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
+
+    // Stamped a minute earlier -> sorts ABOVE e-last. The count grows, but
+    // nothing new is at the bottom, so the operator must not be yanked there.
+    appendEvent("e-backfill", now - MINUTE, "OBS activado", "obs");
+    await screen.findByText("OBS activado");
+    const [backfill, last] = order("OBS activado", "Modelo → qwen3:8b");
+    expect(backfill).toBeLessThan(last);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // Same backfill, but with REAL scrolled-up geometry so the jump-pill branch is
+  // actually reachable: under zero jsdom geometry every append reads as "near the
+  // bottom" and a no-pill assertion cannot fail. Nothing arrived at the bottom,
+  // so neither half of the effect may fire.
+  it("never lights the jump pill for a backfilled event when the operator is scrolled up", async () => {
+    const now = Date.now();
+    renderPanel();
+    const panel = timeline();
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+
+    appendEvent("e-anchor", now, "Modelo → qwen3:8b"); // zero geometry: follows, no pill
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(1));
+
+    // distance from bottom = 1000 - 0 - 300 = 700 > NEAR_BOTTOM_PX.
+    Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
+    panel.scrollTop = 0;
+
+    appendEvent("e-backfill-up", now - MINUTE, "OBS activado", "obs");
+    await screen.findByText("OBS activado");
+    expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument();
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("stamps every row with its own quiet wall-clock time", async () => {
+    const at = new Date(2026, 6, 24, 18, 5, 0).getTime();
+    server.use(lastReplyHandler({ text: "respuesta con hora", turn_id: 1, ts: at / 1000 }));
+    appendEvent("e-hora", at, "Modelo → qwen3:8b");
+    renderPanel();
+    await screen.findByText("respuesta con hora");
+
+    echo("turno de voz con hora");
+
+    // Three row shapes: Kira bubble, operator bubble, alert line.
+    const stamps = Array.from(timeline().querySelectorAll("time"));
+    expect(stamps).toHaveLength(3);
+    const expected = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" }).format(at);
+    expect(stamps.map((node) => node.textContent)).toContain(expected);
+    expect(stamps[0]).toHaveAttribute("datetime", new Date(at).toISOString());
+  });
+});
+
+/**
  * Progressive-slowdown guard (2026-07-24). The session transcript was the
  * largest of the three streams feeding this timeline and the only one with no
  * bound at all: `eventStore` already capped itself at EVENT_CAP=200, and agenda
@@ -1010,7 +1262,7 @@ describe("ConversationPanel transcript ring buffer (progressive-slowdown guard)"
       for (let i = 1; i <= flood; i++) {
         // Voice echo is the cheapest real append path into `transcript`; the
         // composer and Kira-reply paths push into the same state.
-        liveTranscriptCb?.(`flood turno numero ${i}`);
+        liveTranscriptCb?.(`flood turno numero ${i}`, 0);
       }
     });
 

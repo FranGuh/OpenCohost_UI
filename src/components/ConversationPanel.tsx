@@ -65,6 +65,14 @@ function capTurns(turns: Turn[]): Turn[] {
   return turns.length > TRANSCRIPT_CAP ? turns.slice(turns.length - TRANSCRIPT_CAP) : turns;
 }
 
+/** Id of the transient "pensando" row. It is a SENTINEL, not content: appended
+ * after the sorted list while a reply is in flight and gone once the reply
+ * lands. Named so the auto-scroll effect below can skip it when it asks "what
+ * is the last REAL row" — that window is tens of seconds on a heavy local model
+ * (dispatch.py documents OLLAMA_CHAT_TIMEOUT as 180s), and while a sentinel owns
+ * the bottom-row identity every arrival looks like "nothing new at the end". */
+const KIRA_THINKING_ID = "kira-thinking";
+
 type TurnKind = "chat" | "alert";
 
 interface Turn {
@@ -76,8 +84,12 @@ interface Turn {
   role?: "operator" | "kira";
   /** Present for operator-submitted turns and accumulated Kira replies. */
   text?: string;
-  /** Client arrival time (Date.now() at observe/append time) used to
-   * interleave the independent chat/agenda/app-event streams deterministically. */
+  /** Sort key interleaving the independent chat/agenda/app-event streams. The
+   * REAL event time wherever a server clock exists — Kira's reply carries
+   * `ts` on GET /api/chat/last-reply, server app-events carry theirs through
+   * src/api/events.ts, and a voice turn borrows the engine's own `ptt.*` echo.
+   * Client arrival time only where nothing better is available (agenda diffs,
+   * operator composer sends — which ARE local actions, so arrival IS the truth). */
   ts?: number;
   /** True when this Kira reply came from an autonomous agenda turn
    * (last-reply `source` startsWith "kira-agenda") rather than a reply to
@@ -99,6 +111,25 @@ function matchesTab(tab: TabValue, kind: TurnKind): boolean {
   if (tab === "chat") return kind === "chat";
   if (tab === "alertas") return kind === "alert";
   return true; // "todo" (non-feed tabs hide the timeline anyway)
+}
+
+// ONE formatter for the module — same reason LogsPanel hoists TS_FORMAT
+// (src/components/commands/LogsPanel.tsx): Date#toLocaleTimeString builds a
+// fresh locale formatter on every call, and this one is paid per ROW on every
+// parent render. Hour+minute only; the feed is a cockpit, LogsPanel is the log
+// viewer and keeps the seconds.
+const TURN_TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" });
+
+/** Quiet per-row wall clock. Without it a five-minute-old backlogged event is
+ * visually indistinguishable from a fresh one — which is how an out-of-order
+ * feed hides. Metadata only: a time, never a payload value. */
+function TurnTime({ ts }: { ts?: number }) {
+  if (ts === undefined) return null;
+  return (
+    <time dateTime={new Date(ts).toISOString()} className="mono shrink-0 text-[10px] font-normal tabular-nums text-dim">
+      {TURN_TIME_FORMAT.format(ts)}
+    </time>
+  );
 }
 
 function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
@@ -129,7 +160,10 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
     // markdown emits block elements (<pre>, <table>) that can't nest in a <p>.
     return (
       <div className="flex flex-col gap-1.5">
-        <KiraBadgeLabel fromAgenda={turn.fromAgenda} />
+        <span className="flex items-center gap-2">
+          <KiraBadgeLabel fromAgenda={turn.fromAgenda} />
+          <TurnTime ts={turn.ts} />
+        </span>
         <div className="w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-sm text-foreground">
           <Markdown content={turn.text ?? ""} />
         </div>
@@ -140,14 +174,17 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
   if (turn.text !== undefined) {
     return (
       <div className="flex flex-col items-end gap-1">
-        {turn.source === "voice" ? (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-dim">
-            <Mic size={11} aria-hidden="true" />
-            Vos · voz
-          </span>
-        ) : (
-          <span className="text-[11px] font-semibold text-dim">Vos</span>
-        )}
+        <span className="flex items-center gap-2">
+          {turn.source === "voice" ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-dim">
+              <Mic size={11} aria-hidden="true" />
+              Vos · voz
+            </span>
+          ) : (
+            <span className="text-[11px] font-semibold text-dim">Vos</span>
+          )}
+          <TurnTime ts={turn.ts} />
+        </span>
         <p className="w-full rounded-md rounded-tr-sm border border-ok-bd bg-ok-bg px-3 py-2 text-sm text-foreground">
           {turn.text}
         </p>
@@ -163,11 +200,18 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
   // does. Tone reuses whatever the event carries (agenda events → neutral). The
   // label text is owned upstream (appEvents.ts / agenda.ts) and is not edited
   // here. rise-in entry is provided by the .oc-alert base rule itself.
+  // The stamp sits OUTSIDE the Alert, not inside its body: `oc-alert-body` is a
+  // single <p>, so a nested <time> would fold into that element's text content
+  // and every exact-match assertion on an event label would start matching
+  // "Modelo → qwen3:8b 14:05" instead.
   if (turn.event !== undefined) {
     return (
-      <Alert tone={turn.tone ?? "neutral"} role="status">
-        {turn.event}
-      </Alert>
+      <div className="flex items-center gap-2">
+        <Alert tone={turn.tone ?? "neutral"} role="status" className="min-w-0 flex-1">
+          {turn.event}
+        </Alert>
+        <TurnTime ts={turn.ts} />
+      </div>
     );
   }
 
@@ -273,20 +317,35 @@ export function ConversationPanel() {
   // text once the backend flushes. PRIVACY: the words arrive over LiveAudio's
   // own socket, never the OpenCohost HTTP API. Empty/failed echo -> the hook
   // never fires -> no turn, no alert spam.
-  useLiveTranscript((text) => {
+  useLiveTranscript((text, pttStamp) => {
+    // The spoken WORDS never cross the OpenCohost HTTP API (privacy design), so
+    // there is no server timestamp for the transcript itself — and its arrival
+    // time is the flushing->idle observation, minutes late when the window is
+    // backgrounded. But the HOLD's lifecycle does cross: the engine emits
+    // `ptt.started`/`ptt.stopped`, and src/api/events.ts carries their REAL
+    // server ts into the event store. The hook resolves which of those readings
+    // belongs to THIS hold (per-hold baseline, see useLiveTranscript) and hands
+    // it over as `pttStamp`, or 0 when the hold produced none. A reading that
+    // belongs to the hold was taken before the grace window that dispatches the
+    // turn, so it is strictly before the reply's own server ts — that is what
+    // keeps the bubble above the answer it caused. 0 means arrival time, which
+    // is honest and sorts last; it never re-borrows another hold's reading.
+    const now = Date.now();
+    const ts = pttStamp > 0 ? Math.min(pttStamp, now) : now;
     setTranscript((turns) =>
-      capTurns([
-        ...turns,
-        { id: `voice-${crypto.randomUUID()}`, kind: "chat", role: "operator", source: "voice", text, ts: Date.now() }
-      ])
+      capTurns([...turns, { id: `voice-${crypto.randomUUID()}`, kind: "chat", role: "operator", source: "voice", text, ts }])
     );
   });
 
   // Timeline scroll-follow + jump-to-recent (Item 3). scrollRef is the existing
-  // overflow-auto tabpanel; prevTurnCountRef lets the append effect tell a real
-  // append apart from a re-filter/re-render.
+  // overflow-auto tabpanel.
   const scrollRef = useRef<HTMLDivElement>(null);
-  const prevTurnCountRef = useRef(0);
+  // Id of the last REAL row (see lastTurnId below). This ALONE tells a genuine
+  // append-at-the-end apart from a middle backfill and from a plain re-render —
+  // the row count it used to be paired with could answer neither at
+  // TRANSCRIPT_CAP (every arrival evicts one, so the count freezes) nor when a
+  // reply replaces the thinking row (2 -> 2 in one flush).
+  const prevLastTurnIdRef = useRef<string | null>(null);
   const [showJump, setShowJump] = useState(false);
 
   useEffect(() => {
@@ -325,7 +384,15 @@ export function ConversationPanel() {
     // "kira-agenda" is an autonomous agenda turn, not a reply to operator/
     // viewer chat — tag it so ConversationTurn labels it distinctly.
     const fromAgenda = data.source?.startsWith("kira-agenda") ?? false;
-    const ts = Date.now();
+    // The backend ALREADY stamps this reply: ChatReplySink.record() stores
+    // `ts: time.time()` (opencohost/api/engine_host.py), surfaced through
+    // ChatLastReplyResponse (models.py) as LastReplyResponse.ts here. Arrival
+    // time was throwing that away, so a reply polled late — backgrounded
+    // window, or several polls catching up in one burst — sorted by WHEN THE
+    // WEBVIEW NOTICED rather than when Kira spoke, above the turn that caused
+    // it. Seconds -> ms; `null` (no reply yet / older backend) keeps arrival
+    // time as the honest fallback.
+    const ts = typeof data.ts === "number" ? data.ts * 1000 : Date.now();
     setTranscript((turns) => {
       // Belt-and-braces guard against any other path producing a collision.
       if (turns.some((turn) => turn.id === id)) return turns;
@@ -485,26 +552,47 @@ export function ConversationPanel() {
     // interleaved by client arrival time (Date.now() at observe-time), then the
     // ephemeral "pensando" indicator closes it out.
     const interleaved = [...transcript, ...agendaTurns, ...appEventTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
-    const kiraThinkingTurn: Turn | null = isThinking ? { id: "kira-thinking", kind: "chat", role: "kira" } : null;
+    const kiraThinkingTurn: Turn | null = isThinking ? { id: KIRA_THINKING_ID, kind: "chat", role: "kira" } : null;
     const orderedTurns = [...interleaved, ...(kiraThinkingTurn ? [kiraThinkingTurn] : [])];
     return orderedTurns.filter((turn) => matchesTab(activeTab, turn.kind));
   }, [transcript, agendaEvents, appEvents, isThinking, activeTab]);
 
-  // On a genuine append (turn count grew): follow the bottom if the operator is
-  // already near it (behavior:'smooth', "ir lentamente bajando"); otherwise
-  // don't yank — surface the floating jump-to-recent button. Pure scrollTop
-  // math on the existing container (jsdom-testable; no IntersectionObserver).
+  // Identity of the last CONTENT row. The "pensando" sentinel is always last
+  // while it exists (it is appended after the sort), so skipping it is one index
+  // step — and it must be skipped, or its whole multi-second window reads as
+  // "nothing arrived at the end".
+  const lastRow = visibleTurns[visibleTurns.length - 1];
+  const lastTurnId =
+    (lastRow?.id === KIRA_THINKING_ID ? visibleTurns[visibleTurns.length - 2]?.id : lastRow?.id) ?? null;
+
+  // On a genuine append AT THE END: follow the bottom if the operator is already
+  // near it (behavior:'smooth', "ir lentamente bajando"); otherwise don't yank —
+  // surface the floating jump-to-recent button. Pure scrollTop math on the
+  // existing container (jsdom-testable; no IntersectionObserver).
+  //
+  // A change of this ONE id is the whole condition, and it answers all five
+  // cases: ordinary append -> scroll; backfilled batch (an event or a reply
+  // carrying an older real timestamp) sorting into the MIDDLE -> the bottom row
+  // is unchanged, so no yank away from whatever the operator was reading;
+  // append during the "pensando" window -> scroll (the sentinel is skipped);
+  // append at TRANSCRIPT_CAP, where the count can no longer grow because every
+  // arrival evicts one -> scroll; plain re-render -> nothing changed, no scroll.
+  // The row count that used to gate this was doing the "is it a real append"
+  // job WRONG in the last two of those, so it is gone rather than kept as a
+  // second opinion.
   useEffect(() => {
     const el = scrollRef.current;
-    const grew = visibleTurns.length > prevTurnCountRef.current;
-    prevTurnCountRef.current = visibleTurns.length;
-    if (!el || !grew) return;
+    // A null id means the list has no content rows (a filter switch emptied it) —
+    // that is not an append.
+    const appendedLast = lastTurnId !== null && lastTurnId !== prevLastTurnIdRef.current;
+    prevLastTurnIdRef.current = lastTurnId;
+    if (!el || !appendedLast) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX) {
       el.scrollTo?.({ top: el.scrollHeight, behavior: "smooth" });
     } else {
       setShowJump(true);
     }
-  }, [visibleTurns.length]);
+  }, [lastTurnId]);
 
   // Empty-state rule (§3b(i), revision #4): the invitation shows on Todo/Chat
   // whenever there are ZERO chat-kind turns (no transcript turns, no thinking
