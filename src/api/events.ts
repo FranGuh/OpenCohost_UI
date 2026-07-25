@@ -51,7 +51,8 @@ export function useServerEventLog() {
     queryKey: EVENTS_QUERY_KEY,
     queryFn: () => getEventLog(lastCursor.current), // ref read fresh each poll
     refetchInterval: 1500, // matches status.ts cadence
-    refetchIntervalInBackground: false
+    // Stays live while backgrounded — see status.ts / backgroundPolling.test.ts.
+    refetchIntervalInBackground: true
   });
 
   useEffect(() => {

@@ -364,7 +364,8 @@ export function useAgendaEvents(): AgendaEvent[] {
     queryKey: AGENDA_QUERY_KEY,
     queryFn: getAgenda,
     refetchInterval: 1500,
-    refetchIntervalInBackground: false
+    // Stays live while backgrounded — see status.ts / backgroundPolling.test.ts.
+    refetchIntervalInBackground: true
   });
   const prevRef = useRef<AgendaResponse | null>(null);
   const seenRef = useRef<Set<string>>(new Set());

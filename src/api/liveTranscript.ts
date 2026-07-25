@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getPttState, type PttStateResponse } from "./ptt.js";
+import { PTT_STATE_QUERY_KEY, getPttState, type PttStateResponse } from "./ptt.js";
 
 /**
  * Live transcript echo (transcript-echo follow-up to liveaudio_ptt_tauri):
@@ -87,10 +87,17 @@ export function useLiveTranscript(onTranscript: (text: string) => void): void {
   const attemptedRef = useRef(false);
 
   const poll = useQuery({
-    queryKey: ["live-transcript-ptt-state"],
+    // Shared with usePttServerSignal (the avatar's listening signal), which
+    // polls the same endpoint at the same 1Hz — one query entry means one
+    // request per second serving both, instead of two.
+    queryKey: PTT_STATE_QUERY_KEY,
     queryFn: getPttState,
     refetchInterval: POLL_MS,
-    refetchIntervalInBackground: false
+    // Stays live while backgrounded — this is the PTT path the owner reported
+    // ("it freezes when I come back and use PTT"): the external F10 bridge is
+    // held precisely while the window is behind the game, and this poll is what
+    // observes it. See status.ts / backgroundPolling.test.ts.
+    refetchIntervalInBackground: true
   });
 
   const data = poll.data as PttStateWithWsUrl | undefined;

@@ -14,11 +14,11 @@ import { usePlaybackContext } from "./PlaybackProvider.js";
  *
  * Deliberately reuses useStatusQuery's shared `["status"]` react-query cache
  * (already polled every 2s by other consumers, e.g. PlayerBar) instead of
- * opening a second poll — this adds zero extra network traffic. Note
- * useStatusQuery sets `refetchIntervalInBackground:false`, so while the
- * window/tab is unfocused the poll pauses and `ducked` stays frozen at
- * whatever it last was — acceptable, since there's no audience watching an
- * unfocused window's audio anyway.
+ * opening a second poll — this adds zero extra network traffic. Since the
+ * 2026-07-24 owner decision, useStatusQuery sets
+ * `refetchIntervalInBackground:true`, so ducking keeps tracking `is_speaking`
+ * while the window is behind OBS or the game — which is when the audience is
+ * actually hearing the bed, so it MUST stay live there.
  */
 export function MusicDuckingWatcher() {
   const { data } = useStatusQuery();

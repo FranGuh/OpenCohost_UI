@@ -15,7 +15,8 @@ export function useLastReply() {
     queryKey: LAST_REPLY_QUERY_KEY,
     queryFn: getLastReply,
     refetchInterval: 1500,
-    refetchIntervalInBackground: false
+    // Stays live while backgrounded — see status.ts / backgroundPolling.test.ts.
+    refetchIntervalInBackground: true
   });
 }
 

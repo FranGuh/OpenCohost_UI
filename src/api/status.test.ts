@@ -59,7 +59,16 @@ describe("useStatusQuery polling cadence (spec R3)", () => {
     expect(calls).toBe(3);
   });
 
-  it("does not poll while the window is backgrounded (refetchIntervalInBackground:false)", async () => {
+  // DELIBERATE ASSERTION CHANGE (owner decision, 2026-07-24). This test used to
+  // pin the OPPOSITE behavior ("does not poll while the window is backgrounded",
+  // refetchIntervalInBackground:false). That assumption was wrong for this
+  // product: OpenCohost is a streamer's cockpit, and the NORMAL state of the
+  // window is occluded behind OBS or a fullscreen game. Pausing every poll while
+  // backgrounded meant nothing in the app advanced state — the cockpit froze by
+  // construction and only caught up on focus, which is exactly when the operator
+  // no longer needs it. Battery/CPU saving is not a goal on a streaming rig.
+  // The cockpit must stay live while covered; this test now pins that.
+  it("keeps polling while the window is backgrounded (cockpit stays live when occluded)", async () => {
     let calls = 0;
     server.use(countingStatusHandler((n) => (calls = n)));
 
@@ -68,8 +77,11 @@ describe("useStatusQuery polling cadence (spec R3)", () => {
     expect(calls).toBe(1);
 
     focusManager.setFocused(false);
-    await act(() => vi.advanceTimersByTimeAsync(6000));
-    expect(calls).toBe(1);
+    // Same 2s cadence as focused — no adaptive/degraded background cadence.
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(calls).toBe(2);
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(calls).toBe(3);
   });
 });
 

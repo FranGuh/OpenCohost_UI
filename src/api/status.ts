@@ -14,7 +14,11 @@ export function useStatusQuery() {
     queryKey: STATUS_QUERY_KEY,
     queryFn: getStatus,
     refetchInterval: 2000,
-    refetchIntervalInBackground: false
+    // Owner decision (2026-07-24): keep polling while the window is covered.
+    // A streamer's cockpit sits behind OBS or a fullscreen game most of the
+    // time; pausing here froze the whole UI until focus. Same cadence
+    // backgrounded — no adaptive cadence. See src/api/backgroundPolling.test.ts.
+    refetchIntervalInBackground: true
   });
 }
 
