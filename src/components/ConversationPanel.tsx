@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
   FormEvent,
@@ -50,6 +50,21 @@ function tabClass(active: boolean): string {
 // jump-to-recent button instead of yanking (Item 3).
 const NEAR_BOTTOM_PX = 80;
 
+/** Session-transcript ring-buffer cap. Mirrors eventStore's EVENT_CAP and
+ * agenda's AGENDA_EVENT_CAP — the transcript was the last of the three streams
+ * feeding this timeline with no bound at all. Every turn is re-mapped,
+ * re-sorted and re-filtered on each render, and renders are driven by four
+ * independent polls, so an unbounded transcript is a per-render cost multiplier
+ * that grows for the whole stream. Eviction is oldest-first; a live timeline
+ * wants the recent end. 200 turns is several hours of real conversation.
+ * ponytail: plain slice, no windowing/virtualization, no new dependency. */
+export const TRANSCRIPT_CAP = 200;
+
+/** Same one-liner idiom as eventStore.ts's append. */
+function capTurns(turns: Turn[]): Turn[] {
+  return turns.length > TRANSCRIPT_CAP ? turns.slice(turns.length - TRANSCRIPT_CAP) : turns;
+}
+
 type TurnKind = "chat" | "alert";
 
 interface Turn {
@@ -95,7 +110,7 @@ function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
   );
 }
 
-function ConversationTurn({ turn }: { turn: Turn }) {
+function ConversationTurnImpl({ turn }: { turn: Turn }) {
   if (turn.role === "kira" && turn.text === undefined) {
     return (
       <div className="flex flex-col gap-1.5">
@@ -158,6 +173,13 @@ function ConversationTurn({ turn }: { turn: Turn }) {
 
   return null;
 }
+
+/** Memoized for the same reason Markdown is (src/components/ui/Markdown.tsx —
+ * the in-repo pattern): every row was re-rendered on every parent render, and
+ * the parent re-renders on four polls plus every keystroke. `turn` objects are
+ * stable across renders now that visibleTurns is memoized, so this actually
+ * bails out instead of just adding a comparison. */
+const ConversationTurn = memo(ConversationTurnImpl);
 
 /** <aside> queue region — the real POST /api/chat/turn composer (useSendChatTurn)
  * plus Kira's accumulated last-reply turns and interleaved agenda/app events.
@@ -252,10 +274,12 @@ export function ConversationPanel() {
   // own socket, never the OpenCohost HTTP API. Empty/failed echo -> the hook
   // never fires -> no turn, no alert spam.
   useLiveTranscript((text) => {
-    setTranscript((turns) => [
-      ...turns,
-      { id: `voice-${crypto.randomUUID()}`, kind: "chat", role: "operator", source: "voice", text, ts: Date.now() }
-    ]);
+    setTranscript((turns) =>
+      capTurns([
+        ...turns,
+        { id: `voice-${crypto.randomUUID()}`, kind: "chat", role: "operator", source: "voice", text, ts: Date.now() }
+      ])
+    );
   });
 
   // Timeline scroll-follow + jump-to-recent (Item 3). scrollRef is the existing
@@ -305,7 +329,7 @@ export function ConversationPanel() {
     setTranscript((turns) => {
       // Belt-and-braces guard against any other path producing a collision.
       if (turns.some((turn) => turn.id === id)) return turns;
-      return [...turns, { id, kind: "chat", role: "kira", text: data.text as string, fromAgenda, ts }];
+      return capTurns([...turns, { id, kind: "chat", role: "kira", text: data.text as string, fromAgenda, ts }]);
     });
   }, [lastReply.data]);
 
@@ -361,7 +385,7 @@ export function ConversationPanel() {
     pendingTurnIdRef.current = turnId;
     setTranscript((turns) => {
       const existingIndex = turns.findIndex((turn) => turn.id === turnId);
-      if (existingIndex === -1) return [...turns, { id: turnId, kind: "chat", role: "operator", text, ts: Date.now() }];
+      if (existingIndex === -1) return capTurns([...turns, { id: turnId, kind: "chat", role: "operator", text, ts: Date.now() }]);
       const next = [...turns];
       next[existingIndex] = { ...next[existingIndex], text };
       return next;
@@ -409,33 +433,62 @@ export function ConversationPanel() {
   // Show the jump pill whenever the operator is scrolled up past the threshold
   // (independent of new arrivals — that's the owner's fix), hide it once they're
   // back near the bottom.
-  function handleTimelineScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
-    setShowJump(!nearBottom);
-  }
+  //
+  // rAF-throttled: the follow effect below scrolls with behavior:"smooth" (the
+  // owner's "ir lentamente bajando"), and a smooth scroll emits a scroll event
+  // on EVERY frame of its animation. Each one used to force three synchronous
+  // layout reads inline, so one append could cost dozens of reflows. Coalescing
+  // to at most one read per frame — taken inside the frame callback, after
+  // layout, instead of mid-event — removes the storm without changing behavior
+  // or dropping the smooth scroll the owner asked for.
+  const scrollRafRef = useRef<number | null>(null);
+  const handleTimelineScroll = useCallback(() => {
+    if (scrollRafRef.current !== null) return; // a read is already queued for this frame
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollRef.current;
+      if (!el) return;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+      setShowJump(!nearBottom);
+    });
+  }, []);
 
-  const kiraThinkingTurn: Turn | null = isThinking ? { id: "kira-thinking", kind: "chat", role: "kira" } : null;
-  const agendaTurns: Turn[] = agendaEvents.map((event) => ({
-    id: event.id,
-    kind: "alert",
-    event: event.label,
-    ts: event.ts
-  }));
-  const appEventTurns: Turn[] = appEvents.map((event) => ({
-    id: event.id,
-    kind: "alert",
-    event: event.label,
-    tone: event.tone,
-    ts: event.ts
-  }));
-  // The real stream: operator sends, Kira replies, and agenda/app events
-  // interleaved by client arrival time (Date.now() at observe-time), then the
-  // ephemeral "pensando" indicator closes it out.
-  const interleaved = [...transcript, ...agendaTurns, ...appEventTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
-  const orderedTurns = [...interleaved, ...(kiraThinkingTurn ? [kiraThinkingTurn] : [])];
-  const visibleTurns = orderedTurns.filter((turn) => matchesTab(activeTab, turn.kind));
+  useEffect(
+    () => () => {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+    },
+    []
+  );
+
+  // ONE memoized pass over the whole history. This used to run
+  // map -> map -> spread -> sort -> filter across the entire timeline on EVERY
+  // render — and renders here are driven by four independent polls (status,
+  // chat last-reply, agenda, engine events) plus every composer keystroke, PTT
+  // state change and toast timer. Keyed on its real inputs, so typing a message
+  // no longer re-sorts the stream, and the resulting array identity is stable
+  // enough for the memoized ConversationTurn rows below to actually bail out.
+  const visibleTurns = useMemo(() => {
+    const agendaTurns: Turn[] = agendaEvents.map((event) => ({
+      id: event.id,
+      kind: "alert",
+      event: event.label,
+      ts: event.ts
+    }));
+    const appEventTurns: Turn[] = appEvents.map((event) => ({
+      id: event.id,
+      kind: "alert",
+      event: event.label,
+      tone: event.tone,
+      ts: event.ts
+    }));
+    // The real stream: operator sends, Kira replies, and agenda/app events
+    // interleaved by client arrival time (Date.now() at observe-time), then the
+    // ephemeral "pensando" indicator closes it out.
+    const interleaved = [...transcript, ...agendaTurns, ...appEventTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+    const kiraThinkingTurn: Turn | null = isThinking ? { id: "kira-thinking", kind: "chat", role: "kira" } : null;
+    const orderedTurns = [...interleaved, ...(kiraThinkingTurn ? [kiraThinkingTurn] : [])];
+    return orderedTurns.filter((turn) => matchesTab(activeTab, turn.kind));
+  }, [transcript, agendaEvents, appEvents, isThinking, activeTab]);
 
   // On a genuine append (turn count grew): follow the bottom if the operator is
   // already near it (behavior:'smooth', "ir lentamente bajando"); otherwise

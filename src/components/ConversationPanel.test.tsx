@@ -19,7 +19,7 @@ import {
   pttStartUnreachableHandler
 } from "../test/handlers.js";
 import { useLogsPrefStore } from "../store/useLogsPref.js";
-import { ConversationPanel } from "./ConversationPanel.js";
+import { ConversationPanel, TRANSCRIPT_CAP } from "./ConversationPanel.js";
 
 // The LiveAudio WS echo hook is unit-tested in src/api/liveTranscript.test.ts;
 // here it's mocked down to its contract — "fires the callback with the final
@@ -986,5 +986,41 @@ describe("ConversationPanel — Logs tab (WU6: R7/R10/R32/R36)", () => {
       useEventStore.getState().append({ id: "e-on-logs", ts: Date.now(), source: "model", label: "Motor: listo", tone: "info" });
     });
     expect(tab(/Logs/).querySelector("[data-unread]")).toBeNull();
+  });
+});
+
+/**
+ * Progressive-slowdown guard (2026-07-24). The session transcript was the
+ * largest of the three streams feeding this timeline and the only one with no
+ * bound at all: `eventStore` already capped itself at EVENT_CAP=200, and agenda
+ * events now cap at AGENDA_EVENT_CAP, but operator/Kira/voice turns accumulated
+ * for the entire stream. Every turn is re-mapped, re-sorted and re-filtered on
+ * every render — and renders are driven by four independent polls — so an
+ * unbounded transcript makes the whole cockpit get slower the longer a stream
+ * runs. Same ring-buffer contract as eventStore: bounded, oldest-first eviction.
+ */
+describe("ConversationPanel transcript ring buffer (progressive-slowdown guard)", () => {
+  it("holds at TRANSCRIPT_CAP under a flood of appends, keeping the newest turns", async () => {
+    renderPanel();
+    await screen.findByRole("tab", { name: "Todo" });
+    expect(liveTranscriptCb).not.toBeNull();
+
+    const flood = TRANSCRIPT_CAP + 40;
+    act(() => {
+      for (let i = 1; i <= flood; i++) {
+        // Voice echo is the cheapest real append path into `transcript`; the
+        // composer and Kira-reply paths push into the same state.
+        liveTranscriptCb?.(`flood turno numero ${i}`);
+      }
+    });
+
+    const rendered = screen.getAllByText(/^flood turno numero \d+$/);
+    expect(rendered).toHaveLength(TRANSCRIPT_CAP);
+    // Oldest-first eviction: turn 1 is gone, the newest turn survived, and the
+    // retained window is exactly the last CAP appends in order.
+    expect(screen.queryByText("flood turno numero 1")).not.toBeInTheDocument();
+    expect(screen.getByText(`flood turno numero ${flood}`)).toBeInTheDocument();
+    expect(rendered[0]).toHaveTextContent(`flood turno numero ${flood - TRANSCRIPT_CAP + 1}`);
+    expect(rendered[rendered.length - 1]).toHaveTextContent(`flood turno numero ${flood}`);
   });
 });
