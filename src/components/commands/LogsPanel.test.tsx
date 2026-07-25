@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEventStore, type AppEvent } from "../../store/eventStore.js";
 import { LogsPanel } from "./LogsPanel.js";
 
@@ -101,5 +101,47 @@ describe("LogsPanel (R10/R32 — privacy whitelist only)", () => {
 
     // Left where the operator put it — no forced jump to the bottom.
     expect(scroller.scrollTop).toBe(0);
+  });
+});
+
+/**
+ * Progressive-slowdown guard (2026-07-24). `formatTs` built a fresh locale
+ * formatter per row via `Date#toLocaleTimeString(locale, opts)` — the most
+ * expensive call in the row — for up to EVENT_CAP (200) rows, on EVERY parent
+ * render. Worse, Tabs keeps inactive panels MOUNTED by design (Tabs.tsx), so
+ * this ran even while the Logs tab was hidden and nobody was looking at it.
+ * One hoisted module-level Intl.DateTimeFormat does the same job once.
+ */
+describe("LogsPanel timestamp formatting cost", () => {
+  it("never builds a per-row locale formatter, even across re-renders", () => {
+    const spy = vi.spyOn(Date.prototype, "toLocaleTimeString");
+    const base = Date.parse("2026-07-18T14:05:30");
+    seed(
+      Array.from({ length: 120 }, (_, i) => ({
+        id: `e${i}`,
+        ts: base + i * 1000,
+        source: "motor" as const,
+        label: `Motor: evento ${i}`,
+        tone: "info" as const
+      }))
+    );
+
+    const { rerender } = render(<LogsPanel />);
+    rerender(<LogsPanel />);
+    rerender(<LogsPanel />);
+
+    expect(spy).not.toHaveBeenCalled();
+    // ...and the rendered output is byte-identical to what the per-row
+    // Date#toLocaleTimeString("es-AR", opts) produced (verified: both emit
+    // "02:05:30 p. m."), so this is a pure cost change, not a format change.
+    expect(screen.getByText("Motor: evento 0")).toBeInTheDocument();
+    const expected = new Intl.DateTimeFormat("es-AR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(base);
+    expect(expected).toBe(new Date(base).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    spy.mockRestore();
+    expect(screen.getByText(expected)).toBeInTheDocument();
   });
 });

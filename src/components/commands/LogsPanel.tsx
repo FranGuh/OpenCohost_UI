@@ -30,9 +30,17 @@ const TONE_TINT: Record<AppEventTone, string> = {
   neutral: "text-foreground"
 };
 
+// ONE formatter for the whole module. `Date#toLocaleTimeString(locale, opts)`
+// builds a fresh locale formatter on every call — it was the most expensive
+// thing in a row, paid once per row for up to EVENT_CAP (200) rows on EVERY
+// parent render. And because Tabs keeps inactive panels MOUNTED by design
+// (src/components/ui/Tabs.tsx), that cost was being paid while the Logs tab was
+// hidden and nobody was even looking at it. Identical output, built once.
+const TS_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
 function formatTs(ts: number): string {
   // Locale-formatted wall-clock time. Metadata only — never a payload value.
-  return new Date(ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return TS_FORMAT.format(ts);
 }
 
 export function LogsPanel() {
