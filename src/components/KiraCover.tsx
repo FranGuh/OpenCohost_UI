@@ -1,7 +1,8 @@
+import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { useStatusQuery } from "../api/status.js";
 import { useAvatarLiveState } from "../store/avatarLiveStore.js";
-import { AVATAR_IMAGE, AVATAR_LABEL, FALLBACK_AVATAR, deriveAvatarState } from "./kiraState.js";
+import { AVATAR_IMAGE, FALLBACK_AVATAR, deriveAvatarState, resolveAvatar } from "./kiraState.js";
 
 function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.src = FALLBACK_AVATAR;
@@ -10,6 +11,63 @@ function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
 // Trust the live speaking edge only while fresh; past this the 2s status poll
 // has certainly caught up, so a missed speaking_end can't pin "speaking".
 const LIVE_SPEAKING_FRESH_MS = 3000;
+
+// Same idea for an open PTT hold, but here the stamp is a real HEARTBEAT: the
+// 1Hz keepalive and the 1Hz server poll both re-stamp it while the mic is live
+// (avatarLiveStore.setListening), so three missed beats means the session is
+// gone — which is precisely when the server's own keepalive watchdog kills it.
+// Unlike `speaking`, there is no status-poll fallback to catch a lost release:
+// the backend's avatar_state cannot express "listening" at all.
+const LIVE_PTT_FRESH_MS = 3000;
+
+/** CTK parity: `app_shell.py:273` `_inactivity_timeout_ms = 2 * 60 * 1000`. */
+export const SLEEP_AFTER_IDLE_MS = 2 * 60 * 1000;
+
+/** CTK parity: `motor_event_handlers.py::tick_speaking_alt` reschedules at 700ms. */
+export const SPEAKING_ALT_MS = 700;
+
+/**
+ * Kira dozes off after a stretch of nothing happening — a purely CLIENT-LOCAL
+ * timer, exactly like CTK's `on_inactivity_timeout`
+ * (`opencohost/ui/motor_event_handlers.py:310-324`), which also only fires from
+ * an IDLE state and involves the backend not at all.
+ *
+ * This has NOTHING to do with the backend's `avatar_state: "sleeping"`, which
+ * means "the engine has not warmed up yet" and is false for the whole rest of
+ * the session. Two different facts that happen to share one drawing.
+ *
+ * The transition is SCHEDULED (setTimeout), never a freshness comparison
+ * evaluated during render — otherwise it would only appear whenever some
+ * unrelated poll happened to re-render the component.
+ */
+function useIdleDoze(busy: boolean, activityTs: number): boolean {
+  const [asleep, setAsleep] = useState(false);
+  useEffect(() => {
+    // Reached only on a genuine activity edge (busy flipped, or a newer live
+    // event landed) — so waking here is correct, and re-arming is CTK's
+    // `_reset_inactivity_timer`.
+    setAsleep(false);
+    if (busy) return;
+    const timer = setTimeout(() => setAsleep(true), SLEEP_AFTER_IDLE_MS);
+    return () => clearTimeout(timer);
+  }, [busy, activityTs]);
+  return asleep;
+}
+
+/** The 700ms SPEAKING <-> SPEAKING_ALT flip-flop CTK runs while Kira talks
+ * (`start_speaking_alt_timer`), so her mouth/pose actually moves. */
+function useSpeakingAlt(speaking: boolean): boolean {
+  const [alt, setAlt] = useState(false);
+  useEffect(() => {
+    if (!speaking) {
+      setAlt(false);
+      return;
+    }
+    const timer = setInterval(() => setAlt((current) => !current), SPEAKING_ALT_MS);
+    return () => clearInterval(timer);
+  }, [speaking]);
+  return alt;
+}
 
 /**
  * Kira's main presence view — the brand ring/aperture framing her avatar with
@@ -25,11 +83,31 @@ export function KiraCover() {
   const { data } = useStatusQuery();
   const liveSpeaking = useAvatarLiveState((s) => s.speaking);
   const liveEventTs = useAvatarLiveState((s) => s.lastEventTs);
-  // Prefer the live store only when it says speaking AND is fresh; on
-  // speaking=false (or a stale edge) fall straight back to the poll-derived
-  // state — same behavior as before the live wiring.
-  const avatarState =
-    liveSpeaking && Date.now() - liveEventTs < LIVE_SPEAKING_FRESH_MS ? "speaking" : deriveAvatarState(data);
+  const livePtt = useAvatarLiveState((s) => s.listening);
+  const livePttTs = useAvatarLiveState((s) => s.lastPttTs);
+
+  // Trust either live signal only while fresh; on false (or a stale edge) fall
+  // straight back to the poll-derived state.
+  const now = Date.now();
+  const freshSpeaking = liveSpeaking && now - liveEventTs < LIVE_SPEAKING_FRESH_MS;
+  const freshPtt = livePtt && now - livePttTs < LIVE_PTT_FRESH_MS;
+
+  const polled = deriveAvatarState(data);
+  const speaking = freshSpeaking || polled === "speaking";
+  const alt = useSpeakingAlt(speaking);
+  // CTK resets its inactivity timer on listening/processing/idle pipeline states
+  // (app_shell.py:1798-1800). "busy" is the same idea: anything happening right
+  // now. A cold engine ("sleeping" from the poll) is NOT activity — otherwise
+  // the countdown would never even start.
+  const busy = freshPtt || speaking || (polled !== "idle" && polled !== "sleeping");
+  const asleep = useIdleDoze(busy, Math.max(liveEventTs, livePttTs));
+
+  const { state: avatarState, label: avatarLabel } = resolveAvatar(data, {
+    livePtt: freshPtt,
+    liveSpeaking: freshSpeaking,
+    asleep,
+    alt
+  });
   const avatarSrc = AVATAR_IMAGE[avatarState];
 
   return (
@@ -47,7 +125,7 @@ export function KiraCover() {
       {/* Status badge */}
       <p className="relative z-10 mb-8 rounded-full border border-border-soft bg-card px-4 py-1.5 text-sm text-foreground">
         <span className="mono font-bold text-[var(--kira-cyan)]">Estado: </span>
-        {AVATAR_LABEL[avatarState]}
+        {avatarLabel}
       </p>
 
       {/* Avatar zone
@@ -65,7 +143,7 @@ export function KiraCover() {
         <img
           src={avatarSrc}
           onError={handleAvatarError}
-          alt={`Avatar de Kira — estado ${AVATAR_LABEL[avatarState]}`}
+          alt={`Avatar de Kira — estado ${avatarLabel}`}
           className="h-full w-full object-contain"
         />
         {/* Bottom gradient fade — clipped to circle, blends the lower body away */}

@@ -48,6 +48,14 @@ export const AVATAR_TONE: Record<AvatarState, BadgeTone> = {
 // missing, since public/avatar/ is gitignored (owner-local art, see .gitignore).
 export const FALLBACK_AVATAR = "/kira-error.png";
 
+/**
+ * Badge copy for the LOCAL doze (the client inactivity timer, CTK's
+ * on_inactivity_timeout). It reuses the sleeping ART but must never read as the
+ * backend's `sleeping`, which means "the engine has not warmed up yet"
+ * (AVATAR_LABEL.sleeping = "en espera"). Two different facts, one image.
+ */
+export const LOCAL_SLEEP_LABEL = "dormida";
+
 const KNOWN_AVATAR_STATES = new Set<AvatarState>([
   "idle",
   "listening",
@@ -78,4 +86,44 @@ export function deriveAvatarState(
   if (data.is_processing) return "thinking";
   if (!data.is_ready) return "sleeping";
   return "idle";
+}
+
+/** Client-side signals the poll cannot carry. All default to false. */
+export interface AvatarOverrides {
+  /** A PTT hold is open (fresh `avatarLiveStore.listening`). */
+  livePtt?: boolean;
+  /** Fresh speaking edge from the events poll (`avatarLiveStore.speaking`). */
+  liveSpeaking?: boolean;
+  /** The local inactivity timer fired — Kira dozed off. */
+  asleep?: boolean;
+  /** Current phase of the 700ms speaking alternation. */
+  alt?: boolean;
+}
+
+function labelled(state: AvatarState) {
+  return { state, label: AVATAR_LABEL[state] };
+}
+
+/**
+ * The avatar's single source of truth: the polled backend state plus the three
+ * client-local facts it structurally cannot know (an open PTT hold, the
+ * alternation phase, and the inactivity doze).
+ *
+ * Precedence, highest first:
+ *  1. listening — a live mic is the most urgent thing on screen, and it is
+ *     mutually exclusive with speaking (the operator holds OR Kira talks).
+ *  2. speaking (alternating) — from the live edge or the poll.
+ *  3. local doze — only from a fully idle state, exactly like CTK's
+ *     on_inactivity_timeout, which no-ops unless the avatar is IDLE.
+ *  4. whatever the poll derived.
+ */
+export function resolveAvatar(
+  data: Parameters<typeof deriveAvatarState>[0],
+  { livePtt = false, liveSpeaking = false, asleep = false, alt = false }: AvatarOverrides = {}
+): { state: AvatarState; label: string } {
+  if (livePtt) return labelled("listening");
+  const base = liveSpeaking ? "speaking" : deriveAvatarState(data);
+  if (base === "speaking" || base === "speaking_alt") return labelled(alt ? "speaking_alt" : "speaking");
+  if (asleep && base === "idle") return { state: "sleeping", label: LOCAL_SLEEP_LABEL };
+  return labelled(base);
 }
