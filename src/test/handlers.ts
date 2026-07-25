@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import { LLM_PROVIDER_PRESETS } from "../api/llmProvider.js";
 import type { paths } from "../api/types.gen.js";
 import type {
   AgendaResponse,
@@ -328,6 +329,35 @@ export const defaultObsConfig: ObsConfigResponse = {
   password_set: true
 };
 
+/** GET/PUT /api/llm/provider (multi_provider_llm_20260723) has no OpenAPI
+ * response_model type — hand-typed here, mirrors
+ * src/api/llmProvider.ts::LlmProviderResponse. SECRET: no api_key field ever;
+ * only per-profile api_key_set. ponytail: keep in sync manually. */
+export interface LlmProviderResponseFixture {
+  active_provider: string;
+  fallback_mode: "auto" | "manual";
+  pregen_enabled: boolean;
+  profiles: Record<string, { base_url: string; model: string; preset: string; api_key_set: boolean }>;
+}
+
+export const defaultLlmProvider: LlmProviderResponseFixture = {
+  active_provider: "local",
+  fallback_mode: "auto",
+  pregen_enabled: false,
+  profiles: {
+    openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", preset: "openai", api_key_set: true }
+  }
+};
+
+/** Mirrors opencohost/config/settings.py::LLM_PROVIDER_PRESETS's curated
+ * `models` list (server prefills with `models[0]`) — mock-only; the client
+ * mirror (src/api/llmProvider.ts::LLM_PROVIDER_PRESETS) only carries
+ * {label, base_url}, not model defaults. ponytail: keep in sync manually. */
+const LLM_PROVIDER_PRESET_MODELS: Record<string, string> = {
+  openai: "gpt-4o-mini",
+  nvidia_nim: "meta/llama-3.1-70b-instruct"
+};
+
 /** GET/POST/PUT /api/stream/chat-live* has no OpenAPI response_model type —
  * hand-typed here, mirrors src/api/stream.ts::StreamChatLiveResponse.
  * R8-CRITICAL: STATE + LIMITS ONLY, never a viewer-chat-text field. */
@@ -565,6 +595,60 @@ export const handlers = [
     return HttpResponse.json({ ...defaultObsConfig, ...rest, password_set: defaultObsConfig.password_set });
   }),
   http.post(`${API_BASE_URL}/api/obs/test`, () => HttpResponse.json({ ok: true, error: null })),
+  http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json(defaultLlmProvider)),
+  http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+    const body = (await request.json()) as {
+      active_provider?: string;
+      fallback_mode?: "auto" | "manual";
+      pregen_enabled?: boolean;
+      profile_id?: string;
+      base_url?: string | null;
+      model?: string | null;
+      preset?: string | null;
+      api_key?: string;
+      delete_profile?: string | null;
+    };
+    const profiles = { ...defaultLlmProvider.profiles };
+    // delete_profile action (owner amendment 2026-07-24) — removes the profile
+    // entry + its stored key. Mutually exclusive with profile edits; may combine
+    // with an active_provider switch in the same PUT (switch-then-delete).
+    if (body.delete_profile) {
+      delete profiles[body.delete_profile];
+      return HttpResponse.json({
+        active_provider: body.active_provider ?? defaultLlmProvider.active_provider,
+        fallback_mode: body.fallback_mode ?? defaultLlmProvider.fallback_mode,
+        pregen_enabled: body.pregen_enabled ?? defaultLlmProvider.pregen_enabled,
+        profiles
+      });
+    }
+    if (body.profile_id) {
+      const prev = profiles[body.profile_id] ?? { base_url: "", model: "", preset: "", api_key_set: false };
+      const next = { ...prev };
+      // F5: mirrors opencohost/api/main.py::put_llm_provider's preset-prefill
+      // order — a preset fills an EMPTY base_url/model on the STORED profile
+      // first; only then does an explicit (non-null) base_url/model in this
+      // SAME request overwrite it. LLM_PROVIDER_PRESET_MODELS mirrors
+      // settings.py::LLM_PROVIDER_PRESETS's models[0] (server picks the first
+      // curated model) — mock-only, since the client mirror only carries
+      // {label, base_url}. ponytail: keep in sync manually.
+      if (body.preset) {
+        if (!next.base_url) next.base_url = LLM_PROVIDER_PRESETS[body.preset]?.base_url ?? "";
+        if (!next.model) next.model = LLM_PROVIDER_PRESET_MODELS[body.preset] ?? "";
+      }
+      if (body.base_url !== undefined && body.base_url !== null) next.base_url = body.base_url;
+      if (body.model !== undefined && body.model !== null) next.model = body.model;
+      if (body.preset !== undefined) next.preset = body.preset ?? "";
+      if (body.api_key !== undefined) next.api_key_set = body.api_key !== "";
+      profiles[body.profile_id] = next;
+    }
+    // R8: the response NEVER echoes an api_key — only api_key_set (recomputed above).
+    return HttpResponse.json({
+      active_provider: body.active_provider ?? defaultLlmProvider.active_provider,
+      fallback_mode: body.fallback_mode ?? defaultLlmProvider.fallback_mode,
+      pregen_enabled: body.pregen_enabled ?? defaultLlmProvider.pregen_enabled,
+      profiles
+    });
+  }),
   http.get(`${API_BASE_URL}/api/stream/chat-live`, () => HttpResponse.json(defaultStreamChatLive)),
   http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
     HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" })
@@ -874,11 +958,95 @@ export function obsTestFailureHandler(error = "connection refused") {
   return http.post(`${API_BASE_URL}/api/obs/test`, () => HttpResponse.json({ ok: false, error }));
 }
 
+/** Per-test override: GET /api/llm/provider returns a caller-supplied response
+ * (e.g. an active cloud profile, an incomplete draft, or a no-key profile). */
+export function llmProviderGetHandler(response: LlmProviderResponseFixture) {
+  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: GET /api/llm/provider fails (generic 500). */
+export function llmProviderGetErrorHandler() {
+  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail: "boom" }, { status: 500 }));
+}
+
+/** Per-test override: GET /api/llm/provider 404 — the running backend predates
+ * the route (older build). The card must show the "reopen the app" copy. */
+export function llmProviderRouteMissingHandler(detail = "llm_provider_route_missing") {
+  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: PUT /api/llm/provider rejected with 422 — the activation
+ * ladder / validation detail string (e.g. "api_key required for active cloud
+ * profile", "invalid profile_id"). */
+export function llmProviderValidationHandler(detail = "api_key required for active cloud profile") {
+  return http.put(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: PUT /api/llm/provider rejected with 503 (key_store_write_failed
+ * or provider_config_write_failed). */
+export function llmProviderWriteFailedHandler(detail = "key_store_write_failed") {
+  return http.put(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: PUT /api/llm/provider captures the request body for
+ * assertions (mirrors agendaSessionCaptureHandler). */
+export function llmProviderPutCaptureHandler(
+  capture: { body?: unknown },
+  response: LlmProviderResponseFixture = defaultLlmProvider
+) {
+  return http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+    capture.body = await request.json();
+    return HttpResponse.json(response);
+  });
+}
+
 /** Per-test override: POST /api/stream/chat-live/connect rejected with 422 invalid_url. */
 export function streamConnectInvalidUrlHandler() {
   return http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
     HttpResponse.json({ detail: "invalid_url" }, { status: 422 })
   );
+}
+
+/** Per-test override: GET /api/llm/provider returns a caller-supplied response
+ * (e.g. an active cloud profile, an incomplete draft, or a no-key profile). */
+export function llmProviderGetHandler(response: LlmProviderResponseFixture) {
+  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json(response));
+}
+
+/** Per-test override: GET /api/llm/provider fails (generic 500). */
+export function llmProviderGetErrorHandler() {
+  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail: "boom" }, { status: 500 }));
+}
+
+/** Per-test override: GET /api/llm/provider 404 — the running backend predates
+ * the route (older build). The card must show the "reopen the app" copy. */
+export function llmProviderRouteMissingHandler(detail = "llm_provider_route_missing") {
+  return http.get(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 404 }));
+}
+
+/** Per-test override: PUT /api/llm/provider rejected with 422 — the activation
+ * ladder / validation detail string (e.g. "api_key required for active cloud
+ * profile", "invalid profile_id"). */
+export function llmProviderValidationHandler(detail = "api_key required for active cloud profile") {
+  return http.put(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 422 }));
+}
+
+/** Per-test override: PUT /api/llm/provider rejected with 503 (key_store_write_failed
+ * or provider_config_write_failed). */
+export function llmProviderWriteFailedHandler(detail = "key_store_write_failed") {
+  return http.put(`${API_BASE_URL}/api/llm/provider`, () => HttpResponse.json({ detail }, { status: 503 }));
+}
+
+/** Per-test override: PUT /api/llm/provider captures the request body for
+ * assertions (mirrors agendaSessionCaptureHandler). */
+export function llmProviderPutCaptureHandler(
+  capture: { body?: unknown },
+  response: LlmProviderResponseFixture = defaultLlmProvider
+) {
+  return http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+    capture.body = await request.json();
+    return HttpResponse.json(response);
+  });
 }
 
 /** Per-test override: POST /api/stream/chat-live/connect rejected with 409 busy (aggregator lock held). */
