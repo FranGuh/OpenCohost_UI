@@ -1,11 +1,16 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
+import {
+  API_BASE_URL,
+  defaultStatus,
+  llmProviderProbeArmedFalseHandler,
+  llmProviderProbeUnavailableHandler
+} from "../test/handlers.js";
 import { StatusRail } from "./StatusRail.js";
 
 function renderRail() {
@@ -289,5 +294,324 @@ describe("StatusRail — adjust round 2 (owner runtime feedback, 2026-07-15)", (
     const dialog = screen.getByRole("dialog", { name: defaultStatus.active_profile });
     expect(dialog).toHaveClass("right-0");
     expect(dialog).not.toHaveClass("left-0");
+  });
+});
+
+describe("StatusRail — resource numbers (runtime_findings_batch_20260731 F9/F14, unit 2.4)", () => {
+  it("renders VRAM usada and the model residency estimates with real values", async () => {
+    renderRail();
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+
+    expect(dialog).toHaveTextContent("VRAM usada");
+    expect(dialog).toHaveTextContent("4096/8192 MB");
+    expect(dialog).toHaveTextContent("Modelo (estimado por Ollama)");
+    expect(dialog).toHaveTextContent("Modelo residente (est.)");
+    expect(dialog).toHaveTextContent("6144 MB");
+    expect(dialog).toHaveTextContent("Modelo en VRAM (est.)");
+    expect(dialog).toHaveTextContent("4352 MB");
+    expect(dialog).toHaveTextContent("Spill a RAM (est.)");
+    expect(dialog).toHaveTextContent("1792 MB");
+    expect(dialog).toHaveTextContent("CPU/GPU");
+    expect(dialog).toHaveTextContent("67% GPU / 33% CPU");
+  });
+
+  it("shows 'no disponible' for every residency row when no model is loaded / Ollama is down", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          health: {
+            ...defaultStatus.health,
+            model_resident_mb_est: null,
+            model_vram_mb_est: null,
+            model_ram_spill_mb_est: null,
+            model_processor_split: null
+          }
+        })
+      )
+    );
+    renderRail();
+
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+
+    expect(dialog).toHaveTextContent("Modelo residente (est.)");
+    expect(dialog).toHaveTextContent("Modelo en VRAM (est.)");
+    expect(dialog).toHaveTextContent("Spill a RAM (est.)");
+    expect(dialog).toHaveTextContent("CPU/GPU");
+    // Every one of the four residency rows degrades to the same established
+    // "no disponible" pattern (StatusRail.test.tsx:228) — plus the two 2.5
+    // context rows, which also read "no disponible" here since this override
+    // only touches `health`, leaving the fixture's default `ctx_telemetry: null`.
+    const disponibleCount = dialog.textContent?.split("no disponible").length ?? 1;
+    expect(disponibleCount - 1).toBe(6);
+  });
+
+  it("shows 'no disponible' for VRAM usada when vram_status is 'unavailable'", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, health: { ...defaultStatus.health, vram_status: "unavailable" } })
+      )
+    );
+    renderRail();
+
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    expect(dialog).toHaveTextContent("VRAM usada");
+    expect(dialog).not.toHaveTextContent("undefined/undefined MB");
+  });
+
+  it("warns (amber) on the Spill a RAM row above the 2048 MB display threshold", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, health: { ...defaultStatus.health, model_ram_spill_mb_est: 3000 } })
+      )
+    );
+    renderRail();
+
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const spillRow = screen.getByText(/Spill a RAM \(est\.\)/).closest("div");
+    expect(spillRow?.querySelector('[aria-hidden="true"].bg-warn')).toBeInTheDocument();
+  });
+
+  it("does not warn on the Spill a RAM row at or below the 2048 MB display threshold", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, health: { ...defaultStatus.health, model_ram_spill_mb_est: 2000 } })
+      )
+    );
+    renderRail();
+
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const spillRow = screen.getByText(/Spill a RAM \(est\.\)/).closest("div");
+    expect(spillRow?.querySelector('[aria-hidden="true"].bg-warn')).not.toBeInTheDocument();
+  });
+});
+
+describe("StatusRail — context telemetry (runtime_findings_batch_20260731 F10/2.3, unit 2.5)", () => {
+  it("renders the Contexto (KV) section with the ratio percent and evicted pairs", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          ctx_telemetry: { ratio: 0.62, effective_ctx: 4096, native_ctx: 8192, evicted_pairs: 3, source: "direct" }
+        })
+      )
+    );
+    renderRail();
+
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    expect(dialog).toHaveTextContent("Contexto (KV)");
+    expect(dialog).toHaveTextContent("Contexto usado");
+    expect(dialog).toHaveTextContent("62 % de 4096");
+    expect(dialog).toHaveTextContent("Pares evictados");
+    expect(dialog).toHaveTextContent("3");
+  });
+
+  it("shows 'no disponible' for both context rows before the first generation (ctx_telemetry null)", async () => {
+    renderRail();
+
+    const motor = await screen.findByText(/Motor OK/);
+    await userEvent.click(motor);
+    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    expect(dialog).toHaveTextContent("Contexto usado");
+    expect(dialog).toHaveTextContent("Pares evictados");
+    const disponibleCount = dialog.textContent?.split("no disponible").length ?? 1;
+    expect(disponibleCount - 1).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("StatusRail — cloud fallback chip (cloud_rearm_20260801 WU5, owner decision D-B)", () => {
+  it("renders no cloud chip when fallback_active is false — the four existing chips stay unchanged", async () => {
+    renderRail();
+    await waitFor(() => expect(screen.getByText(/Motor OK/)).toBeInTheDocument());
+    expect(screen.queryByText(/^Cloud:/)).not.toBeInTheDocument();
+    expect(screen.getByText(defaultStatus.current_model as string)).toBeInTheDocument();
+    expect(screen.getByText(/Kira: en espera/)).toBeInTheDocument();
+    expect(screen.getByText(defaultStatus.active_profile)).toBeInTheDocument();
+  });
+
+  it("shows the attention chip WITH a countdown for ambiguous_429 when a probe is scheduled (a scheduled retry self-heals regardless of class)", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "ambiguous_429",
+          next_cloud_probe_in_seconds: 42
+        })
+      )
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: reintentando");
+    expect(chip).toHaveAttribute("data-taxonomy", "attention");
+
+    await userEvent.click(chip);
+    const dialog = screen.getByRole("dialog", { name: "Cloud: reintentando" });
+    expect(dialog).toHaveTextContent("42s");
+  });
+
+  it("shows the action chip with no countdown for ambiguous_429 when no probe is scheduled (gave up / flag off)", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "ambiguous_429",
+          next_cloud_probe_in_seconds: null
+        })
+      )
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: acción requerida");
+    expect(chip).toHaveAttribute("data-taxonomy", "action");
+
+    await userEvent.click(chip);
+    const dialog = screen.getByRole("dialog", { name: "Cloud: acción requerida" });
+    expect(dialog).not.toHaveTextContent(/reintento automático/);
+  });
+
+  it("shows the action chip with no countdown for bad_key with no probe scheduled (never auto-heals)", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "bad_key",
+          next_cloud_probe_in_seconds: null
+        })
+      )
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: acción requerida");
+    expect(chip).toHaveAttribute("data-taxonomy", "action");
+
+    await userEvent.click(chip);
+    const dialog = screen.getByRole("dialog", { name: "Cloud: acción requerida" });
+    expect(dialog).not.toHaveTextContent(/reintento automático/);
+  });
+
+  it("shows the attention chip with a countdown for rate_limited (self-healing)", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "rate_limited",
+          next_cloud_probe_in_seconds: 42
+        })
+      )
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: reintentando");
+    expect(chip).toHaveAttribute("data-taxonomy", "attention");
+
+    await userEvent.click(chip);
+    const dialog = screen.getByRole("dialog", { name: "Cloud: reintentando" });
+    expect(dialog).toHaveTextContent("42s");
+  });
+
+  it("clicking 'Probar ahora' calls the probe mutation and renders the armed result honestly", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "rate_limited",
+          next_cloud_probe_in_seconds: 10
+        })
+      )
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: reintentando");
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Probar ahora" }));
+
+    expect(await screen.findByText(/Reintento armado/)).toBeInTheDocument();
+  });
+
+  it("renders armed:false honestly (e.g. a race where cloud already recovered) — never fakes success", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "ambiguous_429",
+          next_cloud_probe_in_seconds: null
+        })
+      ),
+      llmProviderProbeArmedFalseHandler("no_cloud_profile")
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: acción requerida");
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Probar ahora" }));
+
+    expect(await screen.findByText(/No se armó/)).toBeInTheDocument();
+    expect(screen.queryByText(/Reintento armado/)).not.toBeInTheDocument();
+  });
+
+  it("renders a danger alert on a probe request failure (503) — never silently re-enables with no feedback", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "ambiguous_429",
+          next_cloud_probe_in_seconds: null
+        })
+      ),
+      llmProviderProbeUnavailableHandler()
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: acción requerida");
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("button", { name: "Probar ahora" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveAttribute("data-tone", "danger");
+    expect(screen.queryByText(/Reintento armado/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No se armó/)).not.toBeInTheDocument();
+  });
+
+  it("disables the 'Probar ahora' button while the probe mutation is pending", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          fallback_active: true,
+          fallback_reason: "rate_limited",
+          next_cloud_probe_in_seconds: 10
+        })
+      ),
+      http.post(`${API_BASE_URL}/api/llm/provider/probe`, async () => {
+        await delay(40);
+        return HttpResponse.json({ armed: true, reason: null });
+      })
+    );
+    renderRail();
+
+    const chip = await screen.findByText("Cloud: reintentando");
+    await userEvent.click(chip);
+    const button = screen.getByRole("button", { name: "Probar ahora" });
+    await userEvent.click(button);
+
+    expect(button).toBeDisabled();
+    await waitFor(() => expect(button).not.toBeDisabled());
   });
 });

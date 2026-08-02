@@ -145,6 +145,19 @@ export interface CohostProfileSelectResponse {
 export const AGENDA_QUERY_KEY = ["agenda"] as const;
 export const COHOST_PROFILES_QUERY_KEY = ["cohost-profiles"] as const;
 
+/**
+ * "Intentos por tema" dropdown options — mirrors
+ * `KiraAgendaController.MIN_TURNS_PER_TOPIC`..`MAX_TURNS_PER_TOPIC`
+ * (opencohost/smart_aggregator/kira_agenda_controller.py ~267-269, currently
+ * 1..20). ONE array so AgendaPanel's session Select and the /perfil command
+ * step (components/commands/registry.tsx) read the same range and can't
+ * drift from each other — or from the backend — again.
+ */
+export const AGENDA_TURN_OPTIONS: readonly { value: string; label: string }[] = Array.from(
+  { length: 20 },
+  (_, i) => `${i + 1}`
+).map((n) => ({ value: n, label: n }));
+
 async function extractAgendaDetail(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { detail?: string };
@@ -343,7 +356,7 @@ function diffAgendaSnapshots(prev: AgendaResponse, next: AgendaResponse): Array<
   const advancedTurn = prevTopic !== null && prevTopic.id === nextTopic.id && nextTopic.turns_spoken > prevTopic.turns_spoken;
   if (prevTopic === null || advancedTurn) {
     return [
-      { id: `agenda-${nextTopic.id}-turn-${nextTopic.turns_spoken}`, label: `▸ turno ${nextTopic.turns_spoken} · tema: ${nextTopic.title}` }
+      { id: `agenda-${nextTopic.id}-turn-${nextTopic.turns_spoken}`, label: `▸ intento ${nextTopic.turns_spoken} · tema: ${nextTopic.title}` }
     ];
   }
 
@@ -361,10 +374,12 @@ function diffAgendaSnapshots(prev: AgendaResponse, next: AgendaResponse): Array<
  * awaitingBaseline anchoring for Kira replies in ConversationPanel, so mounting
  * mid-session doesn't replay the current topic as a fresh event.
  *
- * ponytail: polling SAMPLES the agenda — a `turns_spoken` jump of 2 between two
- * polls collapses into a single "turno N" event (the intermediate turn is
- * lost). A server-ordered event log would close that gap; not worth it until a
- * gapless transcript is actually required.
+ * ponytail: polling SAMPLES the agenda — a `turns_spoken` jump of 2+ between
+ * two polls collapses into a single "intento N" event (the intermediate
+ * attempts are lost). Since D1 (2026-07-31) every attempt debits exactly 1, so
+ * a jump can only mean a missed poll, never legitimate batching. A
+ * server-ordered event log would close that gap; not worth it until a gapless
+ * transcript is actually required.
  */
 export function useAgendaEvents(): AgendaEvent[] {
   const { data } = useQuery({

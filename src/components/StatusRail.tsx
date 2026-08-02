@@ -1,10 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, AudioLines, Cpu, VenetianMask } from "lucide-react";
+import { Activity, AudioLines, CloudOff, Cpu, VenetianMask } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useStatusQuery } from "../api/status.js";
 import type { StatusResponse } from "../api/client.js";
+import { useTriggerCloudProbe } from "../api/llmProvider.js";
 import type { BadgeTone } from "./ui/Badge.js";
+import { Alert } from "./ui/Alert.js";
+import { Button } from "./ui/Button.js";
 import { cn } from "../lib/cn.js";
 
 // health.overall_status/*_status are untyped strings on the backend (no
@@ -192,7 +195,14 @@ interface DetailRow {
   value: string;
   tone: BadgeTone;
   mono?: boolean;
+  /** Renders a divider + label above this row (F11/F14: keeps the four
+   * "memory" concepts visually distinct without a new component). */
+  sectionLabel?: string;
 }
+
+// Display-only heuristic (2.4/F9): flags a large RAM spill as worth a look.
+// No backend behavior keys off this — it only picks the popover row's tone.
+const SPILL_WARN_THRESHOLD_MB = 2048;
 
 function PopoverDivider({ label }: { label: string }) {
   return (
@@ -219,6 +229,10 @@ interface StatusChipProps {
    * popover off the viewport and get clipped. Default "left". */
   align?: "left" | "right";
   className?: string;
+  /** Extra popover content below why/todo/detail (cloud_rearm_20260801 WU5's
+   * "Probar ahora" action). Undefined for every chip but the cloud fallback
+   * one → zero visual diff there. */
+  footer?: ReactNode;
 }
 
 /**
@@ -226,7 +240,7 @@ interface StatusChipProps {
  * (Enter/Space open via native button click; Escape and outside-click close —
  * same pattern as SettingsPopover). Only `action` fills the chip surface.
  */
-function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail, align = "left", className }: StatusChipProps) {
+function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail, align = "left", className, footer }: StatusChipProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const popoverId = useId();
@@ -290,12 +304,15 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
               <PopoverDivider label="detalle" />
               <ul className="flex flex-col gap-1">
                 {detail.map((row) => (
-                  <li key={row.label} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-muted-foreground">· {row.label}</span>
-                    <span className="flex items-center gap-1.5">
-                      <span className={cn("text-dim", row.mono && "mono")}>{row.value}</span>
-                      <span aria-hidden="true" className={cn("h-[6px] w-[6px] rounded-full", DOT_CLASSES[row.tone])} />
-                    </span>
+                  <li key={row.label} className="flex flex-col gap-1">
+                    {row.sectionLabel && <PopoverDivider label={row.sectionLabel} />}
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-muted-foreground">· {row.label}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn("text-dim", row.mono && "mono")}>{row.value}</span>
+                        <span aria-hidden="true" className={cn("h-[6px] w-[6px] rounded-full", DOT_CLASSES[row.tone])} />
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -308,9 +325,98 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{todo}</p>
             </>
           )}
+
+          {footer}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Manual "Probar ahora" action for the cloud fallback chip below
+ * (cloud_rearm_20260801 WU5). Self-contained on purpose (owner decision
+ * D-B's relocation clause): the mutation, button, and honest inline result
+ * live here so folding this into the Modelo chip later is a MOVE, not a
+ * rewrite. `mutation.data` renders straight through — armed:false is shown
+ * as-is, never upgraded into a fake success.
+ */
+function CloudProbeFooter() {
+  const mutation = useTriggerCloudProbe();
+  return (
+    <>
+      <PopoverDivider label="acción" />
+      <Button
+        type="button"
+        variant="outline"
+        className="h-7 w-full px-2 text-xs"
+        disabled={mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
+        {mutation.isPending ? "Probando…" : "Probar ahora"}
+      </Button>
+      {mutation.data && (
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          {mutation.data.armed
+            ? "Reintento armado — esperá la próxima respuesta."
+            : mutation.data.reason
+              ? `No se armó (${mutation.data.reason}).`
+              : "No se armó — probablemente ya no hacía falta."}
+        </p>
+      )}
+      {/* Should-fix (stage judge): mirrors ProviderCard.tsx's
+       * globalMutation.isError -> <Alert tone="danger"> convention — a 503 or
+       * network failure must not leave the button silently re-enabled with
+       * no feedback. */}
+      {mutation.isError && (
+        <Alert tone="danger" className="mt-1.5">
+          No se pudo forzar el reintento — probá de nuevo.
+        </Alert>
+      )}
+    </>
+  );
+}
+
+/**
+ * Fallback-only chip (cloud_rearm_20260801 WU5, owner decision D-B; tone rule
+ * revised 2026-08-01 per Q1 option "a"): visible only while `fallback_active`.
+ * Tone now derives from whether a probe is actually SCHEDULED, not from the
+ * failure class — `next_cloud_probe_in_seconds` being a number means the
+ * engine is self-healing (attention, with the countdown) for ANY class,
+ * `ambiguous_429` included; null/undefined means nothing will fire on its own
+ * (bad_key, flag-off ambiguous, or the prober gave up) so it's action (red),
+ * no countdown. Reserving red for "won't retry on its own" matters: the
+ * 2026-08-01 runtime session showed the red chip up while auto-probes
+ * silently healed two outages (restore on attempt 5 of 6, zero clicks
+ * needed) — the class alone doesn't tell you that.
+ */
+function CloudFallbackChip({
+  fallback_reason,
+  next_cloud_probe_in_seconds
+}: {
+  fallback_reason?: string | null;
+  next_cloud_probe_in_seconds?: number | null;
+}) {
+  const probeScheduled = typeof next_cloud_probe_in_seconds === "number";
+  const taxonomy: Taxonomy = probeScheduled ? "attention" : "action";
+  const label = probeScheduled ? "Cloud: reintentando" : "Cloud: acción requerida";
+  const why = probeScheduled
+    ? `Cloud cayó temporalmente — reintento automático en ${next_cloud_probe_in_seconds}s.`
+    : fallback_reason === "bad_key"
+      ? "El proveedor cloud rechazó la API key — no se reintenta solo."
+      : fallback_reason === "ambiguous_429"
+        ? "Cloud devolvió un 429 ambiguo — podría ser cuota agotada, no se reintenta solo."
+        : "Cloud cayó y el motor dejó de reintentar solo — hace falta actuar.";
+
+  return (
+    <StatusChip
+      icon={CloudOff}
+      taxonomy={taxonomy}
+      label={label}
+      labelText={label}
+      why={why}
+      footer={<CloudProbeFooter />}
+    />
   );
 }
 
@@ -344,6 +450,63 @@ export function StatusRail() {
           label: "VRAM libre",
           value: data.health.vram_status === "unavailable" ? "no disponible" : `${Math.round(data.health.free_vram_mb)} MB`,
           tone: healthTone(data.health.vram_status)
+        },
+        {
+          // Same nvmlDeviceGetMemoryInfo() read as VRAM libre — total/used
+          // were being discarded before 2.4 (F9).
+          label: "VRAM usada",
+          value:
+            data.health.vram_status === "unavailable"
+              ? "no disponible"
+              : `${Math.round(data.health.used_vram_mb ?? 0)}/${Math.round(data.health.total_vram_mb ?? 0)} MB`,
+          tone: healthTone(data.health.vram_status)
+        },
+        {
+          // Ollama residency ESTIMATES from ollama.ps() (F9): size/size_vram
+          // is Ollama's own accounting of the model, never process RSS —
+          // labelled "(est.)" in every row below, distinct from the
+          // history/digest/memoria concepts in MemoryCard (F11).
+          sectionLabel: "Modelo (estimado por Ollama)",
+          label: "Modelo residente (est.)",
+          value: data.health.model_resident_mb_est != null ? `${Math.round(data.health.model_resident_mb_est)} MB` : "no disponible",
+          tone: "neutral"
+        },
+        {
+          label: "Modelo en VRAM (est.)",
+          value: data.health.model_vram_mb_est != null ? `${Math.round(data.health.model_vram_mb_est)} MB` : "no disponible",
+          tone: "neutral"
+        },
+        {
+          label: "Spill a RAM (est.)",
+          value: data.health.model_ram_spill_mb_est != null ? `${Math.round(data.health.model_ram_spill_mb_est)} MB` : "no disponible",
+          tone:
+            data.health.model_ram_spill_mb_est != null && data.health.model_ram_spill_mb_est > SPILL_WARN_THRESHOLD_MB
+              ? "warn"
+              : "neutral"
+        },
+        {
+          label: "CPU/GPU",
+          value: data.health.model_processor_split ?? "no disponible",
+          tone: "neutral",
+          mono: true
+        },
+        {
+          // Unit 2.5 (runtime_findings_batch_20260731 F10/2.3): the KV/context
+          // concept — deliberately its own section, distinct from "Modelo
+          // (estimado por Ollama)" above (F11's four-memory-concepts split).
+          // None before the first generation of the process.
+          sectionLabel: "Contexto (KV)",
+          label: "Contexto usado",
+          value:
+            data.ctx_telemetry != null
+              ? `${Math.round(data.ctx_telemetry.ratio * 100)} % de ${data.ctx_telemetry.effective_ctx}`
+              : "no disponible",
+          tone: "neutral"
+        },
+        {
+          label: "Pares evictados",
+          value: data.ctx_telemetry != null ? String(data.ctx_telemetry.evicted_pairs) : "no disponible",
+          tone: "neutral"
         },
         {
           // rtf_rolling_avg only populates after the first voice synthesis.
@@ -399,6 +562,12 @@ export function StatusRail() {
             why="Modelo activo en Ollama."
             todo="Lo cambiás desde Controles → Modelo."
           />
+          {data.fallback_active && (
+            <CloudFallbackChip
+              fallback_reason={data.fallback_reason}
+              next_cloud_probe_in_seconds={data.next_cloud_probe_in_seconds}
+            />
+          )}
           <StatusChip
             icon={AudioLines}
             taxonomy={kira.taxonomy}

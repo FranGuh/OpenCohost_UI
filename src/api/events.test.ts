@@ -229,4 +229,28 @@ describe("useServerEventLog", () => {
     expect(events[1].id).toBe("srv-2");
     expect(events[1].label).toBe("Motor: modelo cambiado");
   });
+
+  it("reduces a ctx_pressure_high numeric-dict detail to a ratio-percent label (unit 2.5, F10)", async () => {
+    const batch: EventLogResponse = {
+      events: [
+        {
+          seq: 1,
+          ts: 0,
+          source: "motor",
+          action: "ctx_pressure_high",
+          detail: { ratio: 0.82, effective_ctx: 4096, native_ctx: 8192, evicted_pairs: 5 }
+        }
+      ],
+      cursor: 1,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+
+    renderHook(() => useServerEventLog(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Motor: contexto saturado (82 %)");
+  });
 });

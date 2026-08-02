@@ -20,17 +20,6 @@ function renderStage() {
   );
 }
 
-// The "Estado: <state>" now-line renders the label in a styled <span> ("Estado: ")
-// followed by the state as a sibling text node, so the combined text is split
-// across elements. Match the element whose full textContent is exactly the phrase
-// (and whose children don't already own it) — the RTL-recommended split-text pattern.
-function combinedText(phrase: string) {
-  return (_content: string, element: Element | null): boolean => {
-    const owns = (el: Element | null) => el?.textContent === phrase;
-    return owns(element) && Array.from(element?.children ?? []).every((child) => !owns(child));
-  };
-}
-
 describe("MainStage — experiencia stage wired to GET /api/status", () => {
   it("layers Welcome as a modal without replacing Kira and persists explicit dismissal", () => {
     renderStage();
@@ -58,17 +47,11 @@ describe("MainStage — experiencia stage wired to GET /api/status", () => {
     expect(screen.getByText(/co-host local · cargando…/)).toBeInTheDocument();
   });
 
-  it("reflects a mocked speaking state in the now-line instead of a fixed transcript string", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, is_speaking: true })));
-    renderStage();
-
-    await waitFor(() => expect(screen.getByText(combinedText("Estado: hablando"))).toBeInTheDocument());
-  });
-
-  it("reflects a mocked processing (thinking) state in the now-line", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, is_processing: true })));
-    renderStage();
-
-    await waitFor(() => expect(screen.getByText(combinedText("Estado: pensando"))).toBeInTheDocument());
-  });
+  // The two "Estado: <state>" now-line tests that used to live here were removed
+  // with the badge they asserted on. MainStage has no state line of its own — it
+  // renders <KiraCover />, whose status badge was a duplicate of AvatarCard's and
+  // was deliberately commented out (KiraCover.tsx:126-129). These tests reached
+  // through the child to assert a label MainStage never owned, so they were
+  // pinning someone else's markup. The live label is AvatarCard's; the state ->
+  // label mapping is pinned in kiraState.test.ts.
 });

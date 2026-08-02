@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import {
   AGENDA_QUERY_KEY,
+  AGENDA_TURN_OPTIONS,
   postAgendaTopic,
   putAgendaSession,
   saveCohostProfile,
@@ -85,12 +86,6 @@ export interface Command {
 const PRIORITY_OPTIONS = PRIORITY_VOCAB.map(({ value, label }) => ({ value, label }));
 const LENGTH_OPTIONS = LENGTH_VOCAB.map(({ value, label }) => ({ value, label }));
 const SAFETY_OPTIONS = SAFETY_VOCAB.map(({ value, label }) => ({ value, label }));
-
-const TURN_OPTIONS = [
-  { value: "3", label: "3" },
-  { value: "5", label: "5" },
-  { value: "8", label: "8" }
-] as const;
 
 const RHYTHM_OPTIONS = [
   { value: "calmo", label: "Calmo" },
@@ -440,9 +435,9 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "turnos",
-        question: "Turnos por tema",
-        chipLabel: "turnos",
-        options: TURN_OPTIONS,
+        question: "Intentos por tema",
+        chipLabel: "intentos",
+        options: AGENDA_TURN_OPTIONS,
         default: "5",
         section: { label: "Sesión", note: "se aplica al instante" }
       },

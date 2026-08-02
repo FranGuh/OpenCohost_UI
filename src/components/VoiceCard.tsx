@@ -143,13 +143,14 @@ export function VoiceCard() {
           />
         </div>
 
-        <section aria-labelledby="speed-label" className="space-y-2">
+        <section aria-labelledby="speed-label" className="space-y-1.5 flex items-center space-x-3">
           <span id="speed-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
             Velocidad
           </span>
           <Segmented
             options={SPEED_OPTIONS}
             value={speed}
+            className="flex items-center gap-1.5 align-center justify-end"
             disabled={speedCommand.pending}
             onChange={(value) => applySpeed(value)}
             ariaLabel="Velocidad de la voz"

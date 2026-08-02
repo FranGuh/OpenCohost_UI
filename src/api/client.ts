@@ -23,6 +23,57 @@ export type StatusResponse = GeneratedStatusResponse & {
   // same snapshot-lag reason as ollama_warming above.
   // ponytail: keep in sync manually.
   active_profile_id?: string | null;
+  // Provider truth (runtime_findings_batch_20260731 F4/1.3), mirrors
+  // opencohost/api/models.py::StatusResponse.provider/.transport/.fallback_active
+  // — the engine's LIVE effective posture, never the persisted llm_provider.json.
+  // Hand-added for the same snapshot-lag reason as ollama_warming above.
+  // ponytail: keep in sync manually until the snapshot is regenerated.
+  provider?: string;
+  transport?: string;
+  fallback_active?: boolean;
+  // cloud_rearm_20260801 WU5: closes the runtime_findings_batch_20260731 §1b
+  // gap — these two fields have existed backend-side since unit 2.2 but were
+  // never added to the front's StatusResponse mirror until now. `fallback_reason`
+  // is the failure_class string (ambiguous_429/bad_key/rate_limited/transient);
+  // `next_cloud_probe_in_seconds` drives StatusRail's fallback-chip countdown,
+  // refreshed for free by the existing ~2s status poll. Hand-added for the
+  // same snapshot-lag reason as ollama_warming above.
+  // ponytail: keep in sync manually until the snapshot is regenerated.
+  fallback_reason?: string | null;
+  next_cloud_probe_in_seconds?: number | null;
+  // Unit 2.5 (runtime_findings_batch_20260731 F13), mirrors
+  // opencohost/api/models.py::StatusResponse.session_mode/.llm_generating/
+  // .pending_commands_count — session_mode is DERIVED backend-side from the
+  // agenda state + these booleans, never a second stored source of truth.
+  // Hand-added for the same snapshot-lag reason as ollama_warming above.
+  // ponytail: keep in sync manually until the snapshot is regenerated.
+  session_mode?: "agenda" | "post-agenda" | "inactiva";
+  llm_generating?: boolean;
+  pending_commands_count?: number;
+  // Unit 2.3/2.5: mirrors opencohost/api/models.py::StatusResponse.ctx_telemetry
+  // / CtxTelemetryOut — None before the first generation of the process.
+  ctx_telemetry?: {
+    ratio: number;
+    effective_ctx: number;
+    native_ctx: number;
+    evicted_pairs: number;
+    source: string;
+  } | null;
+  // Resource numbers (runtime_findings_batch_20260731 F9/F14/2.4): total/used
+  // VRAM come from the same nvmlDeviceGetMemoryInfo() call as free_vram_mb;
+  // model_*_est come from ollama.ps() (size/size_vram) — Ollama's OWN
+  // ESTIMATE of the model's memory split, never process RSS. Mirrors
+  // opencohost/api/models.py::HealthState's new fields. Hand-added for the
+  // same snapshot-lag reason as ollama_warming above.
+  // ponytail: keep in sync manually until the snapshot is regenerated.
+  health: GeneratedStatusResponse["health"] & {
+    total_vram_mb?: number;
+    used_vram_mb?: number;
+    model_resident_mb_est?: number | null;
+    model_vram_mb_est?: number | null;
+    model_ram_spill_mb_est?: number | null;
+    model_processor_split?: string | null;
+  };
 };
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
@@ -151,6 +202,10 @@ export interface ChatTurnAccepted {
  * until the snapshot is refreshed.
  * `text === null` means no reply has landed yet (R8: only Kira's own
  * generated reply text is ever surfaced here, never raw viewer chat).
+ * Unit 4.2 (runtime_findings_batch_20260731, D3b/F12): queue_wait_ms and the
+ * four provider-disclosure fields are all null for a turn with no
+ * submitted_under_provider tag (agenda, accumulated, or any reply recorded
+ * before this unit) — never a fabricated value.
  * ponytail: keep in sync manually.
  */
 export interface LastReplyResponse {
@@ -158,6 +213,11 @@ export interface LastReplyResponse {
   source: string | null;
   turn_id: number;
   ts: number | null;
+  queue_wait_ms?: number | null;
+  answered_by_provider?: string | null;
+  answered_by_transport?: string | null;
+  submitted_under_provider?: string | null;
+  provider_changed_while_queued?: boolean | null;
 }
 
 /** Server-side whitelist mirrored from opencohost/api/main.py::_COMMAND_WHITELIST. */

@@ -765,7 +765,7 @@ function drivePerfil(input: { nombre: string; turnos?: string; modo?: string; ri
   fireEvent.change(screen.getByLabelText("¿Cómo se llama el perfil?"), { target: { value: input.nombre } });
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → estilo (optional)
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → turnos
-  if (input.turnos) selectOption("Turnos por tema", input.turnos);
+  if (input.turnos) selectOption("Intentos por tema", input.turnos);
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → modo
   if (input.modo) selectOption("Modo de seguridad en vivo", input.modo);
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → ritmo

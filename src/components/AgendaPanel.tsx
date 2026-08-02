@@ -11,6 +11,7 @@ import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "./ui/Collaps
 import { useToast } from "./ui/Toast.js";
 import { Alert } from "./ui/Alert.js";
 import {
+  AGENDA_TURN_OPTIONS,
   useAddAgendaTopicMutation,
   useAgendaQuery,
   useAgendaSessionActionMutation,
@@ -47,14 +48,6 @@ const SAFETY_MODE_OPTIONS = [
   { value: "live_safe", label: "Live-safe" },
   { value: "monologue", label: "Monólogo" },
   { value: "test", label: "Test" }
-] as const;
-
-const TURN_OPTIONS = [
-  { value: "1", label: "1" },
-  { value: "2", label: "2" },
-  { value: "3", label: "3" },
-  { value: "5", label: "5" },
-  { value: "8", label: "8" }
 ] as const;
 
 const PRIORITY_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
@@ -193,10 +186,10 @@ function ProfileSessionCard() {
             {sessionErrorMessage && <Alert tone="danger">{sessionErrorMessage}</Alert>}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Turnos por tema</span>
+                <span className="text-xs text-muted-foreground">Intentos por tema</span>
                 <Select
-                  aria-label="Turnos por tema"
-                  options={TURN_OPTIONS}
+                  aria-label="Intentos por tema"
+                  options={AGENDA_TURN_OPTIONS}
                   value={turns}
                   disabled={updateSession.isPending}
                   className={"z-20"}
@@ -204,6 +197,9 @@ function ProfileSessionCard() {
                     updateSession.mutate({ max_turns_per_topic: Number(value) });
                   }}
                 />
+                <span className="mono text-[11px] text-dim">
+                  Cada intento es una generación del modelo; los rechazos también descuentan.
+                </span>
               </div>
               <div className="space-y-2">
                 <span className="text-xs text-muted-foreground">Modo de seguridad en vivo</span>

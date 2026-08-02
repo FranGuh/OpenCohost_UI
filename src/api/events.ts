@@ -10,7 +10,10 @@ import type { AppEventSource } from "../store/eventStore.js";
  * generation, so it has no generated type — hand-typed from
  * opencohost/api/models.py::EventOut / EventLogResponse. `source` is always
  * "motor" today; `action` is drawn from EngineHost's CLOSED
- * _MOTOR_EVENT_WHITELIST; `detail` is always null (schema parity only).
+ * _MOTOR_EVENT_WHITELIST. `detail` is null for every action EXCEPT
+ * `ctx_pressure_high` (unit 2.5, runtime_findings_batch_20260731 F10), which
+ * carries a small numeric-only dict — see `detailToFeedString` below for how
+ * it gets reduced to the identifier-shaped string emitAppEvent expects.
  * ponytail: keep in sync manually until the snapshot is regenerated.
  */
 export interface ServerEvent {
@@ -18,7 +21,20 @@ export interface ServerEvent {
   ts: number;
   source: string;
   action: string;
-  detail: string | null;
+  detail: string | Record<string, number> | null;
+}
+
+/**
+ * Reduces a server `detail` to the plain string emitAppEvent's AppEventInput
+ * expects — a string passes through; the ONE known numeric-dict shape today
+ * (ctx_pressure_high's ratio) becomes a whole-number percent. `sanitizeDetail`
+ * still runs downstream, so this only needs to produce an identifier-shaped
+ * string, never assemble the visible label itself.
+ */
+function detailToFeedString(detail: ServerEvent["detail"]): string | undefined {
+  if (detail === null) return undefined;
+  if (typeof detail === "string") return detail;
+  return typeof detail.ratio === "number" ? String(Math.round(detail.ratio * 100)) : undefined;
 }
 
 export interface EventLogResponse {
@@ -98,7 +114,7 @@ export function useServerEventLog() {
       emitAppEvent(
         // ServerEvent.source is a plain string; emitAppEvent's own whitelist
         // (not this cast) is what actually gates an unmapped value.
-        { source: e.source as AppEventSource, action: e.action, detail: e.detail ?? undefined },
+        { source: e.source as AppEventSource, action: e.action, detail: detailToFeedString(e.detail) },
         `srv-${e.seq}`,
         // Server ts is epoch seconds (Python time.time()); store sorts by JS ms.
         { toast: false, ts: e.ts * 1000 }

@@ -304,10 +304,10 @@ function LibraryCard({
                         aria-label={`Track: ${track.label}`}
                         className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-md border border-border-soft bg-background p-3"
                       >
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 md:justify-between">
                           <span className="text-[13px] font-semibold text-foreground">{track.label}</span>
-                          <Badge tone="neutral">{moodLabel(track.mood)}</Badge>
-                          <Badge tone={badge.tone}>{badge.label}</Badge>
+                            <Badge tone="neutral" className="ml-auto">{moodLabel(track.mood)}</Badge>
+                            <Badge tone={badge.tone}>{badge.label}</Badge>
                         </div>
                         <Button
                           type="button"

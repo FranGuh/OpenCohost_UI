@@ -238,7 +238,7 @@ function AccionesCard() {
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-3">
           {/* Deferred note — local-only filter_policy switch */}
           <div role="status" className="mb-3.5 rounded-md border border-warn-bd bg-warn-bg px-3 py-2.5">
             <p className="text-xs leading-relaxed text-muted-foreground">
@@ -370,7 +370,7 @@ function DeferredStreamAdminNote() {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Emisión (OAuth/metadata/moderación)</h2>
+        <h2 className="text-sm font-bold text-foreground w-full justify-between">Emisión (OAuth/metadata/moderación)</h2>
         <Badge tone="neutral">pendiente</Badge>
       </CollapsibleHeader>
 

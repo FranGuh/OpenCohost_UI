@@ -196,6 +196,21 @@ describe("emitAppEvent — motor.cloud_llm_error (item 2: cloud fallback notice,
   });
 });
 
+describe("emitAppEvent — motor.ctx_pressure_high (unit 2.5, F10/2.3 numeric detail)", () => {
+  it("enriches the label with the ratio percent when a detail string rides along", () => {
+    emitAppEvent({ source: "motor", action: "ctx_pressure_high", detail: "82" }, "srv-1", { toast: false });
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Motor: contexto saturado (82 %)");
+  });
+
+  it("falls back to the plain label when no detail is present (older backend / schema parity)", () => {
+    emitAppEvent({ source: "motor", action: "ctx_pressure_high" }, "srv-1", { toast: false });
+    const events = useEventStore.getState().events;
+    expect(events[0].label).toBe("Motor: contexto saturado");
+  });
+});
+
 describe("emitAppEvent — kira-agenda guardrail refusals (WU4-4b)", () => {
   it("maps a known guardrail code to its voseo label with the warn tone (server-originated, no toast)", () => {
     const sink = vi.fn();

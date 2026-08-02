@@ -83,12 +83,13 @@ export function ModelCard() {
         )}
 
         <section aria-labelledby="model-select-label" className="space-y-2">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground mb-2">
             Modelo activo ahora: <span className="mono text-foreground">{data?.current_model ?? "—"}</span>
           </p>
           <span id="model-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
             Modelo Activo
           </span>
+          {/* Cuando el modelo es cloud no lo muestra,se ve vacio, el select no tiene diseño como los posteriores */}
           <Select
             aria-labelledby="model-select-label"
             className="mono"

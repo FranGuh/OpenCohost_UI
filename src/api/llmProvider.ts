@@ -158,6 +158,43 @@ export async function putLlmProvider(body: LlmProviderRequest): Promise<LlmProvi
   return (await res.json()) as LlmProviderResponse;
 }
 
+/**
+ * POST /api/llm/provider/probe (cloud_rearm_20260801 WU1/WU2) — fires one
+ * immediate cloud probe on demand, side-stepping the locked model selector
+ * during an active agenda. `armed:false` (`not_in_fallback`/`no_cloud_profile`)
+ * is a benign no-op, not an error — the caller renders it honestly rather than
+ * faking a success toast. Mirrors opencohost/api/models.py::LlmProviderProbeResponse.
+ */
+export interface LlmProviderProbeResponse {
+  armed: boolean;
+  reason: string | null;
+}
+
+/** authFetch/ApiError pattern of postMemoriaPurge (client.ts:490-500) — no
+ * body, no special-status branching; any non-2xx (including 503 when the
+ * engine method is missing) is a plain ApiError. */
+export async function postCloudProbe(): Promise<LlmProviderProbeResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/llm/provider/probe`, { method: "POST" });
+  if (!res.ok) {
+    throw new ApiError(`POST /api/llm/provider/probe failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as LlmProviderProbeResponse;
+}
+
+/**
+ * Manual "Probar ahora" trigger (StatusRail's fallback chip). meta.event
+ * audits the CLICK only — the armed/reason outcome renders straight from
+ * `mutation.data` at the call site, never folded into this toast.
+ */
+export function useTriggerCloudProbe() {
+  return useMutation({
+    mutationFn: postCloudProbe,
+    meta: {
+      event: { source: "llm-provider", action: "probe" }
+    }
+  });
+}
+
 export function useLlmProvider() {
   return useQuery({
     queryKey: LLM_PROVIDER_QUERY_KEY,

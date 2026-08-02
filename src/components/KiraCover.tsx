@@ -8,6 +8,33 @@ function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.src = FALLBACK_AVATAR;
 }
 
+/**
+ * F4 fix (runtime_findings_batch_20260731 1.3): the identity row used to
+ * hardcode the literal "co-host local" — a lie the moment a cloud provider
+ * (or an active fallback) was in play. Derived from the backend's LIVE
+ * provider/transport truth (StatusResponse.transport/.fallback_active),
+ * never guessed client-side. Undefined fields (older backend / not loaded
+ * yet) degrade to the historical "co-host local" text.
+ */
+function coHostLabel(data: { transport?: string; fallback_active?: boolean } | undefined): string {
+  if (data?.transport === "cloud") return "co-host cloud";
+  if (data?.fallback_active) return "co-host local · fallback";
+  return "co-host local";
+}
+
+/**
+ * Unit 2.5 (runtime_findings_batch_20260731 F13): session-level mode above
+ * AgendaState.OFF, DERIVED backend-side (StatusResponse.session_mode) — never
+ * re-derived here. Undefined (older backend / not loaded yet) renders nothing,
+ * same degrade-quietly convention as the rest of this identity row.
+ */
+function sessionModeLabel(mode: string | undefined): string | null {
+  if (mode === "agenda") return "Agenda activa";
+  if (mode === "post-agenda") return "Post-agenda";
+  if (mode === "inactiva") return "Inactiva";
+  return null;
+}
+
 // Trust the live speaking edge only while fresh; past this the 2s status poll
 // has certainly caught up, so a missed speaking_end can't pin "speaking".
 const LIVE_SPEAKING_FRESH_MS = 3000;
@@ -123,10 +150,10 @@ export function KiraCover() {
       />
 
       {/* Status badge */}
-      <p className="relative z-10 mb-8 rounded-full border border-border-soft bg-card px-4 py-1.5 text-sm text-foreground">
+      {/* <p className="relative z-10 mb-8 rounded-full border border-border-soft bg-card px-4 py-1.5 text-sm text-foreground">
         <span className="mono font-bold text-[var(--kira-cyan)]">Estado: </span>
         {avatarLabel}
-      </p>
+      </p> */}
 
       {/* Avatar zone
           - overflow-hidden + rounded-full clips the image to the circle shape
@@ -160,7 +187,8 @@ export function KiraCover() {
       <div className="relative z-10 mt-6 flex flex-col items-center gap-1 text-center">
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Kira</h1>
         <p className="mono text-xs text-muted-foreground">
-          Akira · co-host local · {data?.current_model ?? "cargando…"}
+          Akira · {coHostLabel(data)} · {data?.current_model ?? "cargando…"}
+          {sessionModeLabel(data?.session_mode) && ` · ${sessionModeLabel(data?.session_mode)}`}
         </p>
       </div>
     </div>

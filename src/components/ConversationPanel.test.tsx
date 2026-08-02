@@ -14,6 +14,7 @@ import {
   defaultAgenda,
   evolvingAgendaHandler,
   evolvingLastReplyHandler,
+  frozenStatusHandler,
   lastReplyHandler,
   pttSessionFlowHandlers,
   pttStartUnreachableHandler
@@ -433,6 +434,83 @@ describe("ConversationPanel — 'pensando' state (spec P3/S3)", () => {
   });
 });
 
+describe("ConversationPanel — D3b bounded-wait receipt + F12 provider disclosure (runtime_findings_batch_20260731)", () => {
+  it("shows the D3b receipt instead of the generic 'pensando' copy while the engine is busy", async () => {
+    // is_speaking=true mirrors an agenda block currently playing — D3: direct
+    // chat never interrupts, it answers on the next turn boundary.
+    server.use(frozenStatusHandler(1, { is_speaking: true }));
+    server.use(evolvingLastReplyHandler({ turn_id: 1 }, { text: "ya te contesto", turn_id: 2 }, 1));
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Kira te escuchó — responderá después del bloque actual")).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/^Kira está pensando/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the generic 'pensando' copy while the engine is idle (no queueing involved)", async () => {
+    server.use(frozenStatusHandler(1, { is_speaking: false, is_processing: false }));
+    server.use(evolvingLastReplyHandler({ turn_id: 1 }, { text: "listo", turn_id: 2 }, 1));
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(screen.getByText(/pensando/i)).toBeInTheDocument());
+    expect(
+      screen.queryByText("Kira te escuchó — responderá después del bloque actual")
+    ).not.toBeInTheDocument();
+  });
+
+  it("surfaces queue_wait_ms and the answering provider on the landed reply", async () => {
+    server.use(
+      lastReplyHandler({
+        text: "todo tranquilo por acá",
+        turn_id: 1,
+        queue_wait_ms: 42000,
+        answered_by_provider: "local"
+      })
+    );
+    renderPanel();
+
+    await screen.findByText("todo tranquilo por acá");
+    expect(screen.getByText("esperó 42 s en cola · Ollama local")).toBeInTheDocument();
+  });
+
+  it("discloses a provider change while queued (F12)", async () => {
+    server.use(
+      lastReplyHandler({
+        text: "che, perdón la demora",
+        turn_id: 1,
+        queue_wait_ms: 5000,
+        answered_by_provider: "local",
+        submitted_under_provider: "nvidia_nim",
+        provider_changed_while_queued: true
+      })
+    );
+    renderPanel();
+
+    await screen.findByText("che, perdón la demora");
+    expect(
+      screen.getByText("esperó 5 s en cola · Ollama local (cambió de proveedor en cola)")
+    ).toBeInTheDocument();
+  });
+
+  it("stays silent on the meta line for an untagged reply (agenda/accumulated — never a fabricated value)", async () => {
+    server.use(lastReplyHandler({ text: "bloque de agenda", turn_id: 1, source: "kira-agenda" }));
+    renderPanel();
+
+    await screen.findByText("bloque de agenda");
+    expect(screen.queryByText(/esperó/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ollama local/)).not.toBeInTheDocument();
+  });
+});
+
 describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
   it("POSTs the typed text with an Idempotency-Key header, shows the operator's own message, and clears the input on accept", async () => {
     let capturedHeader: string | null = null;
@@ -660,7 +738,7 @@ describe("ConversationPanel transcript accumulation (WU-F)", () => {
 describe("ConversationPanel — agenda events in chat (WU4)", () => {
   it("renders an agenda divider line when a topic activates on the poll", async () => {
     // First snapshot seeds the baseline (no active topic); the second poll
-    // activates a topic, which useAgendaEvents diffs into a "turno" event.
+    // activates a topic, which useAgendaEvents diffs into an "intento" event.
     const before: typeof defaultAgenda = { ...defaultAgenda, active_topic: null };
     const after: typeof defaultAgenda = {
       ...defaultAgenda,
@@ -669,14 +747,14 @@ describe("ConversationPanel — agenda events in chat (WU4)", () => {
     server.use(evolvingAgendaHandler(before, after, 1));
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/turno 1 · tema: Mods como cultura popular en gaming/)).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByText(/intento 1 · tema: Mods como cultura popular en gaming/)).toBeInTheDocument(), {
       timeout: 4000
     });
     // It renders as an alert divider — visible in the Alertas tab, hidden in Chat.
     fireEvent.click(tab("Chat"));
-    expect(screen.queryByText(/turno 1 · tema/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/intento 1 · tema/)).not.toBeInTheDocument();
     fireEvent.click(tab("Alertas"));
-    expect(screen.getByText(/turno 1 · tema/)).toBeInTheDocument();
+    expect(screen.getByText(/intento 1 · tema/)).toBeInTheDocument();
   });
 
   it("tags a Kira reply from an autonomous agenda turn distinctly from a chat reply", async () => {
@@ -730,7 +808,7 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
     server.use(evolvingAgendaHandler(before, after, 1));
     renderPanel();
 
-    const line = await screen.findByText(/turno 1 · tema:/, undefined, { timeout: 4000 });
+    const line = await screen.findByText(/intento 1 · tema:/, undefined, { timeout: 4000 });
     const alert = line.closest(".oc-alert");
     expect(alert).toHaveAttribute("data-tone", "neutral");
     expect(alert).toHaveAttribute("role", "status");

@@ -59,7 +59,7 @@ describe("AgendaPanel hydrates Now/Queue from GET /api/agenda", () => {
 
   it("hydrates session settings (turnos/ritmo/modo) from GET", async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Turnos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
     expect(screen.getByRole("button", { name: "Normal" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("combobox", { name: "Modo de seguridad en vivo" })).toHaveTextContent("Live-safe");
   });
@@ -107,14 +107,14 @@ describe("AgendaPanel queue actions fire POST /api/agenda/topic/action", () => {
 describe("AgendaPanel add-topic form fires POST /api/agenda/topic", () => {
   it("rejects an empty title client-side without hitting the network", async () => {
     renderPanel();
-    await screen.findByLabelText("Turnos por tema");
+    await screen.findByLabelText("Intentos por tema");
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
     expect(screen.getByRole("alert")).toHaveTextContent("El título no puede estar vacío.");
   });
 
   it("adds a valid topic and it appears in the hydrated queue", async () => {
     renderPanel();
-    await screen.findByLabelText("Turnos por tema");
+    await screen.findByLabelText("Intentos por tema");
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Un tema nuevo" } });
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
@@ -126,7 +126,7 @@ describe("AgendaPanel add-topic form fires POST /api/agenda/topic", () => {
   it("surfaces a 422 validation error from the backend", async () => {
     server.use(agendaTopicValidationHandler("El título parece código"));
     renderPanel();
-    await screen.findByLabelText("Turnos por tema");
+    await screen.findByLabelText("Intentos por tema");
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "function() {}" } });
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
@@ -140,9 +140,9 @@ describe("AgendaPanel session settings fire PUT /api/agenda/session", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(capture));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Turnos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
 
-    selectCustomOption("Turnos por tema", "5");
+    selectCustomOption("Intentos por tema", "5");
 
     await waitFor(() => expect(capture.body).toEqual({ max_turns_per_topic: 5 }));
   });
@@ -151,7 +151,7 @@ describe("AgendaPanel session settings fire PUT /api/agenda/session", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(capture));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Turnos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
 
     fireEvent.click(screen.getByRole("button", { name: "Dinámico" }));
 
@@ -162,7 +162,7 @@ describe("AgendaPanel session settings fire PUT /api/agenda/session", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(capture));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Turnos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
 
     selectCustomOption("Modo de seguridad en vivo", "Monólogo");
 
@@ -180,7 +180,7 @@ describe("AgendaPanel session badge reflects live data, not the mock fixture", (
       })
     );
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     expect(screen.getByText("pausa suave")).toBeInTheDocument();
     expect(screen.queryByText("activa")).not.toBeInTheDocument();
@@ -311,7 +311,7 @@ describe("AgendaPanel co-host profile save fires POST /api/agenda/cohost-profile
 describe("AgendaPanel Perfil Co-host form regroups Sesión → Identidad → Estilo → Guardar perfil (owner order 2026-07-15)", () => {
   it("renders visible field labels and section headers in visual/document order, leading with the session group", async () => {
     renderPanel();
-    await screen.findByLabelText("Turnos por tema");
+    await screen.findByLabelText("Intentos por tema");
 
     const sesion = screen.getByText("Sesión");
     const instantChip = screen.getByText("se aplica al instante");
@@ -333,7 +333,7 @@ describe("AgendaPanel Perfil Co-host form regroups Sesión → Identidad → Est
 
   it("keeps the save button (tab order = visual order) after the style textarea, not between name and style", async () => {
     renderPanel();
-    await screen.findByLabelText("Turnos por tema");
+    await screen.findByLabelText("Intentos por tema");
 
     const nameInput = screen.getByLabelText("Nombre del perfil co-host");
     const textarea = screen.getByLabelText("Estilo del perfil co-host");
@@ -372,7 +372,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaSessionActionCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -383,7 +383,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaSessionActionCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Pausa suave" }));
 
@@ -394,7 +394,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaSessionActionCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Emergencia" }));
 
@@ -413,7 +413,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
       )
     );
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -428,7 +428,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
   it("surfaces an error when a session action is rejected", async () => {
     server.use(agendaSessionActionErrorHandler());
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -442,7 +442,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     server.use(agendaGetHandler({ ...defaultAgenda, queued_topics: [] }));
     server.use(agendaSessionActionEmptyQueueHandler());
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -459,7 +459,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     server.use(agendaGetHandler({ ...defaultAgenda, queued_topics: [] }));
     server.use(agendaSessionActionEmptyQueueHandler());
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     // Enable is refused because the queue is empty — the alert appears.
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
@@ -497,7 +497,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
     const capture: { bodies: unknown[] } = { bodies: [] };
     server.use(topicCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Un tema nuevo" } });
     fireEvent.change(screen.getByLabelText("Ángulo (opcional)"), { target: { value: "Un ángulo" } });
@@ -524,7 +524,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
     const capture: { bodies: unknown[] } = { bodies: [] };
     server.use(topicCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.change(screen.getByLabelText("Temas en lote"), {
       target: {
@@ -563,7 +563,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
 
   it("prefills the form when a template is clicked", async () => {
     renderPanel();
-    await screen.findByRole("combobox", { name: "Turnos por tema" });
+    await screen.findByRole("combobox", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: /Nostalgia de los 2000 en gaming/ }));
 

@@ -74,6 +74,7 @@ export function AvatarCard() {
               <span id="avatar-mode-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
                 Modo
               </span>
+              {/* El select no tiene diseño como los demás*/}
               <Select
                 aria-label="Modo"
                 value={data.mode}
@@ -129,6 +130,7 @@ export function AvatarCard() {
                 Probar
               </span>
               <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                {/* El select no tiene diseño como los demás*/}
                 <Select
                   aria-label="Estado a probar"
                   value={previewState}

@@ -19,6 +19,7 @@ import { useAgendaEvents } from "../api/agenda.js";
 import { useLastReply, useSendChatTurn } from "../api/chat.js";
 import { useLiveTranscript } from "../api/liveTranscript.js";
 import { usePttHold, type PttUiState } from "../api/ptt.js";
+import { useStatusQuery } from "../api/status.js";
 import { ERROR_COPY } from "../api/pttCopy.js";
 import { cn } from "../lib/cn.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../store/eventStore.js";
@@ -73,6 +74,26 @@ function capTurns(turns: Turn[]): Turn[] {
  * the bottom-row identity every arrival looks like "nothing new at the end". */
 const KIRA_THINKING_ID = "kira-thinking";
 
+/** Unit 4.2 (runtime_findings_batch_20260731, D3b): "esperó Xs en cola" /
+ * "esperó 1 min 12 s en cola" — ms -> a short honest label. Only called for
+ * a real (>0) wait; a 0ms/instant reply skips the note entirely (see the
+ * render site) rather than printing a noisy "esperó 0 s en cola". */
+function formatQueueWaitLabel(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds} s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`;
+}
+
+/** Unit 4.2 (F12 closure): the ANSWERING provider, disclosed as a short human
+ * label — "local" is Kira's own machine (Ollama); anything else is a cloud
+ * provider id, shown as-is (no hardcoded provider-name table, mirrors the
+ * backend's own "do not hardcode a provider code table" rule, 1.1). */
+function providerLabel(provider: string): string {
+  return provider === "local" ? "Ollama local" : provider;
+}
+
 type TurnKind = "chat" | "alert";
 
 interface Turn {
@@ -99,6 +120,18 @@ interface Turn {
    * LiveAudio's transcript WS) rather than the composer — drives the
    * "Vos · voz" label above the bubble. */
   source?: "voice";
+  /** Unit 4.2 (runtime_findings_batch_20260731, D3b/F12): how long this reply
+   * sat queued before the engine dequeued it (GET /api/chat/last-reply
+   * `queue_wait_ms`), and which provider actually answered. Undefined/null
+   * for any turn with no submitted_under_provider tag (agenda, accumulated,
+   * or the transient "pensando" sentinel) — never a fabricated value. */
+  queueWaitMs?: number | null;
+  answeredByProvider?: string | null;
+  providerChanged?: boolean | null;
+  /** D3b receipt: overrides the generic "Kira está pensando…" copy on the
+   * transient thinking row while the engine is busy with other work — direct
+   * chat never interrupts (D3), so this is honest about WHEN she'll answer. */
+  pendingNote?: string;
   /** Agenda lifecycle / app-event copy (kind:"alert"). Rendered as a full-width
    * Alert (following the operator's chosen alert style), not a chat bubble. */
   event?: string;
@@ -120,13 +153,18 @@ function matchesTab(tab: TabValue, kind: TurnKind): boolean {
 // viewer and keeps the seconds.
 const TURN_TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" });
 
+interface TurnTimeProps {
+  ts?: number;
+  className?: string;
+}
+
 /** Quiet per-row wall clock. Without it a five-minute-old backlogged event is
  * visually indistinguishable from a fresh one — which is how an out-of-order
  * feed hides. Metadata only: a time, never a payload value. */
-function TurnTime({ ts }: { ts?: number }) {
+function TurnTime({ ts, className = "" }: TurnTimeProps) {
   if (ts === undefined) return null;
   return (
-    <time dateTime={new Date(ts).toISOString()} className="mono shrink-0 text-[10px] font-normal tabular-nums text-dim">
+    <time dateTime={new Date(ts).toISOString()} className={`mono shrink-0 text-[10px] font-normal tabular-nums text-dim ${className}`.trim()}>
       {TURN_TIME_FORMAT.format(ts)}
     </time>
   );
@@ -147,13 +185,19 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
       <div className="flex flex-col gap-1.5">
         <KiraBadgeLabel />
         <p className="w-full animate-pulse rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-sm italic text-dim">
-          Kira está pensando…
+          {turn.pendingNote ?? "Kira está pensando…"}
         </p>
       </div>
     );
   }
 
   if (turn.role === "kira") {
+    // Unit 4.2 (D3b/F12): a subtle meta line — queue wait and/or the
+    // answering provider — under the timestamp. Skipped entirely for an
+    // untagged turn (agenda/accumulated) and for a genuinely instant (0ms)
+    // reply, which would otherwise print a noisy "esperó 0 s en cola".
+    const hasWaitNote = turn.queueWaitMs != null && turn.queueWaitMs > 0;
+    const hasProviderNote = Boolean(turn.answeredByProvider);
     // Kira's reply is LLM markdown — render it formatted (bold, code, tables,
     // lists, links). min-w-0 + the bubble's max-w keep long code/tables scrolling
     // inside the bubble instead of widening the panel. A <div> (not <p>) because
@@ -162,11 +206,19 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
       <div className="flex flex-col gap-1.5">
         <span className="flex items-center gap-2">
           <KiraBadgeLabel fromAgenda={turn.fromAgenda} />
-          <TurnTime ts={turn.ts} />
+          <TurnTime ts={turn.ts}/>
         </span>
         <div className="w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-sm text-foreground">
           <Markdown content={turn.text ?? ""} />
         </div>
+        {(hasWaitNote || hasProviderNote) && (
+          <p className="mono text-[10px] text-dim">
+            {hasWaitNote && `esperó ${formatQueueWaitLabel(turn.queueWaitMs as number)} en cola`}
+            {hasWaitNote && hasProviderNote && " · "}
+            {hasProviderNote && providerLabel(turn.answeredByProvider as string)}
+            {turn.providerChanged ? " (cambió de proveedor en cola)" : ""}
+          </p>
+        )}
       </div>
     );
   }
@@ -206,11 +258,12 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
   // "Modelo → qwen3:8b 14:05" instead.
   if (turn.event !== undefined) {
     return (
-      <div className="flex items-center gap-2">
-        <Alert tone={turn.tone ?? "neutral"} role="status" className="min-w-0 flex-1">
+      <div className="flex flex-row items-center justify-between gap-2">
+        <Alert tone={turn.tone ?? "neutral"} role="status" className="min-w-0 flex-1 gap-1">
           {turn.event}
+          {/* Necesita separarse use ml-auto y solo pl-3 funciona pero no es el resultado esperado debe estar la hora un efecto similar a justify-end*/}
+          <TurnTime ts={turn.ts} className="ml-auto pl-3"/>
         </Alert>
-        <TurnTime ts={turn.ts} />
       </div>
     );
   }
@@ -263,6 +316,12 @@ export function ConversationPanel() {
   const [transcript, setTranscript] = useState<Turn[]>([]);
   const { send, pending, isError, error } = useSendChatTurn();
   const lastReply = useLastReply();
+  // D3b receipt: while the engine is busy (speaking/processing — most often
+  // an agenda block), a direct question does NOT interrupt (D3) — it answers
+  // on the next turn boundary. Reused below to swap the generic "pensando"
+  // copy for an honest "responderá después del bloque actual".
+  const status = useStatusQuery();
+  const kiraBusy = Boolean(status.data?.is_speaking || status.data?.is_processing);
   // Autonomous agenda lifecycle events (topic activated/changed/finished/
   // paused, turns spoken) diffed from the agenda poll — interleaved into the
   // stream below as alert meta chips, filtered by the Alertas tab.
@@ -393,10 +452,19 @@ export function ConversationPanel() {
     // it. Seconds -> ms; `null` (no reply yet / older backend) keeps arrival
     // time as the honest fallback.
     const ts = typeof data.ts === "number" ? data.ts * 1000 : Date.now();
+    // Unit 4.2 (D3b/F12): carried straight from ChatLastReplyResponse — null
+    // for any turn with no submitted_under_provider tag (agenda, accumulated,
+    // or a reply recorded before this unit), never a fabricated value.
+    const queueWaitMs = data.queue_wait_ms ?? null;
+    const answeredByProvider = data.answered_by_provider ?? null;
+    const providerChanged = data.provider_changed_while_queued ?? null;
     setTranscript((turns) => {
       // Belt-and-braces guard against any other path producing a collision.
       if (turns.some((turn) => turn.id === id)) return turns;
-      return capTurns([...turns, { id, kind: "chat", role: "kira", text: data.text as string, fromAgenda, ts }]);
+      return capTurns([
+        ...turns,
+        { id, kind: "chat", role: "kira", text: data.text as string, fromAgenda, ts, queueWaitMs, answeredByProvider, providerChanged }
+      ]);
     });
   }, [lastReply.data]);
 
@@ -552,10 +620,20 @@ export function ConversationPanel() {
     // interleaved by client arrival time (Date.now() at observe-time), then the
     // ephemeral "pensando" indicator closes it out.
     const interleaved = [...transcript, ...agendaTurns, ...appEventTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
-    const kiraThinkingTurn: Turn | null = isThinking ? { id: KIRA_THINKING_ID, kind: "chat", role: "kira" } : null;
+    const kiraThinkingTurn: Turn | null = isThinking
+      ? {
+          id: KIRA_THINKING_ID,
+          kind: "chat",
+          role: "kira",
+          // D3b: direct chat never interrupts — Kira finishes the current
+          // block and answers on the NEXT turn (D3). Honest receipt for that
+          // wait instead of implying she's generating THIS answer right now.
+          pendingNote: kiraBusy ? "Kira te escuchó — responderá después del bloque actual" : undefined
+        }
+      : null;
     const orderedTurns = [...interleaved, ...(kiraThinkingTurn ? [kiraThinkingTurn] : [])];
     return orderedTurns.filter((turn) => matchesTab(activeTab, turn.kind));
-  }, [transcript, agendaEvents, appEvents, isThinking, activeTab]);
+  }, [transcript, agendaEvents, appEvents, isThinking, activeTab, kiraBusy]);
 
   // Identity of the last CONTENT row. The "pensando" sentinel is always last
   // while it exists (it is appended after the sort), so skipping it is one index

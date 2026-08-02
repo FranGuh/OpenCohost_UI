@@ -48,6 +48,7 @@ export function ProfileSwitcher() {
 
       <ProfileEditor open={editorOpen} mode="edit" initialName={activeProfile ?? ""} onClose={() => setEditorOpen(false)} />
 
+      {/* El select no tiene diseño como los demás*/}
       <Select
         aria-label="Perfil activo"
         value={selectValue}

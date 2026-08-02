@@ -5,16 +5,23 @@ import type { ReactNode } from "react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
-import { API_BASE_URL, defaultLlmProvider } from "../test/handlers.js";
+import {
+  API_BASE_URL,
+  defaultLlmProvider,
+  llmProviderProbeArmedFalseHandler,
+  llmProviderProbeUnavailableHandler
+} from "../test/handlers.js";
 import { ApiError, NotFoundError, ValidationError } from "./client.js";
 import { subscribeMutationEvents } from "../lib/appEvents.js";
 import { useEventStore } from "../store/eventStore.js";
 import {
   getLlmProvider,
   isValidProfileId,
+  postCloudProbe,
   putLlmProvider,
   suggestDuplicateId,
   suggestProfileId,
+  useTriggerCloudProbe,
   useUpdateLlmProvider
 } from "./llmProvider.js";
 import type { LlmProviderRequest } from "./llmProvider.js";
@@ -202,5 +209,41 @@ describe("useUpdateLlmProvider", () => {
     // F1: nor linger in the retained MutationCache (mutation.state.variables
     // survives ~gcTime after settle by TanStack default) — it must be scrubbed.
     expect(JSON.stringify(queryClient.getMutationCache().getAll())).not.toContain("sk-super-secret-value");
+  });
+});
+
+// cloud_rearm_20260801 WU4 — manual re-arm trigger (POST /api/llm/provider/probe).
+describe("postCloudProbe / useTriggerCloudProbe", () => {
+  beforeEach(() => {
+    useEventStore.setState({ events: [] });
+  });
+
+  it("posts and resolves armed:true (default mock — cloud armed immediately)", async () => {
+    const result = await postCloudProbe();
+    expect(result).toEqual({ armed: true, reason: null });
+  });
+
+  it("armed:false is a success, not an error (e.g. cloud already recovered)", async () => {
+    server.use(llmProviderProbeArmedFalseHandler("ambiguous_429"));
+    const result = await postCloudProbe();
+    expect(result).toEqual({ armed: false, reason: "ambiguous_429" });
+  });
+
+  it("throws ApiError on a 503 (motor unavailable)", async () => {
+    server.use(llmProviderProbeUnavailableHandler());
+    await expect(postCloudProbe()).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("emits an llm-provider.probe feed event on click — audits the click, never fakes the outcome", async () => {
+    const { queryClient, wrapper } = createWrapperWithClient();
+    subscribeMutationEvents(queryClient);
+
+    const { result } = renderHook(() => useTriggerCloudProbe(), { wrapper });
+    result.current.mutate();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe("Reintento de cloud forzado");
   });
 });

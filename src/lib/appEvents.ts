@@ -52,6 +52,9 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "llm-provider.profile": (d) => (d ? `Proveedor ${d} guardado` : "Proveedor guardado"),
   "llm-provider.delete": (d) => (d ? `Proveedor ${d} eliminado` : "Proveedor eliminado"),
   "llm-provider.posture": () => "Preferencias de proveedor guardadas",
+  // cloud_rearm_20260801 WU4 — manual re-arm click (audits the click only;
+  // the armed/reason outcome renders from mutation.data, never this label).
+  "llm-provider.probe": () => "Reintento de cloud forzado",
   "stream.connect": () => "Stream conectado",
   "stream.disconnect": () => "Stream desconectado",
   "stream.limits": () => "Límites de chat actualizados",
@@ -84,7 +87,13 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "motor.download_start": () => "Motor: descarga iniciada",
   "motor.download_done": () => "Motor: descarga completa",
   "motor.download_error": () => "Motor: error de descarga",
-  "motor.ctx_pressure_high": () => "Motor: contexto saturado",
+  // Unit 2.5 (runtime_findings_batch_20260731 F10/2.3): the ONE motor.* key
+  // whose server detail is no longer always null — engine_host.py's
+  // ctx_pressure_high now carries a numeric-only dict; events.ts's poll loop
+  // reduces it to a plain ratio-percent string (identifier-shaped, survives
+  // sanitizeDetail) before it ever reaches this template. No dialogue, no
+  // free text — just the number, same privacy contract as every other row here.
+  "motor.ctx_pressure_high": (d) => (d ? `Motor: contexto saturado (${d} %)` : "Motor: contexto saturado"),
   "motor.piper_voice_locale_mismatch": () => "Motor: voz TTS no coincide con el idioma",
   // E1 (memoria_quality_20260717): fresh-memoria notice. Owner decision 5 —
   // shown as a chat-panel FEED line (motor.* is feed-only, never toasted), not
@@ -100,7 +109,26 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // multi_provider_llm — the engine hit a cloud LLM failure. Feed-only (motor.*
   // is never toasted), honest and actionable: it does NOT auto-switch, so the
   // operator stays on cloud and must act. `detail` is always null server-side.
-  "motor.cloud_llm_error": () => "Proveedor cloud falló — seguís en cloud; revisá el proveedor o cambiá a Local"
+  "motor.cloud_llm_error": () => "Proveedor cloud falló — seguís en cloud; revisá el proveedor o cambiá a Local",
+  // Unit 2.1 (runtime_findings_batch_20260731) — `bad_key` cloud class:
+  // never retried engine-side, latched to one emission per failure event.
+  // `detail` is always null server-side.
+  "motor.cloud_bad_key": () => "Motor: revisá la API key de cloud",
+  // Unit 2.2 (runtime_findings_batch_20260731) — automatic cloud-return
+  // narration. Neutral, generic labels (never per-class text) — the reason
+  // CLASS is a separate poll field (GET /api/status → fallback_reason), not
+  // event detail. `cloud_probe_scheduled` DOES carry a numeric `seconds`
+  // detail server-side (_MOTOR_EVENT_DETAIL_FIELDS), same as
+  // `ctx_pressure_high` above — this feed label ignores it on purpose (mirrors
+  // that row); a live countdown belongs to a status-poll-driven UI element
+  // reading `next_cloud_probe_in_seconds`, not this fire-once feed line.
+  "motor.cloud_fallback_engaged": () => "Motor: cloud caído, usando Ollama local",
+  "motor.cloud_probe_scheduled": () => "Motor: reintento de cloud programado",
+  "motor.cloud_restored": () => "Motor: cloud restaurado",
+  // WU3 (cloud_rearm_20260801) — the conservative ambiguous_429 auto-return
+  // gave up after its bounded attempt count. Points at the manual "Probar
+  // ahora" button (WU5), which keeps working after this fires.
+  "motor.cloud_probe_gave_up": () => "Motor: reintento de cloud abandonado — probá manualmente"
 };
 
 /** kira-agenda prefetch guardrail refusals (WU4-4b). `action` is dynamic —

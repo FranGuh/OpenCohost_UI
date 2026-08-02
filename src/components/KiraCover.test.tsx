@@ -63,6 +63,75 @@ describe("KiraCover", () => {
   });
 });
 
+describe("KiraCover: co-host label (F4 — provider truth, runtime_findings_batch_20260731 1.3)", () => {
+  beforeEach(() =>
+    useAvatarLiveState.setState({ speaking: false, lastEventTs: 0, listening: false, lastPttTs: 0 })
+  );
+
+  it("shows 'co-host local' when transport is local and no fallback is active", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, transport: "local", fallback_active: false })
+      )
+    );
+    renderCover();
+    await waitFor(() => expect(screen.getByText(/co-host local/)).toBeInTheDocument());
+    expect(screen.queryByText(/fallback/)).not.toBeInTheDocument();
+  });
+
+  it("shows 'co-host cloud' when transport is cloud", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, transport: "cloud", fallback_active: false })
+      )
+    );
+    renderCover();
+    await waitFor(() => expect(screen.getByText(/co-host cloud/)).toBeInTheDocument());
+  });
+
+  it("shows 'co-host local · fallback' while a cloud fallback is active", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, transport: "local", fallback_active: true })
+      )
+    );
+    renderCover();
+    await waitFor(() => expect(screen.getByText(/co-host local · fallback/)).toBeInTheDocument());
+  });
+});
+
+describe("KiraCover: session mode (F13, runtime_findings_batch_20260731 2.5)", () => {
+  beforeEach(() =>
+    useAvatarLiveState.setState({ speaking: false, lastEventTs: 0, listening: false, lastPttTs: 0 })
+  );
+
+  it("shows 'Agenda activa' when session_mode is 'agenda'", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, session_mode: "agenda" }))
+    );
+    renderCover();
+    await waitFor(() => expect(screen.getByText(/Agenda activa/)).toBeInTheDocument());
+  });
+
+  it("shows 'Post-agenda' when session_mode is 'post-agenda'", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, session_mode: "post-agenda" })
+      )
+    );
+    renderCover();
+    await waitFor(() => expect(screen.getByText(/Post-agenda/)).toBeInTheDocument());
+  });
+
+  it("shows 'Inactiva' when session_mode is 'inactiva'", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, session_mode: "inactiva" }))
+    );
+    renderCover();
+    await waitFor(() => expect(screen.getByText(/Inactiva/)).toBeInTheDocument());
+  });
+});
+
 describe("KiraCover: listening (defect B/C — the operator must SEE the mic is live)", () => {
   beforeEach(() =>
     useAvatarLiveState.setState({ speaking: false, lastEventTs: 0, listening: false, lastPttTs: 0 })
@@ -72,7 +141,6 @@ describe("KiraCover: listening (defect B/C — the operator must SEE the mic is 
     useAvatarLiveState.setState({ listening: true, lastPttTs: Date.now() });
     renderCover();
     await waitFor(() => expect(avatarSrc()).toContain("/avatar/listening.png"));
-    expect(screen.getByText("escuchando")).toBeTruthy();
   });
 
   it("gives listening precedence over a simultaneous speaking edge", async () => {
@@ -107,15 +175,17 @@ describe("KiraCover: local inactivity doze (defect A — CTK parity)", () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
   }
 
-  it("dozes off after the CTK idle window and says so with its OWN label", async () => {
+  it("dozes off after the CTK idle window", async () => {
     renderCover();
     await settle();
     expect(avatarSrc()).toContain("/avatar/idle.png");
 
     await act(() => vi.advanceTimersByTimeAsync(SLEEP_AFTER_IDLE_MS));
     expect(avatarSrc()).toContain("/avatar/sleeping.png");
-    // NOT the backend's "en espera" (= engine not warmed up) — a different fact.
-    expect(screen.getByText("dormida")).toBeTruthy();
+    // The label half of this ("dormida", the local doze, vs the backend's "en
+    // espera") moved to kiraState.test.ts:106/114 when KiraCover's own status
+    // badge was removed as a duplicate of AvatarCard's — the distinction is a
+    // property of resolveAvatar(), so it is pinned at the logic layer, not here.
   });
 
   it("does NOT doze one tick before the window elapses", async () => {
@@ -167,14 +237,15 @@ describe("KiraCover: local inactivity doze (defect A — CTK parity)", () => {
     expect(avatarSrc()).toContain("/avatar/thinking.png");
   });
 
-  it("keeps the backend's sleeping (engine not ready) on its own label, never the doze copy", async () => {
+  it("shows the sleeping avatar when the backend engine is not ready", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json({ ...defaultStatus, is_ready: false }))
     );
     renderCover();
     await settle();
     expect(avatarSrc()).toContain("/avatar/sleeping.png");
-    expect(screen.getByText("en espera")).toBeTruthy();
+    // Same image as the local doze above, deliberately — the two are told apart
+    // by label, and that assertion lives in kiraState.test.ts:106/114.
   });
 });
 

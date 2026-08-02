@@ -134,7 +134,20 @@ describe("useLastReply", () => {
     const { result } = renderHook(() => useLastReply(), { wrapper: createWrapper() });
 
     await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(result.current.data).toEqual({ text: "todo bien por acá", source: "llm", turn_id: 3, ts: 1000 });
+    // Unit 4.2 (runtime_findings_batch_20260731, D3b/F12): the response grew
+    // queue_wait_ms and four provider-disclosure fields — all null here since
+    // this fixture never tags them (mirrors defaultLastReply's shape below).
+    expect(result.current.data).toEqual({
+      text: "todo bien por acá",
+      source: "llm",
+      turn_id: 3,
+      ts: 1000,
+      queue_wait_ms: null,
+      answered_by_provider: null,
+      answered_by_transport: null,
+      submitted_under_provider: null,
+      provider_changed_while_queued: null
+    });
   });
 
   it("treats text: null as no reply yet, matching the default handler", async () => {

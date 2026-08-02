@@ -24,10 +24,40 @@ import type { PttConfigResponse, PttStartResponse, PttStateResponse, PttStopResp
 // Fallback kept in sync manually with client.ts::DEFAULT_API_BASE_URL.
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8765";
 
-// active_profile_id mirrors src/api/client.ts's hand-added StatusResponse
-// field (snapshot lag — types.gen.ts predates it). ponytail: keep in sync.
+// active_profile_id / provider / transport / fallback_active mirror
+// src/api/client.ts's hand-added StatusResponse fields (snapshot lag —
+// types.gen.ts predates them). ponytail: keep in sync.
 type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"] & {
   active_profile_id?: string | null;
+  provider?: string;
+  transport?: string;
+  fallback_active?: boolean;
+  // cloud_rearm_20260801 WU5 — mirrors src/api/client.ts's hand-added
+  // StatusResponse fields. ponytail: keep in sync.
+  fallback_reason?: string | null;
+  next_cloud_probe_in_seconds?: number | null;
+  // Unit 2.5 (runtime_findings_batch_20260731 F13) — mirrors src/api/client.ts's
+  // hand-added StatusResponse fields. ponytail: keep in sync.
+  session_mode?: "agenda" | "post-agenda" | "inactiva";
+  llm_generating?: boolean;
+  pending_commands_count?: number;
+  ctx_telemetry?: {
+    ratio: number;
+    effective_ctx: number;
+    native_ctx: number;
+    evicted_pairs: number;
+    source: string;
+  } | null;
+  // Resource numbers (runtime_findings_batch_20260731 F9/F14/2.4) — mirrors
+  // src/api/client.ts's hand-added HealthState fields.
+  health: {
+    total_vram_mb?: number;
+    used_vram_mb?: number;
+    model_resident_mb_est?: number | null;
+    model_vram_mb_est?: number | null;
+    model_ram_spill_mb_est?: number | null;
+    model_processor_split?: string | null;
+  };
 };
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
@@ -47,6 +77,11 @@ export interface LastReplyResponse {
   source: string | null;
   turn_id: number;
   ts: number | null;
+  queue_wait_ms?: number | null;
+  answered_by_provider?: string | null;
+  answered_by_transport?: string | null;
+  submitted_under_provider?: string | null;
+  provider_changed_while_queued?: boolean | null;
 }
 
 export const defaultStatus: StatusResponse = {
@@ -56,6 +91,13 @@ export const defaultStatus: StatusResponse = {
   is_processing: false,
   active_profile: "default",
   active_profile_id: "profile-id-default",
+  provider: "local",
+  transport: "local",
+  fallback_active: false,
+  session_mode: "inactiva",
+  llm_generating: false,
+  pending_commands_count: 0,
+  ctx_telemetry: null,
   health: {
     vram_status: "ok",
     rtf_status: "ok",
@@ -65,8 +107,17 @@ export const defaultStatus: StatusResponse = {
     ollama_lifecycle: "running",
     qwen_lifecycle: "running",
     free_vram_mb: 4096,
+    total_vram_mb: 8192,
+    used_vram_mb: 4096,
     rtf_rolling_avg: 0.3,
-    last_updated: 0
+    last_updated: 0,
+    // Deliberately not round multiples of 10 — StatusRail.test.tsx:243 pins
+    // that no VRAM/model row ever renders a bare "0 MB", and "...00 MB"
+    // values (e.g. 6300) would false-positive that substring check.
+    model_resident_mb_est: 6144,
+    model_vram_mb_est: 4352,
+    model_ram_spill_mb_est: 1792,
+    model_processor_split: "67% GPU / 33% CPU"
   },
   state_version: 1
 };
@@ -111,7 +162,17 @@ export const defaultTtsConfig: TtsConfigResponse = {
   heavy_available: false
 };
 
-export const defaultLastReply: LastReplyResponse = { text: null, source: null, turn_id: 0, ts: null };
+export const defaultLastReply: LastReplyResponse = {
+  text: null,
+  source: null,
+  turn_id: 0,
+  ts: null,
+  queue_wait_ms: null,
+  answered_by_provider: null,
+  answered_by_transport: null,
+  submitted_under_provider: null,
+  provider_changed_while_queued: null
+};
 
 export const defaultMemoriaStats: MemoriaStatsResponse = {
   session_turns: 14,
@@ -682,6 +743,9 @@ export const handlers = [
       profiles
     });
   }),
+  // POST /api/llm/provider/probe (cloud_rearm_20260801 WU2) — default: cloud
+  // arms immediately. Per-test overrides below cover armed:false and 503.
+  http.post(`${API_BASE_URL}/api/llm/provider/probe`, () => HttpResponse.json({ armed: true, reason: null })),
   http.get(`${API_BASE_URL}/api/stream/chat-live`, () => HttpResponse.json(defaultStreamChatLive)),
   http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
     HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" })
@@ -1036,6 +1100,21 @@ export function llmProviderPutCaptureHandler(
     capture.body = await request.json();
     return HttpResponse.json(response);
   });
+}
+
+/** Per-test override: POST /api/llm/provider/probe returns armed:false with a
+ * reason (e.g. `not_in_fallback`/`no_cloud_profile` no-ops, or a race where
+ * cloud already recovered before the click landed) — a benign 200, not an error. */
+export function llmProviderProbeArmedFalseHandler(reason: string) {
+  return http.post(`${API_BASE_URL}/api/llm/provider/probe`, () => HttpResponse.json({ armed: false, reason }));
+}
+
+/** Per-test override: POST /api/llm/provider/probe rejected with 503
+ * (motor_unavailable — the engine method is missing on an older build). */
+export function llmProviderProbeUnavailableHandler() {
+  return http.post(`${API_BASE_URL}/api/llm/provider/probe`, () =>
+    HttpResponse.json({ detail: "motor_unavailable" }, { status: 503 })
+  );
 }
 
 /** Per-test override: POST /api/stream/chat-live/connect rejected with 422 invalid_url. */
