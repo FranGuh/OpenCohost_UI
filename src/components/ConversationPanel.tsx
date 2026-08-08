@@ -208,7 +208,7 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
           <KiraBadgeLabel fromAgenda={turn.fromAgenda} />
           <TurnTime ts={turn.ts}/>
         </span>
-        <div className="w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-sm text-foreground">
+        <div className="w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-foreground">
           <Markdown content={turn.text ?? ""} />
         </div>
         {(hasWaitNote || hasProviderNote) && (
@@ -237,7 +237,9 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
           )}
           <TurnTime ts={turn.ts} />
         </span>
-        <p className="w-full rounded-md rounded-tr-sm border border-ok-bd bg-ok-bg px-3 py-2 text-sm text-foreground">
+        {/* text-[15px] + leading-relaxed: same legibility bump as Kira's
+            Markdown bubble; break-words so a pasted long token can't widen it. */}
+        <p className="w-full break-words rounded-md rounded-tr-sm border border-ok-bd bg-ok-bg px-3 py-2 text-[15px] leading-relaxed text-foreground">
           {turn.text}
         </p>
       </div>
@@ -699,8 +701,13 @@ export function ConversationPanel() {
   const feedActive = activeTab === "todo" || activeTab === "chat" || activeTab === "alertas";
   const feedTabId = FEED_TAB_ID[feedActive ? (activeTab as "todo" | "chat" | "alertas") : "todo"];
 
+  // min-w-0 on the aside: it is a grid item, so its automatic min size is
+  // min-content — one wide Kira table/code reply used to force it past the
+  // fixed 465px chat column and break the whole app layout (runtime session
+  // 2026-08-07, 15:40). With the floor at 0 the column holds and the
+  // table/pre overflow-x-auto wrappers in Markdown.tsx do the scrolling.
   return (
-    <aside className="flex min-h-0 flex-col border-l border-border-soft bg-card">
+    <aside className="flex min-h-0 min-w-0 flex-col border-l border-border-soft bg-card">
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabValue)} className="flex min-h-0 flex-1 flex-col">
         {/* ONE unified strip (owner layout correction 2026-07-18): Todo/Chat/
             Alertas filter the timeline (they share the single "conversation-panel"

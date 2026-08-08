@@ -3,6 +3,61 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+/* ------------------------------------------------------------------ */
+/*  remarkMathAsCode — $...$ / $$...$$ spans -> inline code            */
+/*                                                                     */
+/*  No math renderer is installed (KaTeX is a deliberate follow-up     */
+/*  decision, not a silent dependency add). Until then a LaTeX span in */
+/*  a Kira reply rendered as garbled prose — "$\vec{v}$" mid-sentence  */
+/*  (runtime session 2026-08-07, 15:40). This mdast pass wraps each    */
+/*  span in an inlineCode node so it lands in the existing styled      */
+/*  <code> instead. Only `text` nodes are visited, so fenced blocks    */
+/*  and real inline code (value-only nodes, no children) are immune.   */
+/* ------------------------------------------------------------------ */
+
+/** Minimal structural mdast shape — @types/mdast is not a direct dep and
+ * pnpm's isolated node_modules keeps transitive types un-importable. */
+interface MdNode {
+  type: string;
+  value?: string;
+  children?: MdNode[];
+}
+
+// $$...$$ first so a display span isn't half-eaten by the inline branch.
+// The inline branch demands a non-space char at both edges, so dollar
+// amounts ("cuesta $100 y $200") and truncated fragments ("$P(w_n") stay
+// plain text. ponytail: heuristic, not a TeX parser — KaTeX is the upgrade.
+const MATH_SPAN = /\$\$([^$\n]+?)\$\$|\$(\S(?:[^$\n]*?\S)?)\$/g;
+
+function splitMathSpans(node: MdNode): MdNode[] {
+  const text = node.value ?? "";
+  const out: MdNode[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(MATH_SPAN)) {
+    const formula = match[1] ?? match[2];
+    if (match.index > cursor) out.push({ type: "text", value: text.slice(cursor, match.index) });
+    out.push({ type: "inlineCode", value: formula });
+    cursor = match.index + match[0].length;
+  }
+  if (out.length === 0) return [node]; // no spans — keep the original node untouched
+  if (cursor < text.length) out.push({ type: "text", value: text.slice(cursor) });
+  return out;
+}
+
+function remarkMathAsCode() {
+  return (tree: MdNode) => {
+    const walk = (node: MdNode) => {
+      if (!node.children) return;
+      node.children = node.children.flatMap((child) => {
+        if (child.type === "text") return splitMathSpans(child);
+        walk(child);
+        return [child];
+      });
+    };
+    walk(tree);
+  };
+}
+
 // Cockpit-styled markdown for Kira/assistant chat turns. Deliberately NO
 // rehype-raw: raw HTML in a reply stays escaped text (react-markdown's default),
 // so an LLM reply can never inject markup into the operator's cockpit. Inline
@@ -25,7 +80,7 @@ const COMPONENTS: Components = {
   pre: ({ node, ...props }) => (
     <pre
       {...props}
-      className="mono overflow-x-auto rounded-md border border-border-soft bg-surface-2 p-3 text-xs"
+      className="mono overflow-x-auto rounded-md border border-border-soft bg-surface-2 p-3 text-[13px] leading-relaxed"
     />
   ),
   table: ({ node, ...props }) => (
@@ -46,10 +101,13 @@ const COMPONENTS: Components = {
  * space-y-2 spaces multiple blocks; a single paragraph gets no extra margin.
  */
 function MarkdownImpl({ content }: { content: string }) {
+  // text-[15px] (was text-sm/14px) + break-words: owner legibility pass
+  // (runtime session 2026-08-07) — bigger chat type, and an unbreakable long
+  // token (URL, LaTeX fragment) wraps instead of dragging the bubble wide.
   return (
-    <div className="oc-md min-w-0 space-y-2 text-sm leading-relaxed">
+    <div className="oc-md min-w-0 space-y-2 break-words text-[15px] leading-relaxed">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMathAsCode]}
         components={COMPONENTS}
         // Security hardening (audit 2026-07-15): an LLM reply must never trigger
         // outbound requests from the operator's machine — ![x](https://…) would

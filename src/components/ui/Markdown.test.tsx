@@ -56,6 +56,43 @@ describe("Markdown — Kira reply formatting", () => {
     expect(link).toHaveAttribute("rel", "noreferrer");
   });
 
+  it("renders an inline $...$ LaTeX span as styled inline code (no math renderer installed)", () => {
+    render(<Markdown content={"el vector $\\vec{v}$ y el contexto $C_{tema}$"} />);
+    const vec = screen.getByText("\\vec{v}");
+    expect(vec.tagName).toBe("CODE");
+    expect(vec.closest("pre")).toBeNull();
+    expect(screen.getByText("C_{tema}").tagName).toBe("CODE");
+  });
+
+  it("renders a $$...$$ span as inline code too", () => {
+    render(<Markdown content={"la fórmula $$P(w_n | w_1)$$ manda"} />);
+    expect(screen.getByText("P(w_n | w_1)").tagName).toBe("CODE");
+  });
+
+  it("converts $...$ inside GFM table cells (the 15:40 breakage case)", () => {
+    const { container } = render(
+      <Markdown content={"| a | b |\n| - | - |\n| $\\rightarrow$ | 2 |"} />
+    );
+    const code = container.querySelector("td code");
+    expect(code).not.toBeNull();
+    expect(code!.textContent).toBe("\\rightarrow");
+  });
+
+  it("leaves dollar amounts and unclosed $ fragments as plain text", () => {
+    const { container } = render(<Markdown content={"cuesta $100 y quedó $P(w_n cortado"} />);
+    expect(container.querySelector("code")).toBeNull();
+    expect(container.textContent).toContain("$100");
+    expect(container.textContent).toContain("$P(w_n cortado");
+  });
+
+  it("never rewrites $ inside a fenced code block", () => {
+    const { container } = render(<Markdown content={"```\nprecio = \"$total$\"\n```"} />);
+    const pre = container.querySelector("pre");
+    expect(pre!.textContent).toContain('precio = "$total$"');
+    // Only the block's own <code>, no injected inline-code siblings.
+    expect(container.querySelectorAll("code")).toHaveLength(1);
+  });
+
   it("keeps raw HTML as escaped text — no rehype-raw, so injected markup never renders", () => {
     const { container } = render(<Markdown content="un <b>tag</b> crudo" />);
     // The <b> is NOT parsed into a real element…

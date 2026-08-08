@@ -92,7 +92,7 @@ select:focus-visible,
    so inline code and code blocks are never double-styled. */
 .oc-md :not(pre) > code {
   font-family: var(--mono);
-  font-size: 0.75rem; /* text-xs */
+  font-size: 0.8125rem; /* 13px — tracks the 15px chat body (owner legibility pass 2026-08-07); also carries $LaTeX$ spans until a real math renderer lands */
   background: var(--surface-2);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius); /* rounded */
