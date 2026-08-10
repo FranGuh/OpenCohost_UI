@@ -7,7 +7,7 @@ the app's near-black ground (--void #05070b) and writes lossy WebP (quality 70)
 to public/boot/kira-01.webp … kira-08.webp.
 
 The output order is stable and IS the contract: it maps 1:1 to
-BOOT_COLLAGE_ART in src/components/ui/BootCollage.tsx. Re-run whenever the art
+BOOT_COLLAGE_ART in src/ui/BootCollage.tsx. Re-run whenever the art
 changes; edit SOURCES (or pass paths as argv) to point at new source files.
 
 Run with the project interpreter, e.g.:

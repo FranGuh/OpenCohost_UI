@@ -642,7 +642,10 @@ export function ConversationPanel() {
       : null;
     const orderedTurns = [...interleaved, ...(kiraThinkingTurn ? [kiraThinkingTurn] : [])];
     return orderedTurns.filter((turn) => matchesTab(activeTab, turn.kind));
-  }, [transcript, agendaEvents, appEvents, isThinking, activeTab, kiraBusy]);
+    // `t` is in the deps because this memo bakes a translated string into
+    // `pendingNote`: useT() hands back a fresh identity per locale, so listing
+    // it here is what makes the note re-translate on a language flip.
+  }, [transcript, agendaEvents, appEvents, isThinking, activeTab, kiraBusy, t]);
 
   // Identity of the last CONTENT row. The "pensando" sentinel is always last
   // while it exists (it is appended after the sort), so skipping it is one index
