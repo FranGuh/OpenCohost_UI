@@ -10,6 +10,7 @@ import { Segmented } from "../../ui/Segmented.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../../ui/Collapsible.js";
 import { useToast } from "../../ui/Toast.js";
 import { Alert } from "../../ui/Alert.js";
+import { t, useT, type TKey } from "../../i18n/t.js";
 import {
   AGENDA_TURN_OPTIONS,
   useAddAgendaTopicMutation,
@@ -39,48 +40,51 @@ import {
 // could drift from the backend.
 
 const RHYTHM_OPTIONS = [
-  { value: "calmo", label: "Calmo" },
-  { value: "normal", label: "Normal" },
-  { value: "dinamico", label: "Dinámico" }
-] as const;
+  { value: "calmo", labelKey: "agenda.session.rhythm.calmo" },
+  { value: "normal", labelKey: "agenda.session.rhythm.normal" },
+  { value: "dinamico", labelKey: "agenda.session.rhythm.dinamico" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TKey }>;
 
 const SAFETY_MODE_OPTIONS = [
-  { value: "live_safe", label: "Live-safe" },
-  { value: "monologue", label: "Monólogo" },
-  { value: "test", label: "Test" }
-] as const;
+  { value: "live_safe", labelKey: "agenda.session.safetyMode.liveSafe" },
+  { value: "monologue", labelKey: "agenda.session.safetyMode.monologue" },
+  { value: "test", labelKey: "agenda.session.safetyMode.test" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TKey }>;
 
-const PRIORITY_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
-  alta: { tone: "warn", label: "Alta" },
-  normal: { tone: "info", label: "Normal" },
-  baja: { tone: "ok", label: "Baja" }
+const PRIORITY_BADGE: Record<string, { tone: BadgeTone; labelKey: TKey }> = {
+  alta: { tone: "warn", labelKey: "agenda.queue.priority.alta" },
+  normal: { tone: "info", labelKey: "agenda.queue.priority.normal" },
+  baja: { tone: "ok", labelKey: "agenda.queue.priority.baja" }
 };
 
-const CONFIDENCE_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
-  HIGH: { tone: "ok", label: "confianza alta" },
-  MEDIUM: { tone: "info", label: "confianza media" },
-  LOW: { tone: "warn", label: "confianza baja" }
+const CONFIDENCE_BADGE: Record<string, { tone: BadgeTone; labelKey: TKey }> = {
+  HIGH: { tone: "ok", labelKey: "agenda.suggestions.confidence.high" },
+  MEDIUM: { tone: "info", labelKey: "agenda.suggestions.confidence.medium" },
+  LOW: { tone: "warn", labelKey: "agenda.suggestions.confidence.low" }
 };
 
 // Live session states from opencohost/smart_aggregator/kira_agenda_controller.py::AgendaState.
 // ponytail: only the states CTk's _update_session_buttons treats specially get a distinct
 // label/tone; everything else (the "active_states" set) falls back to "activa" below.
-const SESSION_BADGE: Record<string, { tone: BadgeTone; label: string }> = {
-  OFF: { tone: "info", label: "inactiva" },
-  PAUSED_NEEDS_OPERATOR: { tone: "warn", label: "pausa suave" },
-  HARD_PAUSED: { tone: "danger", label: "pausa dura" }
+const SESSION_BADGE: Record<string, { tone: BadgeTone; labelKey: TKey }> = {
+  OFF: { tone: "info", labelKey: "agenda.sessionControl.state.off" },
+  PAUSED_NEEDS_OPERATOR: { tone: "warn", labelKey: "agenda.sessionControl.state.pausedNeedsOperator" },
+  HARD_PAUSED: { tone: "danger", labelKey: "agenda.sessionControl.state.hardPaused" }
 };
 
 function sessionBadge(state: string): { tone: BadgeTone; label: string } {
-  return SESSION_BADGE[state] ?? { tone: "ok", label: "activa" };
+  const entry = SESSION_BADGE[state] ?? { tone: "ok" as BadgeTone, labelKey: "agenda.sessionControl.state.active" as TKey };
+  return { tone: entry.tone, label: t(entry.labelKey) };
 }
 
 function priorityBadge(priority: string) {
-  return PRIORITY_BADGE[priority] ?? PRIORITY_BADGE.normal;
+  const entry = PRIORITY_BADGE[priority] ?? PRIORITY_BADGE.normal;
+  return { tone: entry.tone, label: t(entry.labelKey) };
 }
 
 function confidenceBadge(confidence: string) {
-  return CONFIDENCE_BADGE[confidence] ?? CONFIDENCE_BADGE.MEDIUM;
+  const entry = CONFIDENCE_BADGE[confidence] ?? CONFIDENCE_BADGE.MEDIUM;
+  return { tone: entry.tone, label: t(entry.labelKey) };
 }
 
 function sectionLabel(id: string, text: string) {
@@ -110,6 +114,7 @@ function mutationErrorMessage(error: unknown, fallback: string): string {
  * that one field (AgendaSessionRequest is a partial update).
  */
 function ProfileSessionCard() {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "agenda-perfil");
   const { data } = useAgendaQuery();
   const updateSession = useUpdateAgendaSessionMutation();
@@ -157,18 +162,18 @@ function ProfileSessionCard() {
   // save button (they belong to the profile group), session errors surface
   // atop the session group (they belong to the auto-saving fields).
   const profileErrorMessage = saveProfile.isError
-    ? mutationErrorMessage(saveProfile.error, "No se pudo guardar el perfil.")
+    ? mutationErrorMessage(saveProfile.error, t("agenda.profile.save.error"))
     : selectProfile.isError
-      ? mutationErrorMessage(selectProfile.error, "No se pudo aplicar el perfil.")
+      ? mutationErrorMessage(selectProfile.error, t("agenda.profile.select.error"))
       : null;
 
-  const sessionErrorMessage = updateSession.isError ? "No se pudo guardar la configuración de sesión." : null;
+  const sessionErrorMessage = updateSession.isError ? t("agenda.session.save.error") : null;
 
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Perfil Co-host</h2>
-        {pending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("agenda.profile.title")}</h2>
+        {pending && <Badge tone="info">{t("agenda.profile.pending")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
@@ -180,15 +185,15 @@ function ProfileSessionCard() {
         {data && (
           <section aria-labelledby="agenda-session-settings-label" className="space-y-2 pb-1">
             <div className="flex items-baseline gap-2">
-              {sectionLabel("agenda-session-settings-label", "Sesión")}
-              <span className="mono text-[13px] text-dim">se aplica al instante</span>
+              {sectionLabel("agenda-session-settings-label", t("agenda.session.eyebrow"))}
+              <span className="mono text-[13px] text-dim">{t("agenda.session.instant.hint")}</span>
             </div>
             {sessionErrorMessage && <Alert tone="danger">{sessionErrorMessage}</Alert>}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Intentos por tema</span>
+                <span className="text-xs text-muted-foreground">{t("agenda.session.turns")}</span>
                 <Select
-                  aria-label="Intentos por tema"
+                  aria-label={t("agenda.session.turns")}
                   options={AGENDA_TURN_OPTIONS}
                   value={turns}
                   disabled={updateSession.isPending}
@@ -197,29 +202,27 @@ function ProfileSessionCard() {
                     updateSession.mutate({ max_turns_per_topic: Number(value) });
                   }}
                 />
-                <span className="mono text-[11px] text-dim">
-                  Cada intento es una generación del modelo; los rechazos también descuentan.
-                </span>
+                <span className="mono text-[11px] text-dim">{t("agenda.session.turns.hint")}</span>
               </div>
               <div className="space-y-2">
-                <span className="text-xs text-muted-foreground">Modo de seguridad en vivo</span>
+                <span className="text-xs text-muted-foreground">{t("agenda.session.safetyMode")}</span>
                 <Select
-                  aria-label="Modo de seguridad en vivo"
-                  options={SAFETY_MODE_OPTIONS}
+                  aria-label={t("agenda.session.safetyMode")}
+                  options={SAFETY_MODE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                   value={safetyMode}
                   disabled={updateSession.isPending}
                   className={"z-20"}
-                  onChange={(value) => {
+                  onChange={(value: string) => {
                     updateSession.mutate({ safety_mode: value });
                   }}
                 />
               </div>
             </div>
             <div className="space-y-2 space-x-2">
-              <span className="text-xs text-muted-foreground">Ritmo</span>
+              <span className="text-xs text-muted-foreground">{t("agenda.session.rhythm")}</span>
               <Segmented
-                ariaLabel="Ritmo"
-                options={RHYTHM_OPTIONS}
+                ariaLabel={t("agenda.session.rhythm")}
+                options={RHYTHM_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                 value={rhythm}
                 disabled={updateSession.isPending}
                 className="mb-1s"
@@ -237,11 +240,11 @@ function ProfileSessionCard() {
           aria-labelledby="agenda-profile-label"
           className={`space-y-2 ${data ? "border-t border-border-soft pt-3.5" : ""}`}
         >
-          {sectionLabel("agenda-profile-label", "Identidad")}
+          {sectionLabel("agenda-profile-label", t("agenda.profile.identity.eyebrow"))}
           <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">Perfil guardado</span>
+            <span className="text-xs text-muted-foreground">{t("agenda.profile.saved.label")}</span>
             <Select
-              aria-label="Perfiles guardados"
+              aria-label={t("agenda.profile.saved.aria")}
               options={(profiles.length > 0 ? profiles : [{ name: selectedProfileName }]).map((profile) => ({ value: profile.name, label: profile.name }))}
               value={selectedProfileName}
               disabled={selectProfile.isPending}
@@ -250,12 +253,12 @@ function ProfileSessionCard() {
           </div>
           <div className="space-y-1">
             <label htmlFor="agenda-profile-name" className="text-xs text-muted-foreground">
-              Nombre
+              {t("agenda.profile.name.label")}
             </label>
             <Input
               id="agenda-profile-name"
               type="text"
-              aria-label="Nombre del perfil co-host"
+              aria-label={t("agenda.profile.name.aria")}
               value={draftName}
               disabled={saveProfile.isPending}
               onChange={(event) => setDraftName(event.target.value)}
@@ -264,26 +267,26 @@ function ProfileSessionCard() {
         </section>
 
         <section aria-labelledby="agenda-style-label" className="space-y-2">
-          {sectionLabel("agenda-style-label", "Estilo")}
+          {sectionLabel("agenda-style-label", t("agenda.profile.style.eyebrow"))}
           <div className="space-y-1">
             <label htmlFor="agenda-profile-style" className="text-xs text-muted-foreground">
-              Cómo suena Kira
+              {t("agenda.profile.style.label")}
             </label>
             <textarea
               id="agenda-profile-style"
-              aria-label="Estilo del perfil co-host"
+              aria-label={t("agenda.profile.style.aria")}
               value={styleDraft}
               disabled={saveProfile.isPending}
               onChange={(event) => setStyleDraft(event.target.value)}
               rows={3}
-              placeholder="Cómo querés que suene Kira…"
+              placeholder={t("agenda.profile.style.placeholder")}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed min-h-[100px] max-h-[300px] disabled:opacity-60"
             />
           </div>
 
           <div className="flex items-start justify-end gap-3">
             <p className="mr-auto text-xs text-muted-foreground">
-              Guarda el nombre y el estilo como un perfil reutilizable.
+              {t("agenda.profile.save.hint")}
             </p>
             <Button
               type="button"
@@ -291,7 +294,7 @@ function ProfileSessionCard() {
               disabled={saveProfile.isPending || !draftName.trim()}
               onClick={handleSaveProfile}
             >
-              {saveProfile.isPending ? "Guardando…" : "Guardar perfil"}
+              {saveProfile.isPending ? t("agenda.profile.save.action.pending") : t("agenda.profile.save.action")}
             </Button>
           </div>
           {profileErrorMessage && <Alert tone="danger">{profileErrorMessage}</Alert>}
@@ -303,24 +306,25 @@ function ProfileSessionCard() {
 }
 
 function NowCard({ now }: { now: AgendaTopicOut | null | undefined }) {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "agenda-ahora");
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Ahora</h2>
+        <h2 className="text-sm font-bold text-foreground">{t("agenda.now.title")}</h2>
       </CollapsibleHeader>
       <CollapsibleBody isOpen={isOpen}>
       <div data-testid="agenda-now">
         {now ? (
           <div className="flex flex-col gap-2 rounded-md bg-[image:var(--spectrum-soft)] p-3">
             <Badge tone="ok" className="w-fit">
-              en vivo
+              {t("agenda.now.live")}
             </Badge>
             <p className="text-sm font-semibold text-[var(--kira-cyan)]">{now.title}</p>
             {now.angle && <p className="text-xs leading-relaxed text-muted-foreground">{now.angle}</p>}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Sin tema activo en este momento.</p>
+          <p className="text-sm text-muted-foreground">{t("agenda.now.empty")}</p>
         )}
       </div>
       </CollapsibleBody>
@@ -329,6 +333,7 @@ function NowCard({ now }: { now: AgendaTopicOut | null | undefined }) {
 }
 
 function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "agenda-cola");
   const action = useAgendaTopicActionMutation();
 
@@ -343,10 +348,10 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground w-full justify-between items-center">Cola de temas</h2>
+        <h2 className="text-sm font-bold text-foreground w-full justify-between items-center">{t("agenda.queue.title")}</h2>
         <div className="flex gap-2 w-full justify-end">
-          <Badge tone="info">{queue.length} en cola</Badge>
-          {action.isPending && <Badge tone="info">aplicando…</Badge>}
+          <Badge tone="info">{t("agenda.queue.count", { n: queue.length })}</Badge>
+          {action.isPending && <Badge tone="info">{t("agenda.queue.pending")}</Badge>}
         </div>
       </CollapsibleHeader>
 
@@ -354,20 +359,20 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
       <div className="flex flex-col gap-3.5">
         {action.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo aplicar la acción sobre la cola.
+            {t("agenda.queue.action.error")}
           </p>
         )}
 
         {queue.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No hay temas en cola todavía.</p>
+          <p className="text-sm text-muted-foreground">{t("agenda.queue.empty")}</p>
         ) : (
-          <ol aria-label="Cola de temas ordenada" className="flex flex-col gap-2">
+          <ol aria-label={t("agenda.queue.list.aria")} className="flex flex-col gap-2">
             {queue.map((topic, index) => {
               const badge = priorityBadge(topic.priority);
               return (
                 <li
                   key={topic.id}
-                  aria-label={`Tema en cola: ${topic.title}`}
+                  aria-label={t("agenda.queue.item.aria", { title: topic.title })}
                   className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border border-border-soft bg-background p-3"
                 >
                   <div className="flex flex-col gap-1">
@@ -382,7 +387,7 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
                       type="button"
                       variant="ghost"
                       className="h-8 w-8 p-0"
-                      aria-label={`Subir "${topic.title}"`}
+                      aria-label={t("agenda.queue.moveUp.aria", { title: topic.title })}
                       disabled={action.isPending || index === 0}
                       onClick={() => move(topic.id, -1)}
                     >
@@ -392,7 +397,7 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
                       type="button"
                       variant="ghost"
                       className="h-8 w-8 p-0"
-                      aria-label={`Bajar "${topic.title}"`}
+                      aria-label={t("agenda.queue.moveDown.aria", { title: topic.title })}
                       disabled={action.isPending || index === queue.length - 1}
                       onClick={() => move(topic.id, 1)}
                     >
@@ -402,7 +407,7 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
                       type="button"
                       variant="ghost"
                       className="h-8 w-8 p-0 text-danger"
-                      aria-label={`Quitar "${topic.title}"`}
+                      aria-label={t("agenda.queue.remove.aria", { title: topic.title })}
                       disabled={action.isPending}
                       onClick={() => remove(topic.id)}
                     >
@@ -431,6 +436,7 @@ interface SuggestionsCardProps {
  * `_AGENDA_ACTION_WHITELIST` (opencohost/api/main.py).
  */
 function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "agenda-sugerencias");
   const action = useAgendaTopicActionMutation();
 
@@ -445,22 +451,22 @@ function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Sugerencias de Kira</h2>
-        {action.isPending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("agenda.suggestions.title")}</h2>
+        {action.isPending && <Badge tone="info">{t("agenda.suggestions.pending")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
       <div className="flex flex-col gap-3.5">
         {action.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo aplicar la acción sobre la sugerencia.
+            {t("agenda.suggestions.action.error")}
           </p>
         )}
 
         {suggestions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin sugerencias pendientes.</p>
+          <p className="text-sm text-muted-foreground">{t("agenda.suggestions.empty")}</p>
         ) : (
-          <ul aria-label="Sugerencias de Kira" className="flex flex-col gap-2">
+          <ul aria-label={t("agenda.suggestions.title")} className="flex flex-col gap-2">
             {suggestions.map((topic) => {
               const badge = confidenceBadge(topic.confidence);
               return (
@@ -474,26 +480,26 @@ function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
                       <span className="text-[13px] font-semibold text-foreground">{topic.title}</span>
                       <Badge tone={badge.tone}>{badge.label}</Badge>
                     </div>
-                    <span className="text-xs text-muted-foreground">{topic.angle || "Sin ángulo"}</span>
+                    <span className="text-xs text-muted-foreground">{topic.angle || t("agenda.suggestions.angle.empty")}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       disabled={action.isPending}
-                      aria-label={`Aprobar "${topic.title}"`}
+                      aria-label={t("agenda.suggestions.approve.aria", { title: topic.title })}
                       onClick={() => approve(topic.id)}
                     >
-                      Aprobar
+                      {t("agenda.suggestions.approve.action")}
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
                       disabled={action.isPending}
-                      aria-label={`Rechazar "${topic.title}"`}
+                      aria-label={t("agenda.suggestions.reject.aria", { title: topic.title })}
                       onClick={() => reject(topic.id)}
                     >
-                      Rechazar
+                      {t("agenda.suggestions.reject.action")}
                     </Button>
                   </div>
                 </li>
@@ -508,16 +514,16 @@ function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
 }
 
 const PRIORITY_OPTIONS = [
-  { value: "alta", label: "Alta" },
-  { value: "normal", label: "Normal" },
-  { value: "baja", label: "Baja" }
-] as const;
+  { value: "alta", labelKey: "agenda.topic.priority.alta" },
+  { value: "normal", labelKey: "agenda.topic.priority.normal" },
+  { value: "baja", labelKey: "agenda.topic.priority.baja" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TKey }>;
 
 const RESPONSE_LENGTH_OPTIONS = [
-  { value: "corta", label: "Corta" },
-  { value: "normal", label: "Normal" },
-  { value: "expandida", label: "Expandida" }
-] as const;
+  { value: "corta", labelKey: "agenda.topic.responseLength.corta" },
+  { value: "normal", labelKey: "agenda.topic.responseLength.normal" },
+  { value: "expandida", labelKey: "agenda.topic.responseLength.expandida" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TKey }>;
 
 const MAX_CONSTRAINTS = 12;
 const MAX_CONSTRAINT_LEN = 120;
@@ -573,6 +579,7 @@ function parseBulkLine(line: string): AgendaTopicRequest | null {
 }
 
 function AddTopicCard() {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "agenda-agregar");
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
@@ -590,7 +597,7 @@ function AddTopicCard() {
     setConstraintDraft("");
     if (!clean || constraints.includes(clean)) return;
     if (constraints.length >= MAX_CONSTRAINTS) {
-      setConstraintWarn(`Máximo ${MAX_CONSTRAINTS} etiquetas.`);
+      setConstraintWarn(t("agenda.constraints.max", { n: MAX_CONSTRAINTS }));
       return;
     }
     setConstraintWarn(null);
@@ -629,7 +636,7 @@ function AddTopicCard() {
     event.preventDefault();
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      setError("El título no puede estar vacío.");
+      setError(t("agenda.topic.title.error"));
       return;
     }
     setError(null);
@@ -638,7 +645,7 @@ function AddTopicCard() {
       {
         onSuccess: resetForm,
         onError: (mutationError) => {
-          setError(mutationErrorMessage(mutationError, "No se pudo agregar el tema."));
+          setError(mutationErrorMessage(mutationError, t("agenda.topic.add.error")));
         }
       }
     );
@@ -648,9 +655,9 @@ function AddTopicCard() {
   // the one left in the query cache. Backend dedups by (title, angle) so a
   // partial-failure retry of the whole block is safe.
   async function handleBulkSubmit() {
-    const topics = bulk.split("\n").map(parseBulkLine).filter((t): t is AgendaTopicRequest => t !== null);
+    const topics = bulk.split("\n").map(parseBulkLine).filter((line): line is AgendaTopicRequest => line !== null);
     if (topics.length === 0) {
-      setError("No hay temas válidos en el bloque.");
+      setError(t("agenda.topic.bulk.empty.error"));
       return;
     }
     setError(null);
@@ -660,64 +667,64 @@ function AddTopicCard() {
       }
       setBulk("");
     } catch (mutationError) {
-      setError(mutationErrorMessage(mutationError, "No se pudo agregar el lote."));
+      setError(mutationErrorMessage(mutationError, t("agenda.topic.bulk.error")));
     }
   }
 
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Agregar tema</h2>
-        {addTopic.isPending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("agenda.topic.heading")}</h2>
+        {addTopic.isPending && <Badge tone="info">{t("agenda.topic.pending")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
         <section aria-labelledby="agenda-add-topic-label" className="space-y-2">
-          {sectionLabel("agenda-add-topic-label", "Tema aprobado")}
+          {sectionLabel("agenda-add-topic-label", t("agenda.topic.form.eyebrow"))}
           <Input
             type="text"
-            aria-label="Título del tema"
+            aria-label={t("agenda.topic.title.aria")}
             value={title}
             disabled={addTopic.isPending}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Tema claro, máximo 90 caracteres"
+            placeholder={t("agenda.topic.title.placeholder")}
           />
           <Input
             type="text"
-            aria-label="Ángulo (opcional)"
+            aria-label={t("agenda.topic.angle.aria")}
             value={angle}
             disabled={addTopic.isPending}
             onChange={(event) => setAngle(event.target.value)}
-            placeholder="Ángulo: cómo querés que Kira lo trate"
+            placeholder={t("agenda.topic.angle.placeholder")}
           />
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <span className="text-xs text-muted-foreground">Prioridad</span>
+              <span className="text-xs text-muted-foreground">{t("agenda.topic.priority")}</span>
               <Select
-                aria-label="Prioridad"
-                options={PRIORITY_OPTIONS}
+                aria-label={t("agenda.topic.priority")}
+                options={PRIORITY_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                 value={priority}
                 disabled={addTopic.isPending}
-                onChange={(value) => setPriority(value)}
+                onChange={(value: string) => setPriority(value)}
               />
             </div>
             <div className="space-y-1.5">
-              <span className="text-xs text-muted-foreground">Largo de respuesta</span>
+              <span className="text-xs text-muted-foreground">{t("agenda.topic.responseLength")}</span>
               <Select
-                aria-label="Largo de respuesta"
-                options={RESPONSE_LENGTH_OPTIONS}
+                aria-label={t("agenda.topic.responseLength")}
+                options={RESPONSE_LENGTH_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                 value={responseLength}
                 disabled={addTopic.isPending}
-                onChange={(value) => setResponseLength(value)}
+                onChange={(value: string) => setResponseLength(value)}
               />
             </div>
           </div>
           <div className="space-y-1.5">
-            <span className="text-xs text-muted-foreground">Etiquetas</span>
+            <span className="text-xs text-muted-foreground">{t("agenda.topic.constraints.label")}</span>
             <Input
               type="text"
-              aria-label="Etiquetas (constraints)"
+              aria-label={t("agenda.topic.constraints.aria")}
               value={constraintDraft}
               disabled={addTopic.isPending}
               onChange={(event) => setConstraintDraft(event.target.value)}
@@ -727,10 +734,10 @@ function AddTopicCard() {
                   addConstraint(constraintDraft);
                 }
               }}
-              placeholder="Enter o coma para agregar (máx. 12)"
+              placeholder={t("agenda.topic.constraints.placeholder")}
             />
             {constraints.length > 0 && (
-              <ul aria-label="Etiquetas agregadas" className="flex flex-wrap gap-1.5">
+              <ul aria-label={t("agenda.topic.constraints.list.aria")} className="flex flex-wrap gap-1.5">
                 {constraints.map((constraint) => (
                   <li
                     key={constraint}
@@ -739,7 +746,7 @@ function AddTopicCard() {
                     {constraint}
                     <button
                       type="button"
-                      aria-label={`Quitar etiqueta ${constraint}`}
+                      aria-label={t("agenda.topic.constraints.remove.aria", { tag: constraint })}
                       onClick={() => removeConstraint(constraint)}
                       className="text-dim transition-colors duration-fast ease-io hover:text-danger"
                     >
@@ -760,34 +767,34 @@ function AddTopicCard() {
         )}
 
         <Button type="submit" variant="primary" disabled={addTopic.isPending}>
-          Agregar a cola
+          {t("agenda.topic.submit.action")}
         </Button>
 
         <div className="flex items-center gap-2 py-1">
           <span className="h-px flex-1 bg-border-soft" aria-hidden="true" />
-          <span className="text-xs text-dim">o en lote</span>
+          <span className="text-xs text-dim">{t("agenda.topic.bulk.divider")}</span>
           <span className="h-px flex-1 bg-border-soft" aria-hidden="true" />
         </div>
 
         <section aria-labelledby="agenda-bulk-label" className="space-y-2">
-          {sectionLabel("agenda-bulk-label", "Carga en lote")}
+          {sectionLabel("agenda-bulk-label", t("agenda.topic.bulk.eyebrow"))}
           <textarea
-            aria-label="Temas en lote"
+            aria-label={t("agenda.topic.bulk.aria")}
             value={bulk}
             disabled={addTopic.isPending}
             onChange={(event) => setBulk(event.target.value)}
             rows={4}
-            placeholder="Un tema por línea: Título | ángulo | prioridad | tag1, tag2"
+            placeholder={t("agenda.topic.bulk.placeholder")}
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed min-h-[100px] max-h-[500px] disabled:opacity-60"
           />
           <Button type="button" variant="outline" disabled={addTopic.isPending} onClick={handleBulkSubmit}>
-            Agregar en lote
+            {t("agenda.topic.bulk.submit.action")}
           </Button>
         </section>
 
         <div className="flex items-center gap-2 py-1">
           <span className="h-px flex-1 bg-border-soft" aria-hidden="true" />
-          <span className="text-xs text-dim">plantillas de prueba</span>
+          <span className="text-xs text-dim">{t("agenda.topic.templates.divider")}</span>
           <span className="h-px flex-1 bg-border-soft" aria-hidden="true" />
         </div>
 
@@ -799,7 +806,7 @@ function AddTopicCard() {
               variant="ghost"
               className="h-8 rounded-md border border-border-soft px-3 py-3 text-xs"
               disabled={addTopic.isPending}
-              aria-label={`Plantilla: ${template.title}`}
+              aria-label={t("agenda.topic.templates.item.aria", { title: template.title })}
               onClick={() => applyTemplate(template)}
             >
               {template.title}
@@ -812,10 +819,10 @@ function AddTopicCard() {
   );
 }
 
-const SESSION_ACTIONS: Array<{ action: AgendaSessionAction; label: string; variant: "primary" | "outline"; className?: string }> = [
-  { action: "enable", label: "Activar", variant: "primary" },
-  { action: "soft_stop", label: "Pausa suave", variant: "outline" },
-  { action: "emergency_stop", label: "Emergencia", variant: "outline", className: "border-danger-bd text-danger hover:bg-danger-bg" }
+const SESSION_ACTIONS: Array<{ action: AgendaSessionAction; labelKey: TKey; variant: "primary" | "outline"; className?: string }> = [
+  { action: "enable", labelKey: "agenda.sessionControl.action.enable", variant: "primary" },
+  { action: "soft_stop", labelKey: "agenda.sessionControl.action.softStop", variant: "outline" },
+  { action: "emergency_stop", labelKey: "agenda.sessionControl.action.emergencyStop", variant: "outline", className: "border-danger-bd text-danger hover:bg-danger-bg" }
 ];
 
 /**
@@ -826,6 +833,7 @@ const SESSION_ACTIONS: Array<{ action: AgendaSessionAction; label: string; varia
  * rejected action surfaces an alert instead of failing silently.
  */
 function SessionControlCard({ state, queueLength }: { state: string; queueLength: number }) {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "agenda-sesion");
   const badge = sessionBadge(state);
   const action = useAgendaSessionActionMutation();
@@ -842,10 +850,10 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground w-full">Control de sesión</h2>
+        <h2 className="text-sm font-bold text-foreground w-full">{t("agenda.sessionControl.title")}</h2>
         <div className="flex items-center gap-2">
           <Badge tone={badge.tone}>{badge.label}</Badge>
-          {action.isPending && <Badge tone="info">aplicando…</Badge>}
+          {action.isPending && <Badge tone="info">{t("agenda.sessionControl.pending")}</Badge>}
         </div>
       </CollapsibleHeader>
 
@@ -853,13 +861,13 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
       <div className="flex flex-col gap-3.5">
         {action.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo aplicar la acción de sesión.
+            {t("agenda.sessionControl.action.error")}
           </p>
         )}
 
         {emptyQueue && (
           <p role="alert" className="text-xs leading-relaxed text-warn">
-            No hay temas en cola — agregá o aprobá un tema primero.
+            {t("agenda.sessionControl.emptyQueue.warning")}
           </p>
         )}
 
@@ -873,7 +881,7 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
               disabled={action.isPending}
               onClick={() => action.mutate({ action: entry.action })}
             >
-              {entry.label}
+              {t(entry.labelKey)}
             </Button>
           ))}
         </div>
@@ -884,16 +892,17 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
 }
 
 function TestToastsCard() {
+  const t = useT();
   const { toast } = useToast();
   return (
     <Card className="flex flex-col p-4 gap-3">
-      <h2 className="text-sm font-bold text-foreground">Probar Toasts</h2>
+      <h2 className="text-sm font-bold text-foreground">{t("agenda.testToasts.title")}</h2>
       <div className="flex gap-2 flex-wrap">
-        <Button onClick={() => toast("¡Perfil guardado con éxito!", { tone: "ok" })}>Éxito</Button>
-        <Button onClick={() => toast("Error de red al intentar conectar", { tone: "danger" })}>Error</Button>
-        <Button onClick={() => toast("La sesión entró en pausa suave", { tone: "warn" })}>Advertencia</Button>
-        <Button onClick={() => toast("Kira sugirió un nuevo tema", { tone: "info" })}>Info</Button>
-        <Button onClick={() => toast("ID copiado al portapapeles", { tone: "neutral" })}>Neutral</Button>
+        <Button onClick={() => toast(t("agenda.testToasts.success.message"), { tone: "ok" })}>{t("agenda.testToasts.success.action")}</Button>
+        <Button onClick={() => toast(t("agenda.testToasts.error.message"), { tone: "danger" })}>{t("agenda.testToasts.error.action")}</Button>
+        <Button onClick={() => toast(t("agenda.testToasts.warning.message"), { tone: "warn" })}>{t("agenda.testToasts.warning.action")}</Button>
+        <Button onClick={() => toast(t("agenda.testToasts.info.message"), { tone: "info" })}>{t("agenda.testToasts.info.action")}</Button>
+        <Button onClick={() => toast(t("agenda.testToasts.neutral.message"), { tone: "neutral" })}>{t("agenda.testToasts.neutral.action")}</Button>
       </div>
     </Card>
   );
@@ -907,6 +916,7 @@ function TestToastsCard() {
  * module-level note above for the exact backend routes each section uses.
  */
 export function AgendaPanel() {
+  const t = useT();
   const { data, isError: getError } = useAgendaQuery();
 
   const queue = data?.queued_topics ?? [];
@@ -919,7 +929,7 @@ export function AgendaPanel() {
       {getError ? (
         <Card className="flex flex-col p-4">
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo cargar la agenda en vivo.
+            {t("agenda.load.error")}
           </p>
         </Card>
       ) : (
