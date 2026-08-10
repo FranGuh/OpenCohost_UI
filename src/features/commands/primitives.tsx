@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import { cn } from "../../lib/cn.js";
-import { t, useT } from "../../i18n/t.js";
+import { t, useT, type TKey } from "../../i18n/t.js";
 import { Button } from "../../ui/Button.js";
 import { Select } from "../../ui/Select.js";
 import { Segmented } from "../../ui/Segmented.js";
@@ -19,23 +19,42 @@ import { errorCopy } from "./wire.js";
  * disabled and carry a "maquetado" acknowledgement instead.
  */
 
-export interface StepOption {
-  value: string;
-  label: string;
+/**
+ * A step option carries EITHER a bundle key (translated copy, resolved at
+ * render time so a locale flip reaches it) OR a raw label — the latter for
+ * value sets that are not copy at all: `AGENDA_TURN_OPTIONS`'s "1".."20", or
+ * proper nouns like YouTube/Twitch.
+ */
+export type StepOption = { value: string; label: string } | { value: string; labelKey: TKey };
+
+/** Visible label for an option, resolving `labelKey` through the CURRENT
+ * locale. `translate` is passed in so callers inside a component can hand over
+ * their `useT()` closure (whose identity tracks the locale). */
+export function optionLabel(option: StepOption, translate: typeof t): string {
+  return "labelKey" in option ? translate(option.labelKey) : option.label;
 }
 
 /** A visual grouping header (e.g. Identidad / Sesión) shown above the first
- * step of a section; `note` is the small inline hint like "se aplica al instante". */
+ * step of a section; `noteKey` is the small inline hint like "se aplica al instante". */
 export interface SectionMeta {
-  label: string;
-  note?: string;
+  labelKey: TKey;
+  noteKey?: TKey;
 }
 
 interface StepCommon {
   id: string;
-  /** Visible question/heading AND the control's accessible name. */
+  /**
+   * Visible question/heading AND the control's accessible name.
+   *
+   * Resolved at MODULE INIT in the registry (`question: t("…")`) rather than
+   * held as a key: commands.test.tsx's `oneStepCommand` fixture builds a
+   * `StepDef` with `question: "¿Valor?"`, so typing this as `TKey` would not
+   * compile without editing that test. Consequence: this string is frozen at
+   * the boot locale — a live flip needs a restart to reach it.
+   */
   question: string;
-  /** Short label used when the answered step collapses to a chip. */
+  /** Short label used when the answered step collapses to a chip. Same
+   * module-init resolution (and same restart caveat) as `question`. */
   chipLabel: string;
   section?: SectionMeta;
   /** Conditional gate: the step only appears (and collapses/summarizes) when
@@ -44,10 +63,10 @@ interface StepCommon {
 }
 
 export type StepDef =
-  | (StepCommon & { kind: "text"; placeholder?: string; maxLength?: number; multiline?: boolean; optional?: boolean })
+  | (StepCommon & { kind: "text"; placeholderKey?: TKey; maxLength?: number; multiline?: boolean; optional?: boolean })
   | (StepCommon & { kind: "select"; options: readonly StepOption[]; default: string })
   | (StepCommon & { kind: "segmented"; options: readonly StepOption[]; default: string })
-  | (StepCommon & { kind: "tags"; placeholder?: string });
+  | (StepCommon & { kind: "tags"; placeholderKey?: TKey });
 
 /** text/select/segmented carry a string; tags carries a string[]. */
 export type StepValue = string | string[];
@@ -72,7 +91,9 @@ export function formatChipValue(step: StepDef, value: StepValue | undefined): st
     case "select":
     case "segmented": {
       const option = step.options.find((candidate) => candidate.value === value);
-      return option ? option.label : String(value ?? "");
+      // Module-level `t` reads the live locale; every caller renders inside a
+      // component subscribed through `useT()`, so the chip re-resolves on a flip.
+      return option ? optionLabel(option, t) : String(value ?? "");
     }
     case "tags": {
       const tags = (value as string[] | undefined) ?? [];
@@ -88,10 +109,11 @@ export function formatChipValue(step: StepDef, value: StepValue | undefined): st
 // ─── Section heading + quiet note ───────────────────────────────────────────
 
 export function SectionHeading({ section }: { section: SectionMeta }) {
+  const t = useT();
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{section.label}</span>
-      {section.note && <span className="mono text-[10px] text-dim">{section.note}</span>}
+      <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t(section.labelKey)}</span>
+      {section.noteKey && <span className="mono text-[10px] text-dim">{t(section.noteKey)}</span>}
     </div>
   );
 }
@@ -118,9 +140,11 @@ export function TextStep({
   onChange: (value: string) => void;
   onAdvance: () => void;
 }) {
+  const t = useT();
   // Slice on change so the cap holds even under programmatic (test) input —
   // native maxLength only stops real keystrokes, not fireEvent.change.
   const handleChange = (raw: string) => onChange(step.maxLength ? raw.slice(0, step.maxLength) : raw);
+  const placeholder = step.placeholderKey ? t(step.placeholderKey) : undefined;
   return (
     <div className="flex flex-col gap-1">
       {step.multiline ? (
@@ -129,7 +153,7 @@ export function TextStep({
           rows={2}
           aria-label={step.question}
           value={value}
-          placeholder={step.placeholder}
+          placeholder={placeholder}
           onChange={(event) => handleChange(event.target.value)}
           className={cn(FIELD_CLASSES, "min-h-[64px] resize-y")}
         />
@@ -139,7 +163,7 @@ export function TextStep({
           type="text"
           aria-label={step.question}
           value={value}
-          placeholder={step.placeholder}
+          placeholder={placeholder}
           onChange={(event) => handleChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -168,7 +192,9 @@ export function SelectStep({
   value: string;
   onChange: (value: string) => void;
 }) {
-  return <Select aria-label={step.question} options={step.options} value={value} onChange={onChange} />;
+  const t = useT();
+  const options = step.options.map((option) => ({ value: option.value, label: optionLabel(option, t) }));
+  return <Select aria-label={step.question} options={options} value={value} onChange={onChange} />;
 }
 
 export function SegmentedStep({
@@ -180,7 +206,9 @@ export function SegmentedStep({
   value: string;
   onChange: (value: string) => void;
 }) {
-  return <Segmented ariaLabel={step.question} options={step.options} value={value} onChange={onChange} />;
+  const t = useT();
+  const options = step.options.map((option) => ({ value: option.value, label: optionLabel(option, t) }));
+  return <Segmented ariaLabel={step.question} options={options} value={value} onChange={onChange} />;
 }
 
 export function TagsStep({
@@ -209,7 +237,7 @@ export function TagsStep({
         type="text"
         aria-label={step.question}
         value={draft}
-        placeholder={step.placeholder ?? t("commands.tags.add.placeholder")}
+        placeholder={t(step.placeholderKey ?? "commands.tags.add.placeholder")}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === ",") {

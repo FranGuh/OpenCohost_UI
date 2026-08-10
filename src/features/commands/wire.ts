@@ -30,8 +30,15 @@ import type { StepValue } from "./primitives.js";
 export interface VocabEntry {
   /** UI value — also the StepOption `value` and the wire lookup key. */
   value: string;
-  /** UI label — the StepOption `label`. */
-  label: string;
+  /** Bundle key for the UI label — the StepOption `labelKey`. Held as a key,
+   * not a string, so the registry's Selects resolve it at RENDER time and a
+   * locale flip reaches them without a restart. */
+  labelKey: TKey;
+  /** The resolved label, read live. A getter (not a frozen string) so the
+   * single source stays `labelKey` while `PRIORITY_VOCAB`'s drift-guard test
+   * — commands.test.tsx "/agenda prioridad options are derived from
+   * PRIORITY_VOCAB" — can still compare it against the rendered option name. */
+  readonly label: string;
   /** Value sent to the backend for this UI value. */
   wire: string;
 }
@@ -139,9 +146,9 @@ export function describeStreamLimits(response: StreamChatLiveResponse): string {
  * that sign-off lands — sending a raw out-of-vocab value would silently
  * normalize to `normal` server-side anyway. */
 export const PRIORITY_VOCAB: readonly (VocabEntry & { badgeTone: "ok" | "info" | "warn" })[] = [
-  { value: "baja", label: "Baja", wire: "baja", badgeTone: "ok" },
-  { value: "normal", label: "Normal", wire: "normal", badgeTone: "info" },
-  { value: "alta", label: "Alta", wire: "alta", badgeTone: "warn" }
+  { value: "baja", labelKey: "commands.vocab.priority.baja", get label() { return t(this.labelKey); }, wire: "baja", badgeTone: "ok" },
+  { value: "normal", labelKey: "commands.vocab.priority.normal", get label() { return t(this.labelKey); }, wire: "normal", badgeTone: "info" },
+  { value: "alta", labelKey: "commands.vocab.priority.alta", get label() { return t(this.labelKey); }, wire: "alta", badgeTone: "warn" }
 ];
 export const PRIORITY_WIRE: Record<string, string> = wireMap(PRIORITY_VOCAB);
 
@@ -150,9 +157,9 @@ export const PRIORITY_WIRE: Record<string, string> = wireMap(PRIORITY_VOCAB);
  * `extendido` was a latent defect (not a valid alias); WU7 migrated the UI
  * value to `profundo`, so this covers the three live values only. */
 export const LENGTH_VOCAB: readonly VocabEntry[] = [
-  { value: "corto", label: "Corto", wire: "corta" },
-  { value: "normal", label: "Normal", wire: "normal" },
-  { value: "profundo", label: "Profundo", wire: "expandida" }
+  { value: "corto", labelKey: "commands.vocab.length.corto", get label() { return t(this.labelKey); }, wire: "corta" },
+  { value: "normal", labelKey: "commands.vocab.length.normal", get label() { return t(this.labelKey); }, wire: "normal" },
+  { value: "profundo", labelKey: "commands.vocab.length.profundo", get label() { return t(this.labelKey); }, wire: "expandida" }
 ];
 export const LENGTH_WIRE: Record<string, string> = wireMap(LENGTH_VOCAB);
 
@@ -245,8 +252,8 @@ export function describeSessionAction(action: AgendaSessionAction, response: Age
  * rule that `estandar` must never be sent raw is not.
  */
 export const SAFETY_VOCAB: readonly VocabEntry[] = [
-  { value: "live_safe", label: "Live-safe", wire: "live_safe" },
-  { value: "estandar", label: "Estándar", wire: "monologue" }
+  { value: "live_safe", labelKey: "commands.vocab.safety.live_safe", get label() { return t(this.labelKey); }, wire: "live_safe" },
+  { value: "estandar", labelKey: "commands.vocab.safety.estandar", get label() { return t(this.labelKey); }, wire: "monologue" }
 ];
 export const SAFETY_WIRE: Record<string, string> = wireMap(SAFETY_VOCAB);
 

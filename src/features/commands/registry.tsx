@@ -20,7 +20,7 @@ import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
 import { pickRotationTrack } from "../musica/MusicPanel.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
-import { t, useT } from "../../i18n/t.js";
+import { t, useT, type TKey } from "../../i18n/t.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
@@ -50,11 +50,22 @@ import {
  * store — final actions are disabled or show a "maquetado" acknowledgement.
  */
 
+/**
+ * Copy note: `title`, `description`, `summaryTitle`, `primaryLabel` and the
+ * steps' `question`/`chipLabel` stay typed as `string` and are resolved with
+ * `t(...)` where this array is BUILT (module init). They cannot hold a `TKey`
+ * because commands.test.tsx's `oneStepCommand` fixture assigns raw strings to
+ * exactly those fields; typing them as keys would not compile without editing
+ * that test. They therefore read in the boot locale and need a restart to
+ * change. Every other copy field here holds a key and flips live.
+ */
 export interface Command {
   id: string;
   /** Mono badge shown in the list, e.g. "/agenda". */
   badge: string;
-  /** Short title (entry heading). */
+  /** Short title (entry heading). No renderer reads it today — the list shows
+   * `id — description` — but it is kept, and translated, so a surface that
+   * starts showing it does not reintroduce hardcoded Spanish. */
   title: string;
   /** One-line description shown beside the badge in the list. */
   description: string;
@@ -64,10 +75,10 @@ export interface Command {
    * (e.g. /musica's "Poner canción" vs "Aplicar"). */
   primaryLabel?: string | ((values: Record<string, StepValue>) => string);
   /** Overrides the default "maquetado — todavía no envía" helper under the action. */
-  actionNote?: string;
+  actionNoteKey?: TKey;
   /** Overrides the post-success "Cargar otro" re-arm label (Item 1) —
    * e.g. /agenda "Otro tema", /perfil "Otro perfil". */
-  resetLabel?: string;
+  resetLabelKey?: TKey;
   /**
    * D4 submit pipe: maps the stepper's collected values to a backend call and
    * resolves the ack text `ActionRow` renders on success. Absent → the command
@@ -84,29 +95,30 @@ export interface Command {
 // Options derived from wire.ts's vocab descriptors (F6) — value/label live in
 // ONE place per vocab; wire.ts's `*_WIRE` maps derive from the same array, so
 // the UI options and the backend mapping can never drift apart.
-const PRIORITY_OPTIONS = PRIORITY_VOCAB.map(({ value, label }) => ({ value, label }));
-const LENGTH_OPTIONS = LENGTH_VOCAB.map(({ value, label }) => ({ value, label }));
-const SAFETY_OPTIONS = SAFETY_VOCAB.map(({ value, label }) => ({ value, label }));
+const PRIORITY_OPTIONS = PRIORITY_VOCAB.map(({ value, labelKey }) => ({ value, labelKey }));
+const LENGTH_OPTIONS = LENGTH_VOCAB.map(({ value, labelKey }) => ({ value, labelKey }));
+const SAFETY_OPTIONS = SAFETY_VOCAB.map(({ value, labelKey }) => ({ value, labelKey }));
 
 const RHYTHM_OPTIONS = [
-  { value: "calmo", label: "Calmo" },
-  { value: "normal", label: "Normal" },
-  { value: "dinamico", label: "Dinámico" }
-] as const;
+  { value: "calmo", labelKey: "commands.vocab.rhythm.calmo" },
+  { value: "normal", labelKey: "commands.vocab.rhythm.normal" },
+  { value: "dinamico", labelKey: "commands.vocab.rhythm.dinamico" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TKey }>;
 
 // ─── /temas — read-only agenda review screen ────────────────────────────────
 
 // Badge tone/label derived from PRIORITY_VOCAB (F6) — same source as the
 // /agenda priority Select above.
-const PRIORITY_BADGE: Record<string, { tone: BadgeTone; label: string }> = Object.fromEntries(
-  PRIORITY_VOCAB.map((entry) => [entry.value, { tone: entry.badgeTone, label: entry.label }])
+const PRIORITY_BADGE: Record<string, { tone: BadgeTone; labelKey: TKey }> = Object.fromEntries(
+  PRIORITY_VOCAB.map((entry) => [entry.value, { tone: entry.badgeTone, labelKey: entry.labelKey }])
 );
 
 /** Live `AgendaTopicOut.priority` is a free backend string (canonical
  * alta/normal/baja, but unknowns are possible). Map defensively — an unknown
  * priority falls to a neutral badge showing the raw value, never crashes. */
-function priorityBadge(priority: string): { tone: BadgeTone; label: string } {
-  return PRIORITY_BADGE[priority] ?? { tone: "neutral" as BadgeTone, label: priority };
+function priorityBadge(priority: string, translate: typeof t): { tone: BadgeTone; label: string } {
+  const entry = PRIORITY_BADGE[priority];
+  return entry ? { tone: entry.tone, label: translate(entry.labelKey) } : { tone: "neutral" as BadgeTone, label: priority };
 }
 
 function TemasScreen({ onClose }: { onClose: () => void }) {
@@ -130,7 +142,7 @@ function TemasScreen({ onClose }: { onClose: () => void }) {
     body = (
       <ul aria-label={t("commands.temas.list.aria")} className="flex flex-col gap-2">
         {data.queued_topics.map((tema) => {
-          const priority = priorityBadge(tema.priority);
+          const priority = priorityBadge(tema.priority, t);
           return (
             <li
               key={tema.id}
@@ -362,40 +374,42 @@ export const COMMANDS: Command[] = [
   {
     id: "agenda",
     badge: "/agenda",
-    title: "programá un tema",
-    description: "programá un tema para el stream",
-    summaryTitle: "Tema listo para agendar",
-    primaryLabel: "Programar tema",
-    resetLabel: "Otro tema",
+    title: t("commands.agenda.title"),
+    description: t("commands.agenda.description"),
+    summaryTitle: t("commands.agenda.summaryTitle"),
+    primaryLabel: t("commands.agenda.primary.action"),
+    resetLabelKey: "commands.agenda.reset.action",
     // WU7/R12-R15: map the stepper values to the wire vocab, POST the topic, and
     // invalidate the agenda query so a reopened /temas reflects it (D6). Uses the
     // app-shared queryClient (main.tsx provides this same instance).
     submit: async (values) => {
       await postAgendaTopic(toAgendaTopicRequest(values));
       void queryClient.invalidateQueries({ queryKey: AGENDA_QUERY_KEY });
-      return "Tema agregado a la cola.";
+      return t("commands.agenda.submit.ack");
     },
     steps: [
       {
         kind: "text",
         id: "tema",
-        question: "¿Qué tema querés agendar?",
-        chipLabel: "tema",
-        placeholder: "Tema claro, máximo 90 caracteres",
+        question: t("commands.agenda.step.tema.question"),
+        chipLabel: t("commands.agenda.step.tema.chip"),
+        placeholderKey: "commands.agenda.step.tema.placeholder",
         maxLength: 90
       },
       {
         kind: "text",
         id: "angulo",
-        question: "¿Cómo querés que Kira lo trate?",
-        chipLabel: "ángulo",
-        placeholder: "El ángulo o enfoque de Kira",
+        question: t("commands.agenda.step.angulo.question"),
+        chipLabel: t("commands.agenda.step.angulo.chip"),
+        placeholderKey: "commands.agenda.step.angulo.placeholder",
         multiline: true,
         optional: true
       },
-      { kind: "select", id: "prioridad", question: "¿Qué prioridad tiene?", chipLabel: "prioridad", options: PRIORITY_OPTIONS, default: "normal" },
-      { kind: "select", id: "largo", question: "¿Qué largo de respuesta?", chipLabel: "largo", options: LENGTH_OPTIONS, default: "normal" },
-      { kind: "tags", id: "etiquetas", question: "Etiquetas (opcional)", chipLabel: "etiquetas", placeholder: "Enter para agregar" }
+      { kind: "select", id: "prioridad", question: t("commands.agenda.step.prioridad.question"), chipLabel: t("commands.agenda.step.prioridad.chip"), options: PRIORITY_OPTIONS, default: "normal" },
+      { kind: "select", id: "largo", question: t("commands.agenda.step.largo.question"), chipLabel: t("commands.agenda.step.largo.chip"), options: LENGTH_OPTIONS, default: "normal" },
+      // No placeholderKey: TagsStep already defaults to the shared
+      // "Enter para agregar" key, which is byte-identical to the old literal.
+      { kind: "tags", id: "etiquetas", question: t("commands.agenda.step.etiquetas.question"), chipLabel: t("commands.agenda.step.etiquetas.chip") }
     ]
   },
   {
@@ -403,82 +417,81 @@ export const COMMANDS: Command[] = [
     badge: "/perfil",
     // WU10/R18: copy explicitly names the COHOST profile (agenda identity), NOT
     // Kira's LLM persona — the old wording was ambiguous about which profile.
-    title: "creá o cambiá un perfil de co-host",
-    description: "guardá o cambiá el perfil de co-host de Kira — identidad y cómo suena en la agenda",
-    summaryTitle: "Perfil de co-host listo para guardar",
-    primaryLabel: "Guardar perfil de co-host",
-    resetLabel: "Otro perfil",
+    title: t("commands.perfil.title"),
+    description: t("commands.perfil.description"),
+    summaryTitle: t("commands.perfil.summaryTitle"),
+    primaryLabel: t("commands.perfil.primary.action"),
+    resetLabelKey: "commands.perfil.reset.action",
     // WU10/R16-R19: save the cohost profile (identity) AND apply the session
     // fields — two calls, never POST /api/perfiles (the LLM persona). `estandar`
     // maps to `monologue` (R19 flagged), never sent raw.
     submit: async (values) => {
       await saveCohostProfile(toCohostProfileRequest(values));
       await putAgendaSession(toAgendaSessionRequest(values));
-      return "Perfil de co-host guardado y sesión actualizada.";
+      return t("commands.perfil.submit.ack");
     },
     steps: [
       {
         kind: "text",
         id: "nombre",
-        question: "¿Cómo se llama el perfil?",
-        chipLabel: "nombre",
-        placeholder: "Nombre del perfil",
-        section: { label: "Identidad" }
+        question: t("commands.perfil.step.nombre.question"),
+        chipLabel: t("commands.perfil.step.nombre.chip"),
+        placeholderKey: "commands.perfil.step.nombre.placeholder",
+        section: { labelKey: "commands.perfil.section.identidad.label" }
       },
       {
         kind: "text",
         id: "estilo",
-        question: "Cómo suena Kira",
-        chipLabel: "estilo",
-        placeholder:
-          "Soná como co-host natural de stream: cercana, con humor seco. Acompañá sin robar protagonismo…",
+        question: t("commands.perfil.step.estilo.question"),
+        chipLabel: t("commands.perfil.step.estilo.chip"),
+        placeholderKey: "commands.perfil.step.estilo.placeholder",
         multiline: true,
         optional: true,
-        section: { label: "Identidad" }
+        section: { labelKey: "commands.perfil.section.identidad.label" }
       },
       {
         kind: "select",
         id: "turnos",
-        question: "Intentos por tema",
-        chipLabel: "intentos",
+        question: t("commands.perfil.step.turnos.question"),
+        chipLabel: t("commands.perfil.step.turnos.chip"),
         options: AGENDA_TURN_OPTIONS,
         default: "5",
-        section: { label: "Sesión", note: "se aplica al instante" }
+        section: { labelKey: "commands.perfil.section.sesion.label", noteKey: "commands.perfil.section.sesion.note" }
       },
       {
         kind: "select",
         id: "modo",
-        question: "Modo de seguridad en vivo",
-        chipLabel: "modo",
+        question: t("commands.perfil.step.modo.question"),
+        chipLabel: t("commands.perfil.step.modo.chip"),
         options: SAFETY_OPTIONS,
         default: "live_safe",
-        section: { label: "Sesión", note: "se aplica al instante" }
+        section: { labelKey: "commands.perfil.section.sesion.label", noteKey: "commands.perfil.section.sesion.note" }
       },
       {
         kind: "segmented",
         id: "ritmo",
-        question: "Ritmo",
-        chipLabel: "ritmo",
+        question: t("commands.perfil.step.ritmo.question"),
+        chipLabel: t("commands.perfil.step.ritmo.chip"),
         options: RHYTHM_OPTIONS,
         default: "normal",
-        section: { label: "Sesión", note: "se aplica al instante" }
+        section: { labelKey: "commands.perfil.section.sesion.label", noteKey: "commands.perfil.section.sesion.note" }
       }
     ]
   },
   {
     id: "temas",
     badge: "/temas",
-    title: "mirá qué hay en agenda",
-    description: "mirá qué hay en agenda",
+    title: t("commands.temas.title"),
+    description: t("commands.temas.description"),
     screen: TemasScreen
   },
   {
     id: "vivo",
     badge: "/vivo",
-    title: "conectá el chat en vivo",
-    description: "conectá el chat en vivo",
-    summaryTitle: "Listo para conectar",
-    primaryLabel: "Conectar",
+    title: t("commands.vivo.title"),
+    description: t("commands.vivo.description"),
+    summaryTitle: t("commands.vivo.summaryTitle"),
+    primaryLabel: t("commands.vivo.primary.action"),
     // WU8/R20-R21 + Lote C: compose a single url (plataforma is UI-only). Reject
     // a YouTube channel URL client-side (it can only 422), then connect and POLL
     // status until connected — the raw POST returns connected:false a beat early
@@ -496,8 +509,9 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "plataforma",
-        question: "¿Qué plataforma?",
-        chipLabel: "plataforma",
+        question: t("commands.vivo.step.plataforma.question"),
+        chipLabel: t("commands.vivo.step.plataforma.chip"),
+        // Proper nouns — the same in every locale, so they stay literal.
         options: [
           { value: "youtube", label: "YouTube" },
           { value: "twitch", label: "Twitch" }
@@ -510,17 +524,17 @@ export const COMMANDS: Command[] = [
       {
         kind: "text",
         id: "canal",
-        question: "Link del video en vivo",
-        chipLabel: "video",
-        placeholder: "Pegá el link del video EN VIVO (watch?v=…)",
+        question: t("commands.vivo.step.canal.youtube.question"),
+        chipLabel: t("commands.vivo.step.canal.youtube.chip"),
+        placeholderKey: "commands.vivo.step.canal.youtube.placeholder",
         when: (values) => values.plataforma !== "twitch"
       },
       {
         kind: "text",
         id: "canal",
-        question: "Canal o URL de Twitch",
-        chipLabel: "canal",
-        placeholder: "Pegá el canal o la URL de Twitch",
+        question: t("commands.vivo.step.canal.twitch.question"),
+        chipLabel: t("commands.vivo.step.canal.twitch.chip"),
+        placeholderKey: "commands.vivo.step.canal.twitch.placeholder",
         when: (values) => values.plataforma === "twitch"
       }
     ]
@@ -528,10 +542,10 @@ export const COMMANDS: Command[] = [
   {
     id: "acciones",
     badge: "/acciones",
-    title: "configurá cómo reacciona Kira",
-    description: "configurá cómo reacciona Kira al chat",
-    summaryTitle: "Acciones listas para aplicar",
-    primaryLabel: "Aplicar acciones",
+    title: t("commands.acciones.title"),
+    description: t("commands.acciones.description"),
+    summaryTitle: t("commands.acciones.summaryTitle"),
+    primaryLabel: t("commands.acciones.primary.action"),
     // WU3/R26: same PUT whether or not the chat-live link is connected; only the
     // ack copy differs, read from the PUT response's own `connected` field
     // (R26b — never calls connect/disconnect).
@@ -540,70 +554,70 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "reacciones",
-        question: "Reaccionar si el chat supera",
-        chipLabel: "reacciones",
+        question: t("commands.acciones.step.reacciones.question"),
+        chipLabel: t("commands.acciones.step.reacciones.chip"),
         options: [
-          { value: "bajo", label: "Bajo — 1 msg/s" },
-          { value: "medio", label: "Medio — 3 msg/s" },
-          { value: "alto", label: "Alto — 5 msg/s" }
+          { value: "bajo", labelKey: "commands.acciones.option.reacciones.bajo" },
+          { value: "medio", labelKey: "commands.acciones.option.reacciones.medio" },
+          { value: "alto", labelKey: "commands.acciones.option.reacciones.alto" }
         ],
         default: "medio",
-        section: { label: "Reacciones" }
+        section: { labelKey: "commands.acciones.section.reacciones.label" }
       },
       {
         kind: "select",
         id: "cooldown",
-        question: "Esperar al menos entre reacciones",
-        chipLabel: "cooldown",
+        question: t("commands.acciones.step.cooldown.question"),
+        chipLabel: t("commands.acciones.step.cooldown.chip"),
         options: [
-          { value: "bajo", label: "Bajo — 20 s" },
-          { value: "medio", label: "Medio — 45 s" },
-          { value: "alto", label: "Alto — 90 s" }
+          { value: "bajo", labelKey: "commands.acciones.option.cooldown.bajo" },
+          { value: "medio", labelKey: "commands.acciones.option.cooldown.medio" },
+          { value: "alto", labelKey: "commands.acciones.option.cooldown.alto" }
         ],
         default: "medio",
-        section: { label: "Cooldown" }
+        section: { labelKey: "commands.acciones.section.cooldown.label" }
       },
       {
         kind: "select",
         id: "spam",
-        question: "Límite de mensajes repetidos",
-        chipLabel: "spam",
+        question: t("commands.acciones.step.spam.question"),
+        chipLabel: t("commands.acciones.step.spam.chip"),
         options: [
-          { value: "5", label: "5 msgs/usuario en 30s" },
-          { value: "10", label: "10 msgs/usuario en 30s" },
-          { value: "20", label: "20 msgs/usuario en 30s" }
+          { value: "5", labelKey: "commands.acciones.option.spam.5" },
+          { value: "10", labelKey: "commands.acciones.option.spam.10" },
+          { value: "20", labelKey: "commands.acciones.option.spam.20" }
         ],
         default: "10",
-        section: { label: "Spam" }
+        section: { labelKey: "commands.acciones.section.spam.label" }
       },
       {
         kind: "select",
         id: "input_contract",
-        question: "Contrato de entrada",
-        chipLabel: "contrato",
+        question: t("commands.acciones.step.input_contract.question"),
+        chipLabel: t("commands.acciones.step.input_contract.chip"),
         options: [
-          { value: "balanced", label: "Equilibrado" },
-          { value: "twitch_relaxed", label: "Relajado (Twitch)" },
-          { value: "strict", label: "Estricto" }
+          { value: "balanced", labelKey: "commands.acciones.option.input_contract.balanced" },
+          { value: "twitch_relaxed", labelKey: "commands.acciones.option.input_contract.twitch_relaxed" },
+          { value: "strict", labelKey: "commands.acciones.option.input_contract.strict" }
         ],
         default: "balanced",
-        section: { label: "Contrato de entrada" }
+        section: { labelKey: "commands.acciones.section.input_contract.label" }
       }
     ]
   },
   {
     id: "sesion",
     badge: "/sesion",
-    title: "controlá la sesión de agenda",
-    description: "controlá la sesión de agenda",
+    title: t("commands.sesion.title"),
+    description: t("commands.sesion.description"),
     screen: SesionScreen
   },
   {
     id: "musica",
     badge: "/musica",
     // WU11/R29-R31: library/mood selection screen — free-text song search dropped.
-    title: "controlá la música y el mood",
-    description: "controlá la música y elegí un mood",
+    title: t("commands.musica.title"),
+    description: t("commands.musica.description"),
     screen: MusicaScreen
   }
 ];

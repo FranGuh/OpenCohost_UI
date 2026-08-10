@@ -44,7 +44,8 @@ function isFirstOfSection(steps: readonly StepDef[], index: number): boolean {
   const section = steps[index].section;
   if (!section) return false;
   const previous = steps[index - 1]?.section;
-  return previous?.label !== section.label;
+  // Compares KEYS, not resolved copy — grouping stays stable in any locale.
+  return previous?.labelKey !== section.labelKey;
 }
 
 function ProgressDots({ index, total }: { index: number; total: number }) {
@@ -185,11 +186,11 @@ export function Stepper({
                 ? command.primaryLabel(values)
                 : command.primaryLabel ?? t("commands.stepper.confirm.action")
             }
-            note={command.actionNote ?? t("commands.stepper.action.note")}
+            note={t(command.actionNoteKey ?? "commands.stepper.action.note")}
             onSubmit={command.submit ? () => command.submit!(values) : undefined}
             onCancel={onCancel}
             onReset={reset}
-            resetLabel={command.resetLabel}
+            resetLabel={command.resetLabelKey ? t(command.resetLabelKey) : undefined}
           />
         </>
       )}
