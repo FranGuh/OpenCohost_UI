@@ -1203,3 +1203,65 @@ rather than a translation.
 - **Deleting the shelved `PlayerBar`.**
 - **Extracting `pickRotationTrack` out of `MusicPanel.tsx`** into `src/lib/` — worth doing if a
   third consumer ever appears (§1.7).
+
+---
+
+## 8. Corrections from execution
+
+Appended as the plan was carried out. Where this section disagrees with the sections above,
+**this section wins** — it records what the code actually did, not what was predicted.
+
+### 8.1 The modularization ran in 8 commits, not 9
+
+Batches 2, 3 and 4 (`agenda`, `stream`, `musica`) were executed by one implementer and landed
+as a single commit, `638e8a7`. They are the same shape — one panel, one `MainStage.tsx` import
+each — so splitting them bought no reviewability. Every other batch is its own commit. All nine
+batches were individually verified against the gate before being grouped.
+
+Commit trail: `f7fc5bd` (this plan) · `54244e0` (B1 ui) · `638e8a7` (B2-4) · `7a86af7` (B5) ·
+`fde5b6b` (B6) · `a94af11` (B7) · `5a55929` (B8) · `03b5c58` (B9) · `68ee7ed` (stale comment
+paths) · `3ddffc1` (E0).
+
+### 8.2 `tsc` error codes for the completeness proof
+
+§4.2 predicts `TS2739` for a missing EN key. The observed code for a **single** missing key is
+**`TS2741`**; `TS2739` is the multi-property variant of the same check. Extra-key detection is
+`TS2353`, exactly as documented. Both directions were verified by deliberately breaking a
+bundle and watching `tsc` fail, not by inspection.
+
+### 8.3 Two controls in one card cannot share option labels
+
+§4.8 specifies distinct `ariaLabel`s for the two Idioma controls but says nothing about their
+**option** labels. Giving the new interface control the same `"Español"`/`"English"` options as
+the backend control makes `getByRole("button", { name: "English" })` ambiguous and breaks two of
+the three protected tests. The interface control therefore uses the locale codes `"ES"`/`"EN"`,
+which are not translated content and need no key (same reasoning as `KiraFace`'s literal
+`"Kira"`).
+
+**Rule for every later batch:** when a batch introduces a control beside an existing one, check
+the *accessible names of its options*, not just the group name. Two controls whose options
+collide will break tests that were correct before the batch.
+
+### 8.4 The Idioma section is not gated on the backend
+
+E0 first shipped the whole `Idioma` section inside `{i18n && …}`, inherited from when the card
+was entirely backend-driven. That silently coupled the **local** interface control to
+`GET /api/i18n`: a 500, a timeout or an older backend without the endpoint would have hidden a
+setting that never touches the network — contradicting §4.8's "no coupling" claim.
+
+Fixed in `3ddffc1`: the `<section>` and the interface row always render; only the "Voz de Kira"
+block waits on `i18n`. Pinned by `SettingsPopover.test.tsx` →
+*"survives a failing GET /api/i18n"*, which was verified to fail when the coupling is
+reintroduced and pass when it is not.
+
+### 8.5 Test-count baseline for the extraction batches
+
+§6's invariant says 1050 tests / 82 files. That was the pre-E0 baseline. E0 added
+`src/i18n/t.test.ts` and three `SettingsPopover` cases, so the baseline for **E1 onward** is:
+
+| | Files | Tests |
+| --- | --- | --- |
+| Before E0 | 82 | 1050 |
+| After E0 (`3ddffc1`) | 83 | 1058 |
+
+E1-E11 must leave both numbers untouched.
