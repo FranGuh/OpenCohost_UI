@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ComposerCommandPanel } from "../ComposerCommandPanel.js";
+import { ComposerCommandPanel } from "./ComposerCommandPanel.js";
 import { PlaybackContext, type PlaybackContextValue } from "../../state/PlaybackProvider.js";
 import { Stepper } from "./Stepper.js";
 import type { Command } from "./registry.js";

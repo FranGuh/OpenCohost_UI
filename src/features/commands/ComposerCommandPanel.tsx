@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { CircleSlash, Terminal } from "lucide-react";
-import { cn } from "../lib/cn.js";
-import { COMMANDS, matchCommands, type Command } from "./commands/registry.js";
-import { Stepper } from "./commands/Stepper.js";
+import { cn } from "../../lib/cn.js";
+import { COMMANDS, matchCommands, type Command } from "./registry.js";
+import { Stepper } from "./Stepper.js";
 
 /**
  * Chat command surfaces — MOCKUP-era wiring, two presentations of ONE registry:

@@ -4,8 +4,8 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { AGENDA_TURN_OPTIONS } from "../../api/agenda.js";
 import { AgendaPanel } from "./AgendaPanel.js";
-import { COMMANDS } from "../../components/commands/registry.js";
-import type { StepDef } from "../../components/commands/primitives.js";
+import { COMMANDS } from "../commands/registry.js";
+import type { StepDef } from "../commands/primitives.js";
 import { ToastProvider } from "../../ui/Toast.js";
 
 /**

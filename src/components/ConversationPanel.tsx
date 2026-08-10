@@ -7,13 +7,13 @@ import type {
 } from "react";
 import { ChevronDown, MessageSquareOff, Mic, MicOff } from "lucide-react";
 import { Alert } from "../ui/Alert.js";
-import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
+import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "../features/commands/ComposerCommandPanel.js";
 import { Input } from "../ui/Input.js";
 import { KiraFace } from "../ui/KiraFace.js";
 import { Markdown } from "../ui/Markdown.js";
 import { Tab, TabList, TabPanel, Tabs } from "../ui/Tabs.js";
-import { matchCommands } from "./commands/registry.js";
-import { LogsPanel } from "./commands/LogsPanel.js";
+import { matchCommands } from "../features/commands/registry.js";
+import { LogsPanel } from "../features/experiencia/LogsPanel.js";
 import { useLogsPref } from "../store/useLogsPref.js";
 import { useAgendaEvents } from "../api/agenda.js";
 import { useLastReply, useSendChatTurn } from "../api/chat.js";
