@@ -1,3 +1,42 @@
 import type { musicaEs } from "./musica.es.js";
 
-export const musicaEn: Record<keyof typeof musicaEs, string> = {};
+export const musicaEn: Record<keyof typeof musicaEs, string> = {
+  "musica.library.cleanup.action": "Clear missing",
+  "musica.library.cleanup.hint": "Remove all missing tracks",
+  "musica.library.cleanup.notice":
+    "Clearing missing tracks is still a local-only change — there's no bulk-cleanup endpoint on the backend yet.",
+  "musica.library.empty": "No tracks yet.",
+  "musica.library.error": "Could not load the live music library.",
+  "musica.library.import.action": "Import",
+  "musica.library.import.disabled.title": "Requires the Tauri file picker (not installed yet)",
+  "musica.library.import.eyebrow": "Import track",
+  "musica.library.import.hint": "Upload .mp3 or .wav",
+  "musica.library.import.notice":
+    "already exists in the backend, but picking a local file requires the desktop file picker (Tauri's dialog plugin) — not installed yet in this slice, so the button stays disabled.",
+  "musica.library.list.aria": "Library tracks",
+  "musica.library.loading": "Loading library…",
+  "musica.library.moodCounts.eyebrow": "Tracks per mood",
+  "musica.library.remove.error": "Could not remove the track.",
+  "musica.library.status.applying": "applying…",
+  "musica.library.status.faltante": "missing",
+  "musica.library.status.invalido": "invalid",
+  "musica.library.status.ok": "OK",
+  "musica.library.title": "Library",
+  "musica.library.track.aria": "Track: {name}",
+  "musica.library.track.pause.aria": "Pause \"{name}\"",
+  "musica.library.track.play.aria": "Play \"{name}\"",
+  "musica.library.track.remove.aria": "Remove \"{name}\"",
+  "musica.library.trackCount": "{n} tracks",
+  "musica.library.tracks.eyebrow": "Tracks",
+  "musica.mood.error": "Could not apply the mood.",
+  "musica.mood.fallback.notice": "No tracks in this category, playing from the general pool.",
+  "musica.mood.known.eyebrow": "Known moods",
+  "musica.mood.nowPlaying.empty": "Pick a mood to play a suggested track.",
+  "musica.mood.nowPlaying.eyebrow": "Now playing",
+  "musica.mood.pause.action": "Pause",
+  "musica.mood.play.action": "Play",
+  "musica.mood.status.applying": "applying…",
+  "musica.mood.title": "Mood",
+  "musica.mood.volume.aria": "Music volume",
+  "musica.mood.volume.ducked": "ducked"
+};

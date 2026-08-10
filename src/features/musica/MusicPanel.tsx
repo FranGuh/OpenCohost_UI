@@ -14,6 +14,7 @@ import {
 } from "../../api/music.js";
 import { MUSIC_FIXTURE } from "../../api/mock/fixtures.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
 // WU-C: MoodCard is wired to the real POST /api/music/mood
 // (opencohost/api/main.py ~921) — the mood grid is enabled. LibraryCard's
@@ -89,10 +90,10 @@ function sectionLabel(id: string, text: string) {
   );
 }
 
-const TRACK_STATUS_BADGE: Record<MusicTrackOut["status"], { tone: BadgeTone; label: string }> = {
-  ok: { tone: "ok", label: "OK" },
-  faltante: { tone: "warn", label: "faltante" },
-  invalido: { tone: "danger", label: "inválido" }
+const TRACK_STATUS_BADGE: Record<MusicTrackOut["status"], { tone: BadgeTone; labelKey: TKey }> = {
+  ok: { tone: "ok", labelKey: "musica.library.status.ok" },
+  faltante: { tone: "warn", labelKey: "musica.library.status.faltante" },
+  invalido: { tone: "danger", labelKey: "musica.library.status.invalido" }
 };
 
 interface MoodCardProps {
@@ -124,22 +125,23 @@ function MoodCard({
   onVolumeChange,
   ducked
 }: MoodCardProps) {
+  const t = useT();
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Mood</h2>
-        {pending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("musica.mood.title")}</h2>
+        {pending && <Badge tone="info">{t("musica.mood.status.applying")}</Badge>}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            {errorMessage ?? "No se pudo aplicar el mood."}
+            {errorMessage ?? t("musica.mood.error")}
           </p>
         )}
 
         <section aria-labelledby="music-mood-label" className="space-y-2">
-          {sectionLabel("music-mood-label", "Moods conocidos")}
+          {sectionLabel("music-mood-label", t("musica.mood.known.eyebrow"))}
           <div className="grid grid-cols-4 gap-2">
             {MUSIC_FIXTURE.moods.map((mood) => (
               <Button
@@ -157,29 +159,29 @@ function MoodCard({
           </div>
           {fallbackNotice && (
             <p role="status" className="text-xs leading-relaxed text-dim">
-              Sin pistas de esta categoría, sonando de la general.
+              {t("musica.mood.fallback.notice")}
             </p>
           )}
         </section>
 
         <section aria-labelledby="music-now-playing-label" className="space-y-2">
-          {sectionLabel("music-now-playing-label", "Reproduciendo")}
+          {sectionLabel("music-now-playing-label", t("musica.mood.nowPlaying.eyebrow"))}
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <Slider value={volume} onChange={onVolumeChange} aria-label="Volumen de la música" />
+            <Slider value={volume} onChange={onVolumeChange} aria-label={t("musica.mood.volume.aria")} />
             <div className="flex items-center gap-2">
               <span className="mono text-[13px] text-dim">{volume}%</span>
-              {ducked && isPlaying && <Badge tone="info">atenuada</Badge>}
+              {ducked && isPlaying && <Badge tone="info">{t("musica.mood.volume.ducked")}</Badge>}
             </div>
           </div>
           {nowPlayingLabel ? (
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
               <span className="truncate text-[13px] text-foreground">{nowPlayingLabel}</span>
               <Button type="button" variant="outline" onClick={onTogglePlay}>
-                {isPlaying ? "Pausar" : "Reproducir"}
+                {isPlaying ? t("musica.mood.pause.action") : t("musica.mood.play.action")}
               </Button>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Elegí un mood para reproducir un track sugerido.</p>
+            <p className="text-xs text-muted-foreground">{t("musica.mood.nowPlaying.empty")}</p>
           )}
         </section>
       </div>
@@ -216,6 +218,7 @@ function LibraryCard({
   onPlayTrack,
   onTogglePlay
 }: LibraryCardProps) {
+  const t = useT();
   const hasMissing = tracks.some((track) => track.status === "faltante");
 
   const moodCounts = Array.from(new Set(tracks.map((track) => track.mood))).map((mood) => ({
@@ -234,17 +237,17 @@ function LibraryCard({
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Biblioteca</h2>
+        <h2 className="text-sm font-bold text-foreground">{t("musica.library.title")}</h2>
         <div className="flex items-center gap-2">
-          <Badge tone="info">{tracks.length} tracks</Badge>
-          {(deletePending || cleanupPending) && <Badge tone="info">aplicando…</Badge>}
+          <Badge tone="info">{t("musica.library.trackCount", { n: tracks.length })}</Badge>
+          {(deletePending || cleanupPending) && <Badge tone="info">{t("musica.library.status.applying")}</Badge>}
         </div>
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {isError ? (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo cargar la biblioteca de música en vivo.
+            {t("musica.library.error")}
           </p>
         ) : (
           <>
@@ -255,28 +258,26 @@ function LibraryCard({
             )}
 
             <section aria-labelledby="music-import-label" className="space-y-2">
-              {sectionLabel("music-import-label", "Importar track")}
+              {sectionLabel("music-import-label", t("musica.library.import.eyebrow"))}
               <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <span className="text-[13px] text-muted-foreground">Subir .mp3 o .wav</span>
+                <span className="text-[13px] text-muted-foreground">{t("musica.library.import.hint")}</span>
                 <Button
                   type="button"
                   variant="outline"
                   disabled
-                  title="Requiere el selector de archivos de Tauri (no instalado todavía)"
+                  title={t("musica.library.import.disabled.title")}
                 >
-                  Importar
+                  {t("musica.library.import.action")}
                 </Button>
               </div>
               <p role="status" className="text-xs leading-relaxed text-dim">
-                <span className="mono">POST /api/music/import</span> ya existe en el backend, pero elegir un archivo
-                local requiere el selector de archivos de escritorio (plugin de diálogo de Tauri) — todavía no
-                instalado en esta entrega, así que el botón queda deshabilitado.
+                <span className="mono">POST /api/music/import</span> {t("musica.library.import.notice")}
               </p>
             </section>
 
             {!isLoading && tracks.length > 0 && (
               <section aria-labelledby="music-mood-counts-label" className="space-y-2">
-                {sectionLabel("music-mood-counts-label", "Tracks por mood")}
+                {sectionLabel("music-mood-counts-label", t("musica.library.moodCounts.eyebrow"))}
                 <div data-testid="music-mood-counts" className="flex flex-wrap gap-2">
                   {moodCounts.map(({ mood, count }) => (
                     <Badge key={mood} tone="neutral">
@@ -288,32 +289,36 @@ function LibraryCard({
             )}
 
             <section aria-labelledby="music-tracks-label" className="space-y-2">
-              {sectionLabel("music-tracks-label", "Tracks")}
+              {sectionLabel("music-tracks-label", t("musica.library.tracks.eyebrow"))}
               {isLoading ? (
-                <p className="text-sm text-muted-foreground">Cargando biblioteca…</p>
+                <p className="text-sm text-muted-foreground">{t("musica.library.loading")}</p>
               ) : tracks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No hay tracks todavía.</p>
+                <p className="text-sm text-muted-foreground">{t("musica.library.empty")}</p>
               ) : (
-                <ul aria-label="Tracks de la biblioteca" className="flex flex-col gap-2">
+                <ul aria-label={t("musica.library.list.aria")} className="flex flex-col gap-2">
                   {tracks.map((track) => {
                     const badge = TRACK_STATUS_BADGE[track.status];
                     const isCurrent = track.id === playingTrackId;
                     return (
                       <li
                         key={track.id}
-                        aria-label={`Track: ${track.label}`}
+                        aria-label={t("musica.library.track.aria", { name: track.label })}
                         className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-md border border-border-soft bg-background p-3"
                       >
                         <div className="flex flex-wrap items-center gap-2 md:justify-between">
                           <span className="text-[13px] font-semibold text-foreground">{track.label}</span>
                             <Badge tone="neutral" className="ml-auto">{moodLabel(track.mood)}</Badge>
-                            <Badge tone={badge.tone}>{badge.label}</Badge>
+                            <Badge tone={badge.tone}>{t(badge.labelKey)}</Badge>
                         </div>
                         <Button
                           type="button"
                           variant="ghost"
                           className="h-8 w-8 p-0"
-                          aria-label={isCurrent && isPlaying ? `Pausar "${track.label}"` : `Reproducir "${track.label}"`}
+                          aria-label={
+                            isCurrent && isPlaying
+                              ? t("musica.library.track.pause.aria", { name: track.label })
+                              : t("musica.library.track.play.aria", { name: track.label })
+                          }
                           disabled={track.status !== "ok"}
                           onClick={() => handlePlayClick(track)}
                         >
@@ -323,7 +328,7 @@ function LibraryCard({
                           type="button"
                           variant="ghost"
                           className="h-8 w-8 p-0 text-danger"
-                          aria-label={`Quitar "${track.label}"`}
+                          aria-label={t("musica.library.track.remove.aria", { name: track.label })}
                           disabled={deletePending}
                           onClick={() => onRemove(track.id)}
                         >
@@ -337,19 +342,18 @@ function LibraryCard({
             </section>
 
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">Quitar todos los tracks faltantes</span>
+              <span className="text-[13px] text-foreground">{t("musica.library.cleanup.hint")}</span>
               <Button
                 type="button"
                 variant="outline"
                 disabled={cleanupPending || !hasMissing}
                 onClick={onCleanupMissing}
               >
-                Limpiar faltantes
+                {t("musica.library.cleanup.action")}
               </Button>
             </div>
             <p role="status" className="text-xs leading-relaxed text-dim">
-              Limpiar faltantes sigue siendo un cambio local — no existe todavía un endpoint de limpieza masiva en el
-              backend.
+              {t("musica.library.cleanup.notice")}
             </p>
           </>
         )}
@@ -367,6 +371,7 @@ function LibraryCard({
  * vs. deferred (Importar, Limpiar faltantes).
  */
 export function MusicPanel() {
+  const t = useT();
   const { data, isLoading, isError } = useMusicLibraryQuery();
   const moodMutation = useMusicMoodMutation();
   const deleteMutation = useDeleteMusicTrackMutation();
@@ -440,7 +445,7 @@ export function MusicPanel() {
         isError={isError}
         onRemove={handleRemove}
         deletePending={deleteMutation.isPending}
-        deleteError={deleteMutation.isError ? (deleteMutation.error?.message ?? "No se pudo quitar el track.") : null}
+        deleteError={deleteMutation.isError ? (deleteMutation.error?.message ?? t("musica.library.remove.error")) : null}
         onCleanupMissing={handleCleanupMissing}
         cleanupPending={cleanupCommand.pending}
         playingTrackId={playingTrackId}

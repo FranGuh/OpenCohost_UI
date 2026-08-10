@@ -17,6 +17,7 @@ import {
   useStreamDisconnectMutation,
   useStreamLimitsMutation
 } from "../../api/stream.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
 // Wired to GET /api/stream/chat-live, POST .../connect, POST .../disconnect,
 // PUT .../limits (opencohost/api/main.py ~549-624) — CTK parity:
@@ -38,10 +39,10 @@ import {
 
 type StreamConnectionState = "desconectado" | "conectando" | "conectado";
 
-const CONNECTION_BADGE: Record<StreamConnectionState, { tone: BadgeTone; label: string }> = {
-  desconectado: { tone: "neutral", label: "desconectado" },
-  conectando: { tone: "info", label: "conectando…" },
-  conectado: { tone: "ok", label: "conectado" }
+const CONNECTION_BADGE: Record<StreamConnectionState, { tone: BadgeTone; labelKey: TKey }> = {
+  desconectado: { tone: "neutral", labelKey: "stream.chatLive.status.desconectado" },
+  conectando: { tone: "info", labelKey: "stream.chatLive.status.conectando" },
+  conectado: { tone: "ok", labelKey: "stream.chatLive.status.conectado" }
 };
 
 // ponytail: shape-only check (protocol + a dotted host), not the CTK's full
@@ -66,6 +67,7 @@ function isValidStreamUrl(value: string): boolean {
 // ─── Chat en vivo ─────────────────────────────────────────────────────────
 
 function ChatLiveCard() {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "stream-chat-live");
   const [url, setUrl] = useState(STREAM_FIXTURE.url);
   const [error, setError] = useState<string | null>(null);
@@ -85,14 +87,14 @@ function ChatLiveCard() {
     event.preventDefault();
     const trimmed = url.trim();
     if (!isValidStreamUrl(trimmed)) {
-      setError("Ingresá una URL válida de YouTube o Twitch (ej: https://twitch.tv/tu_canal).");
+      setError(t("stream.chatLive.url.error"));
       return;
     }
     setError(null);
     try {
       await connectMutation.mutateAsync(trimmed);
     } catch {
-      setError("No se pudo conectar al chat en vivo.");
+      setError(t("stream.chatLive.connect.error"));
     }
   }
 
@@ -103,31 +105,31 @@ function ChatLiveCard() {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Chat en vivo</h2>
-        <Badge tone={badge.tone}>{badge.label}</Badge>
+        <h2 className="text-sm font-bold text-foreground">{t("stream.chatLive.title")}</h2>
+        <Badge tone={badge.tone}>{t(badge.labelKey)}</Badge>
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
         <div className="flex flex-col gap-3.5">
           <section aria-labelledby="stream-url-label" className="space-y-2">
             <span id="stream-url-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Conexión
+              {t("stream.chatLive.connection.eyebrow")}
             </span>
             <form onSubmit={(event) => void handleConnect(event)}>
               <Input
                 type="text"
-                aria-label="URL del directo"
+                aria-label={t("stream.chatLive.url.aria")}
                 value={url}
                 disabled={connectMutation.isPending || connectionState === "conectado"}
                 onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://twitch.tv/tu_canal o https://youtube.com/watch?v=..."
+                placeholder={t("stream.chatLive.url.placeholder")}
                 trailing={
                   <button
                     type="submit"
                     disabled={connectMutation.isPending || connectionState === "conectado"}
                     className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity duration-fast ease-io disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
-                    Conectar
+                    {t("stream.chatLive.connect.action")}
                   </button>
                   // Este boton deberia heredar la misma responsabilidad de descoenctar y el boton de abajo de desconectar deberia ser eliminado
                 }
@@ -141,14 +143,14 @@ function ChatLiveCard() {
           </section>
 
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">Desconectar del chat en vivo</span>
+            <span className="text-[13px] text-foreground">{t("stream.chatLive.disconnect.hint")}</span>
             <Button
               type="button"
               variant="outline"
               disabled={connectionState !== "conectado" || disconnectMutation.isPending}
               onClick={handleDisconnect}
             >
-              Desconectar
+              {t("stream.chatLive.disconnect.action")}
             </Button>
           </div>
         </div>
@@ -158,38 +160,55 @@ function ChatLiveCard() {
 }
 
 // ─── Acciones option sets ─────────────────────────────────────────────────
+// Built as functions of `t` (not module-level consts) so they hot-swap with
+// the locale — mirrors MemoryCard's buildImportSources / buildTierOptions.
 
-const REACTION_OPTIONS = [
-  { value: "0.5", label: "0.5 msg/s" },
-  { value: "1", label: "1 msg/s" },
-  { value: "3", label: "3 msg/s" }
-] as const;
+function buildReactionOptions(t: ReturnType<typeof useT>) {
+  return [
+    { value: "0.5", label: t("stream.acciones.reactionOption.0_5") },
+    { value: "1", label: t("stream.acciones.reactionOption.1") },
+    { value: "3", label: t("stream.acciones.reactionOption.3") }
+  ] as const;
+}
 
-const COOLDOWN_OPTIONS = [
-  { value: "30", label: "30 s" },
-  { value: "45", label: "45 s" },
-  { value: "60", label: "60 s" },
-  { value: "120", label: "120 s" }
-] as const;
+function buildCooldownOptions(t: ReturnType<typeof useT>) {
+  return [
+    { value: "30", label: t("stream.chatLive.cooldownOption.30") },
+    { value: "45", label: t("stream.chatLive.cooldownOption.45") },
+    { value: "60", label: t("stream.chatLive.cooldownOption.60") },
+    { value: "120", label: t("stream.chatLive.cooldownOption.120") }
+  ] as const;
+}
 
-const SPAM_OPTIONS = [
-  { value: "5", label: "5 msgs/usuario en 30s" },
-  { value: "10", label: "10 msgs/usuario en 30s" },
-  { value: "15", label: "15 msgs/usuario en 30s" },
-  { value: "20", label: "20 msgs/usuario en 30s" }
-] as const;
+function buildSpamOptions(t: ReturnType<typeof useT>) {
+  return [
+    { value: "5", label: t("stream.acciones.spamOption.5") },
+    { value: "10", label: t("stream.acciones.spamOption.10") },
+    { value: "15", label: t("stream.acciones.spamOption.15") },
+    { value: "20", label: t("stream.acciones.spamOption.20") }
+  ] as const;
+}
 
-const PRESET_OPTIONS: ReadonlyArray<{ value: StreamPresetLevel; label: string }> = STREAM_FIXTURE.presets.map(
-  (preset) => ({ value: preset.level, label: preset.label })
-);
+// Preset labels are resolved locally by `level` — the fixture's own `label`
+// field is left untouched (it's mock data shaped like a future API
+// response), see the batch report for why.
+const PRESET_LABEL_KEYS: Record<StreamPresetLevel, TKey> = {
+  bajo: "stream.acciones.preset.bajo",
+  medio: "stream.acciones.preset.medio",
+  alto: "stream.acciones.preset.alto"
+};
+
+function buildPresetOptions(t: ReturnType<typeof useT>): ReadonlyArray<{ value: StreamPresetLevel; label: string }> {
+  return STREAM_FIXTURE.presets.map((preset) => ({ value: preset.level, label: t(PRESET_LABEL_KEYS[preset.level]) }));
+}
 
 // CTK-derived preset->value maps (opencohost/ui/stream_admin_ui.py
 // _build_chat_live_tab): threshold presets are 0.5/1/3 msg/s, cooldown
 // presets are 30/60/120s, in bajo/medio/alto order.
 const REACTION_PRESET_VALUES: Record<StreamPresetLevel, string> = {
-  bajo: REACTION_OPTIONS[0].value,
-  medio: REACTION_OPTIONS[1].value,
-  alto: REACTION_OPTIONS[2].value
+  bajo: "0.5",
+  medio: "1",
+  alto: "3"
 };
 
 const COOLDOWN_PRESET_VALUES: Record<StreamPresetLevel, string> = {
@@ -210,9 +229,14 @@ function presetForValue<T extends string>(value: string, presetValues: Record<T,
 // ─── Acciones ─────────────────────────────────────────────────────────────
 
 function AccionesCard() {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "stream-acciones");
   const chatLiveQuery = useStreamChatLiveQuery();
   const limitsMutation = useStreamLimitsMutation();
+  const reactionOptions = buildReactionOptions(t);
+  const cooldownOptions = buildCooldownOptions(t);
+  const spamOptions = buildSpamOptions(t);
+  const presetOptions = buildPresetOptions(t);
 
   const [reactionThreshold, setReactionThreshold] = useState(STREAM_FIXTURE.reaction_threshold);
   const [cooldown, setCooldown] = useState(STREAM_FIXTURE.cooldown);
@@ -234,8 +258,8 @@ function AccionesCard() {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">Acciones</h2>
-        {pending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("stream.acciones.title")}</h2>
+        {pending && <Badge tone="info">{t("stream.acciones.status.applying")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
@@ -243,24 +267,24 @@ function AccionesCard() {
           {/* Deferred note — local-only filter_policy switch */}
           <div role="status" className="mb-3.5 rounded-md border border-warn-bd bg-warn-bg px-3 py-2.5">
             <p className="text-xs leading-relaxed text-muted-foreground">
-              El contrato de entrada es un cambio local — el endpoint ya acepta{" "}
-              <span className="mono text-warn">filter_policy</span>, pero falta decidir qué valor de preset le
-              corresponde a este switch.
+              {t("stream.acciones.inputContract.notice.before")}{" "}
+              <span className="mono text-warn">filter_policy</span>
+              {t("stream.acciones.inputContract.notice.after")}
             </p>
           </div>
 
           <section aria-labelledby="stream-reactions-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
             <span id="stream-reactions-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Reacciones
+              {t("stream.acciones.reactions.eyebrow")}
             </span>
             <div className="space-y-2">
               <span id="stream-reaction-helper" className="text-xs text-muted-foreground">
-                Reaccionar si el chat supera
+                {t("stream.acciones.reactions.helper")}
               </span>
               <Select
-                aria-label="Umbral de reacciones"
+                aria-label={t("stream.acciones.reactions.select.aria")}
                 aria-describedby="stream-reaction-helper"
-                options={REACTION_OPTIONS}
+                options={reactionOptions}
                 value={reactionThreshold}
                 disabled={limitsMutation.isPending}
                 onChange={(value) => {
@@ -270,8 +294,8 @@ function AccionesCard() {
               />
             </div>
             <Segmented
-              ariaLabel="Preset de reacciones"
-              options={PRESET_OPTIONS}
+              ariaLabel={t("stream.acciones.reactions.preset.aria")}
+              options={presetOptions}
               value={reactionPreset}
               disabled={limitsMutation.isPending}
               onChange={(level) => {
@@ -284,16 +308,16 @@ function AccionesCard() {
 
           <section aria-labelledby="stream-cooldown-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
             <span id="stream-cooldown-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Cooldown
+              {t("stream.acciones.cooldown.eyebrow")}
             </span>
             <div className="space-y-2">
               <span id="stream-cooldown-helper" className="text-xs text-muted-foreground">
-                Esperar al menos, entre reacciones
+                {t("stream.acciones.cooldown.helper")}
               </span>
               <Select
-                aria-label="Cooldown entre reacciones"
+                aria-label={t("stream.acciones.cooldown.select.aria")}
                 aria-describedby="stream-cooldown-helper"
-                options={COOLDOWN_OPTIONS}
+                options={cooldownOptions}
                 value={cooldown}
                 disabled={limitsMutation.isPending}
                 onChange={(value) => {
@@ -303,8 +327,8 @@ function AccionesCard() {
               />
             </div>
             <Segmented
-              ariaLabel="Preset de cooldown"
-              options={PRESET_OPTIONS}
+              ariaLabel={t("stream.acciones.cooldown.preset.aria")}
+              options={presetOptions}
               value={cooldownPreset}
               disabled={limitsMutation.isPending}
               onChange={(level) => {
@@ -317,16 +341,16 @@ function AccionesCard() {
 
           <section aria-labelledby="stream-spam-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
             <span id="stream-spam-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Spam
+              {t("stream.acciones.spam.eyebrow")}
             </span>
             <div className="space-y-2">
               <span id="stream-spam-helper" className="text-xs text-muted-foreground">
-                Límite de mensajes repetidos
+                {t("stream.acciones.spam.helper")}
               </span>
               <Select
-                aria-label="Límite de spam"
+                aria-label={t("stream.acciones.spam.select.aria")}
                 aria-describedby="stream-spam-helper"
-                options={SPAM_OPTIONS}
+                options={spamOptions}
                 value={spamLimit}
                 disabled={limitsMutation.isPending}
                 onChange={(value) => {
@@ -342,15 +366,15 @@ function AccionesCard() {
               id="stream-input-contract-label"
               className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
             >
-              Contrato de entrada
+              {t("stream.acciones.inputContract.eyebrow")}
             </span>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">Input Contract (contexto real)</span>
+              <span className="text-[13px] text-foreground">{t("stream.acciones.inputContract.label")}</span>
               <Switch
                 checked={inputContract}
                 disabled
                 onChange={() => {}}
-                aria-label="Input Contract"
+                aria-label={t("stream.acciones.inputContract.aria")}
               />
             </div>
           </section>
@@ -366,19 +390,19 @@ function AccionesCard() {
  * CTK (STREAM_ADMIN_ENABLED=False) pending an owner product decision — this
  * is a single honest deferred note, nothing interactive. */
 function DeferredStreamAdminNote() {
+  const t = useT();
   const [isOpen, toggle] = useCollapsible(false, "stream-emision");
 
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground w-full justify-between">Emisión (OAuth/metadata/moderación)</h2>
-        <Badge tone="neutral">pendiente</Badge>
+        <h2 className="text-sm font-bold text-foreground w-full justify-between">{t("stream.acciones.emision.title")}</h2>
+        <Badge tone="neutral">{t("stream.acciones.emision.badge")}</Badge>
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
         <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          Conexión OAuth, metadata del stream y moderación existen en el CTK pero están pendientes de una decisión de
-          producto del owner — todavía no hay nada interactivo acá.
+          {t("stream.acciones.emision.body")}
         </p>
       </CollapsibleBody>
     </Card>
@@ -401,11 +425,11 @@ function DeferredStreamAdminNote() {
  * migration lands — the banner below says so up front, ahead of the cards.
  */
 export function StreamPanel() {
+  const t = useT();
   return (
     <>
-      <Alert tone="info" title="Modo stream no disponible" role="status">
-        La integración de chat en vivo (Twitch/YouTube) aún no está migrada desde la aplicación anterior. Esta
-        sección estará inactiva hasta esa migración.
+      <Alert tone="info" title={t("stream.notMigrated.title")} role="status">
+        {t("stream.notMigrated.body")}
       </Alert>
       <ChatLiveCard />
       <AccionesCard />
