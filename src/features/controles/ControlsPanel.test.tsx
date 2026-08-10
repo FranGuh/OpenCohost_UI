@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
+import { ProfileSwitchProvider } from "../../api/useProfileSwitch.js";
 import { ControlsPanel } from "./ControlsPanel.js";
 
 beforeEach(() => {

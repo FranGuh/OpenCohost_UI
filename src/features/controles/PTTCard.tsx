@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { Card } from "../ui/Card.js";
-import { Button } from "../ui/Button.js";
-import { Alert } from "../ui/Alert.js";
-import { cn } from "../lib/cn.js";
-import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../api/ptt.js";
-import { ERROR_COPY, STATE_COPY } from "../api/pttCopy.js";
-import { useLastReply } from "../api/chat.js";
+import { Card } from "../../ui/Card.js";
+import { Button } from "../../ui/Button.js";
+import { Alert } from "../../ui/Alert.js";
+import { cn } from "../../lib/cn.js";
+import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../../api/ptt.js";
+import { ERROR_COPY, STATE_COPY } from "../../api/pttCopy.js";
+import { useLastReply } from "../../api/chat.js";
 
 const inputClass =
   "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";

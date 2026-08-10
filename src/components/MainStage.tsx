@@ -1,5 +1,5 @@
 import { KiraCover } from "./KiraCover.js";
-import { ControlsPanel } from "./ControlsPanel.js";
+import { ControlsPanel } from "../features/controles/ControlsPanel.js";
 import { AgendaPanel } from "../features/agenda/AgendaPanel.js";
 import { StreamPanel } from "../features/stream/StreamPanel.js";
 import { MusicPanel } from "../features/musica/MusicPanel.js";

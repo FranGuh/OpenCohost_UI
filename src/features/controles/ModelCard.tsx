@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { useModelsQuery } from "../api/models.js";
-import { useEngineCommand } from "../api/engineCommand.js";
-import { useMockCommand } from "../api/mock/useMockCommand.js";
-import type { StatusResponse } from "../api/client.js";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Select } from "../ui/Select.js";
-import { Button } from "../ui/Button.js";
-import { cn } from "../lib/cn.js";
+import { useModelsQuery } from "../../api/models.js";
+import { useEngineCommand } from "../../api/engineCommand.js";
+import { useMockCommand } from "../../api/mock/useMockCommand.js";
+import type { StatusResponse } from "../../api/client.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Select } from "../../ui/Select.js";
+import { Button } from "../../ui/Button.js";
+import { cn } from "../../lib/cn.js";
 
 const TIER_LABELS: Record<string, string> = {
   quality: "Quality",

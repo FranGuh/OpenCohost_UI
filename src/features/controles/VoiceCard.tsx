@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Segmented } from "../ui/Segmented.js";
-import { Select } from "../ui/Select.js";
-import { Switch } from "../ui/Switch.js";
-import { useTtsConfigQuery } from "../api/tts.js";
-import { useEngineCommand } from "../api/engineCommand.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Segmented } from "../../ui/Segmented.js";
+import { Select } from "../../ui/Select.js";
+import { Switch } from "../../ui/Switch.js";
+import { useTtsConfigQuery } from "../../api/tts.js";
+import { useEngineCommand } from "../../api/engineCommand.js";
 
 // Piper voice registry mirrored from opencohost/config/settings.py::PIPER_VOICES
 // — no endpoint exposes this catalog (GET /api/tts/config returns only the

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Switch } from "../ui/Switch.js";
-import { Button } from "../ui/Button.js";
-import { Select } from "../ui/Select.js";
-import { Segmented } from "../ui/Segmented.js";
-import { Alert } from "../ui/Alert.js";
-import { ConfirmFooter } from "../ui/ConfirmFooter.js";
-import { ApiError } from "../api/client.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Switch } from "../../ui/Switch.js";
+import { Button } from "../../ui/Button.js";
+import { Select } from "../../ui/Select.js";
+import { Segmented } from "../../ui/Segmented.js";
+import { Alert } from "../../ui/Alert.js";
+import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
+import { ApiError } from "../../api/client.js";
 import {
   LLM_PROVIDER_PRESETS,
   isValidProfileId,
@@ -15,8 +15,8 @@ import {
   suggestProfileId,
   useLlmProvider,
   useUpdateLlmProvider
-} from "../api/llmProvider.js";
-import type { LlmProviderRequest } from "../api/llmProvider.js";
+} from "../../api/llmProvider.js";
+import type { LlmProviderRequest } from "../../api/llmProvider.js";
 
 const inputClass =
   "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
+import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
   commandConflictHandler,
@@ -11,7 +11,7 @@ import {
   commandValidationHandler,
   defaultTtsConfig,
   frozenStatusHandler
-} from "../test/handlers.js";
+} from "../../test/handlers.js";
 import { VoiceCard } from "./VoiceCard.js";
 
 function renderCard() {

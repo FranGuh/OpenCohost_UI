@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultObsConfig, obsConfigGetErrorHandler, obsTestFailureHandler } from "../test/handlers.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultObsConfig, obsConfigGetErrorHandler, obsTestFailureHandler } from "../../test/handlers.js";
 import { ObsCard } from "./ObsCard.js";
 
 function renderCard() {

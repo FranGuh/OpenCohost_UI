@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultPersonalization } from "../test/handlers.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultPersonalization } from "../../test/handlers.js";
 import { PersonalizationCard } from "./PersonalizationCard.js";
 
 // Collapse state persists to localStorage (oc-collapse-*); clear between tests

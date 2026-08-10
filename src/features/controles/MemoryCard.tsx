@@ -1,16 +1,16 @@
 import { useEffect, useState, type ChangeEvent } from "react";
-import { cn } from "../lib/cn.js";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Input } from "../ui/Input.js";
-import { Select } from "../ui/Select.js";
-import { Alert } from "../ui/Alert.js";
-import { ConfirmFooter } from "../ui/ConfirmFooter.js";
-import { Segmented } from "../ui/Segmented.js";
-import { SubCollapsibleSection, useCollapsible } from "../ui/Collapsible.js";
-import { ApiError } from "../api/client.js";
-import type { MemoriaListItem } from "../api/client.js";
+import { cn } from "../../lib/cn.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Input } from "../../ui/Input.js";
+import { Select } from "../../ui/Select.js";
+import { Alert } from "../../ui/Alert.js";
+import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
+import { Segmented } from "../../ui/Segmented.js";
+import { SubCollapsibleSection, useCollapsible } from "../../ui/Collapsible.js";
+import { ApiError } from "../../api/client.js";
+import type { MemoriaListItem } from "../../api/client.js";
 import {
   useMemoriaDeleteMutation,
   useMemoriaFlagsMutation,
@@ -20,10 +20,10 @@ import {
   useMemoriaRowQuery,
   useMemoriaStatsQuery,
   useMemoriaUpdateMutation
-} from "../api/memoria.js";
-import type { MemoriaImportResponse } from "../api/memoria.js";
-import { useEngineCommand } from "../api/engineCommand.js";
-import { useStatusQuery } from "../api/status.js";
+} from "../../api/memoria.js";
+import type { MemoriaImportResponse } from "../../api/memoria.js";
+import { useEngineCommand } from "../../api/engineCommand.js";
+import { useStatusQuery } from "../../api/status.js";
 
 // R8 (privacy): this card renders counts ONLY, never raw chat/persona content.
 function countRows(stats: {

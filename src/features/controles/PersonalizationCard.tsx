@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Input } from "../ui/Input.js";
-import { Switch } from "../ui/Switch.js";
-import { ConfirmFooter } from "../ui/ConfirmFooter.js";
-import { SubCollapsibleSection } from "../ui/Collapsible.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Input } from "../../ui/Input.js";
+import { Switch } from "../../ui/Switch.js";
+import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
+import { SubCollapsibleSection } from "../../ui/Collapsible.js";
 import {
   PERSONALIZATION_INSTRUCTIONS_MAX,
   PERSONALIZATION_INTERESTS_MAX,
@@ -14,7 +14,7 @@ import {
   useClearPersonalizationMutation,
   usePersonalizationQuery,
   useUpdatePersonalizationMutation
-} from "../api/personalization.js";
+} from "../../api/personalization.js";
 
 type PersonalizationForm = {
   enabled: boolean;

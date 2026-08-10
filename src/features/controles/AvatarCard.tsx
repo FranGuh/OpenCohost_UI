@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Select } from "../ui/Select.js";
-import { Button } from "../ui/Button.js";
-import { useAvatarConfigQuery, useUpdateAvatarConfigMutation } from "../api/avatar.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Select } from "../../ui/Select.js";
+import { Button } from "../../ui/Button.js";
+import { useAvatarConfigQuery, useUpdateAvatarConfigMutation } from "../../api/avatar.js";
 
 const MODE_OPTIONS = [
   { value: "image_states", label: "Imágenes por estado" },

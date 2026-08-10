@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Input } from "../ui/Input.js";
-import { Alert } from "../ui/Alert.js";
-import { ConfirmFooter } from "../ui/ConfirmFooter.js";
-import { SubCollapsibleSection } from "../ui/Collapsible.js";
-import { ApiError, ConflictError, NotFoundError, ValidationError } from "../api/client.js";
-import { useArmCardMutation, useCardsQuery, useCreateCardMutation } from "../api/editorialCards.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Input } from "../../ui/Input.js";
+import { Alert } from "../../ui/Alert.js";
+import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
+import { SubCollapsibleSection } from "../../ui/Collapsible.js";
+import { ApiError, ConflictError, NotFoundError, ValidationError } from "../../api/client.js";
+import { useArmCardMutation, useCardsQuery, useCreateCardMutation } from "../../api/editorialCards.js";
 
 const TOPIC_MAX = 120;
 const SUMMARY_MAX = 1200;

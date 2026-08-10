@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import { Switch } from "../ui/Switch.js";
-import { Button } from "../ui/Button.js";
-import { useObsConfigQuery, useTestObsConnectionMutation, useUpdateObsConfigMutation } from "../api/obs.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import { Switch } from "../../ui/Switch.js";
+import { Button } from "../../ui/Button.js";
+import { useObsConfigQuery, useTestObsConnectionMutation, useUpdateObsConfigMutation } from "../../api/obs.js";
 
 const inputClass =
   "h-9 w-40 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
