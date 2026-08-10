@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "../../lib/cn.js";
+import { useT } from "../../i18n/t.js";
 import { Button } from "../../ui/Button.js";
 import {
   ActionRow,
@@ -96,6 +97,7 @@ export function Stepper({
   /** Close the whole palette (Cancelar). */
   onCancel: () => void;
 }) {
+  const t = useT();
   const steps = command.steps ?? [];
   const [values, setValues] = useState<Record<string, StepValue>>(() => initialValues(steps));
   const [cursor, setCursor] = useState(0);
@@ -155,14 +157,14 @@ export function Stepper({
               onClick={advance}
               className="disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {cursor === visible.length - 1 ? "Revisar" : "Siguiente"}
+              {cursor === visible.length - 1 ? t("commands.stepper.review.action") : t("commands.stepper.next.action")}
             </Button>
             <button
               type="button"
               onClick={onCancel}
               className="rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
-              Cancelar
+              {t("commands.stepper.cancel.action")}
             </button>
           </div>
           <ProgressDots index={cursor} total={visible.length} />
@@ -170,7 +172,7 @@ export function Stepper({
       ) : (
         <>
           <SummaryCard
-            title={command.summaryTitle ?? "Resumen"}
+            title={command.summaryTitle ?? t("commands.stepper.summary.title")}
             steps={visible}
             values={values}
             onEdit={() => setCursor(0)}
@@ -181,9 +183,9 @@ export function Stepper({
             primaryLabel={
               typeof command.primaryLabel === "function"
                 ? command.primaryLabel(values)
-                : command.primaryLabel ?? "Confirmar"
+                : command.primaryLabel ?? t("commands.stepper.confirm.action")
             }
-            note={command.actionNote ?? "maquetado — todavía no envía"}
+            note={command.actionNote ?? t("commands.stepper.action.note")}
             onSubmit={command.submit ? () => command.submit!(values) : undefined}
             onCancel={onCancel}
             onReset={reset}

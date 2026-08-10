@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { t, useT } from "../../i18n/t.js";
 import { Button } from "../../ui/Button.js";
 import { Select } from "../../ui/Select.js";
 import { Segmented } from "../../ui/Segmented.js";
@@ -75,11 +76,11 @@ export function formatChipValue(step: StepDef, value: StepValue | undefined): st
     }
     case "tags": {
       const tags = (value as string[] | undefined) ?? [];
-      return tags.length > 0 ? tags.join(", ") : "sin etiquetas";
+      return tags.length > 0 ? tags.join(", ") : t("commands.chip.noTags");
     }
     default: {
       const text = ((value as string | undefined) ?? "").trim();
-      return text || "—";
+      return text || t("commands.chip.emptyValue");
     }
   }
 }
@@ -191,6 +192,7 @@ export function TagsStep({
   value: string[];
   onChange: (value: string[]) => void;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState("");
 
   function add(raw: string) {
@@ -207,7 +209,7 @@ export function TagsStep({
         type="text"
         aria-label={step.question}
         value={draft}
-        placeholder={step.placeholder ?? "Enter para agregar"}
+        placeholder={step.placeholder ?? t("commands.tags.add.placeholder")}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === ",") {
@@ -218,7 +220,7 @@ export function TagsStep({
         className={FIELD_CLASSES}
       />
       {value.length > 0 && (
-        <ul aria-label="Etiquetas agregadas" className="flex flex-wrap gap-1.5">
+        <ul aria-label={t("commands.tags.list.aria")} className="flex flex-wrap gap-1.5">
           {value.map((tag) => (
             <li
               key={tag}
@@ -227,7 +229,7 @@ export function TagsStep({
               {tag}
               <button
                 type="button"
-                aria-label={`Quitar etiqueta ${tag}`}
+                aria-label={t("commands.tags.remove.aria", { tag })}
                 onClick={() => onChange(value.filter((candidate) => candidate !== tag))}
                 className="text-dim transition-colors duration-fast ease-io hover:text-danger"
               >
@@ -256,6 +258,7 @@ export function SummaryCard({
   onEdit: () => void;
   onDiscard: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-border-soft bg-surface-2 p-3 animate-rise-in">
       <p className="text-sm font-semibold text-foreground">{title}</p>
@@ -266,10 +269,10 @@ export function SummaryCard({
       </div>
       <div className="flex items-center gap-2">
         <Button type="button" variant="outline" className="h-8 px-3 text-[13px]" onClick={onEdit}>
-          Editar
+          {t("commands.summary.edit.action")}
         </Button>
         <Button type="button" variant="ghost" className="h-8 px-3 text-[13px]" onClick={onDiscard}>
-          Descartar
+          {t("commands.summary.discard.action")}
         </Button>
       </div>
     </div>
@@ -303,6 +306,7 @@ export function ActionRow({
   /** Per-command "Cargar otro" label override (e.g. "Otro tema"). */
   resetLabel?: string;
 }) {
+  const t = useT();
   const [phase, setPhase] = useState<"idle" | "pending" | "settled">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -317,7 +321,7 @@ export function ActionRow({
       onClick={onCancel}
       className="rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
-      Cancelar
+      {t("commands.actionRow.cancel.action")}
     </button>
   );
 
@@ -371,10 +375,10 @@ export function ActionRow({
         </span>
         <div className="flex items-center gap-2">
           <Button type="button" variant="primary" className="h-8 px-3 text-[13px]" onClick={onReset}>
-            {resetLabel ?? "Cargar otro"}
+            {resetLabel ?? t("commands.actionRow.reset.action")}
           </Button>
           <Button type="button" variant="ghost" className="h-8 px-3 text-[13px]" onClick={onCancel}>
-            Listo
+            {t("commands.actionRow.done.action")}
           </Button>
         </div>
       </div>
@@ -391,7 +395,7 @@ export function ActionRow({
           onClick={handleSubmit}
           className="self-start disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {busy ? "Enviando…" : primaryLabel}
+          {busy ? t("commands.actionRow.submitting.action") : primaryLabel}
         </Button>
         {message && (
           <span role="status" aria-live="polite" className={cn("mt-1 text-[11px]", failed ? "text-danger" : "text-dim")}>

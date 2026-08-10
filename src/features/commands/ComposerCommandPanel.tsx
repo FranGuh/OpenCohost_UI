@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { CircleSlash, Terminal } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { useT } from "../../i18n/t.js";
 import { COMMANDS, matchCommands, type Command } from "./registry.js";
 import { Stepper } from "./Stepper.js";
 
@@ -61,6 +62,7 @@ export function CommandList({
   variant?: "browse" | "launcher";
   activeIndex?: number;
 }) {
+  const t = useT();
   const launcher = variant === "launcher";
 
   if (matches.length === 0) {
@@ -70,7 +72,7 @@ export function CommandList({
          * aria-controls target — this is a plain status hint, not an option. */}
         <p role="status" className="flex items-center gap-1.5 px-1 py-2 text-xs text-dim">
           <CircleSlash size={12} aria-hidden="true" />
-          comando desconocido
+          {t("commands.list.empty")}
         </p>
         {!launcher && <CancelRow onClose={onClose} />}
       </div>
@@ -103,7 +105,7 @@ export function CommandList({
 
   if (launcher) {
     return (
-      <div id={COMMAND_PALETTE_LISTBOX_ID} role="listbox" aria-label="Comandos disponibles" className="flex flex-col gap-1.5">
+      <div id={COMMAND_PALETTE_LISTBOX_ID} role="listbox" aria-label={t("commands.launcher.list.aria")} className="flex flex-col gap-1.5">
         {rows}
       </div>
     );
@@ -122,6 +124,7 @@ export function CommandList({
 }
 
 function CancelRow({ onClose }: { onClose?: () => void }) {
+  const t = useT();
   return (
     <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
       <button
@@ -129,7 +132,7 @@ function CancelRow({ onClose }: { onClose?: () => void }) {
         onClick={onClose}
         className="rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
-        Cancelar
+        {t("commands.list.cancel.action")}
       </button>
     </div>
   );
@@ -160,6 +163,7 @@ export function CommandPalettePopover({
    * so the composer input can carry `aria-activedescendant` (F3). */
   onActiveDescendantChange?: (id: string | null) => void;
 }) {
+  const t = useT();
   const matches = matchCommands(query);
   const [activeIndex, setActiveIndex] = useState(0);
   // F2: track which query the `activeIndex` state was computed for. A query
@@ -214,7 +218,7 @@ export function CommandPalettePopover({
     <div className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel">
       <div className="mono mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
         <Terminal size={12} aria-hidden="true" />
-        Comandos
+        {t("commands.launcher.title")}
       </div>
       <CommandList variant="launcher" matches={matches} activeIndex={clampedIndex} onPick={onSelect} />
     </div>
@@ -229,6 +233,7 @@ export function ComposerCommandPanel({
   onActiveIdChange,
   visible = true
 }: ComposerCommandPanelProps) {
+  const t = useT();
   const isControlled = controlledActiveId !== undefined;
   const [internalActiveId, setInternalActiveId] = useState<string | null>(null);
   const activeId = isControlled ? controlledActiveId : internalActiveId;
@@ -264,7 +269,7 @@ export function ComposerCommandPanel({
     <>
       <div className="mono mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
         <Terminal size={12} aria-hidden="true" />
-        Comandos del chat
+        {t("commands.panel.title")}
       </div>
 
       {/* Steps/selections are announced politely without interrupting the composer. */}
@@ -290,7 +295,7 @@ export function ComposerCommandPanel({
   return (
     <div
       role="dialog"
-      aria-label="Comandos del chat"
+      aria-label={t("commands.panel.title")}
       className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
     >
       {content}

@@ -9,6 +9,7 @@ import { ApiError, ConflictError, ValidationError } from "../../api/client.js";
 import type { MusicMoodResponse } from "../../api/music.js";
 import type { StreamChatLiveResponse, StreamLimitsRequest } from "../../api/stream.js";
 import { StreamConnectTimeoutError } from "../../api/stream.js";
+import { t, type TKey } from "../../i18n/t.js";
 import type { StepValue } from "./primitives.js";
 
 /**
@@ -44,18 +45,18 @@ function wireMap(vocab: readonly VocabEntry[]): Record<string, string> {
  * and the client-side `youtube_channel_url` fast-fail). Everything else is an
  * untranslated backend string (validation sentences, unmapped codes) that
  * must never render verbatim in operator-facing copy. */
-const VALIDATION_COPY: Record<string, string> = {
-  invalid_url: "Esa URL o canal no es válida — revisá el link.",
-  invalid_filter_policy: "Ese contrato de entrada no es válido — probá con otra opción.",
-  unsupported_platform: "Esa plataforma no está soportada — usá YouTube o Twitch.",
-  youtube_channel_url: "YouTube necesita el link del VIDEO en vivo (watch?v=…), no el del canal."
+const VALIDATION_COPY_KEY: Record<string, TKey> = {
+  invalid_url: "commands.action.error.invalid_url",
+  invalid_filter_policy: "commands.action.error.invalid_filter_policy",
+  unsupported_platform: "commands.action.error.unsupported_platform",
+  youtube_channel_url: "commands.action.error.youtube_channel_url"
 };
 
 /** Known 503 `detail` codes for the stream connect path (Lote C). An unknown
  * 503 code falls back to the generic service-unavailable line — the raw code
  * never renders (F4). */
-const STREAM_UNAVAILABLE_COPY: Record<string, string> = {
-  chat_source_unavailable: "El conector de chat no está instalado/disponible en el backend."
+const STREAM_UNAVAILABLE_COPY_KEY: Record<string, TKey> = {
+  chat_source_unavailable: "commands.action.error.chat_source_unavailable"
 };
 
 /**
@@ -69,23 +70,25 @@ const STREAM_UNAVAILABLE_COPY: Record<string, string> = {
 export function errorCopy(err: unknown): string {
   // Lote C: a connect that never reported connected within the poll budget.
   if (err instanceof StreamConnectTimeoutError) {
-    return "No conectó — verificá que el directo esté EN VIVO y probá de nuevo.";
+    return t("commands.action.error.timeout");
   }
   if (err instanceof ValidationError) {
-    return VALIDATION_COPY[err.message] ?? "No se pudo aplicar — revisá los datos y probá de nuevo.";
+    const key = VALIDATION_COPY_KEY[err.message];
+    return key ? t(key) : t("commands.action.error.validation");
   }
   if (err instanceof ConflictError) {
-    return "Ya hay una operación en curso — probá de nuevo en un momento.";
+    return t("commands.action.error.conflict");
   }
   if (err instanceof ApiError && err.status === 503) {
     // KNOWN 503 codes (e.g. chat_source_unavailable) name the real cause; an
     // unknown 503 detail falls back to the generic line — never the raw code.
-    return STREAM_UNAVAILABLE_COPY[err.message] ?? "El motor no está disponible ahora — probá de nuevo en un momento.";
+    const key = STREAM_UNAVAILABLE_COPY_KEY[err.message];
+    return key ? t(key) : t("commands.action.error.unavailable");
   }
   if (err instanceof ApiError) {
-    return `Falló la operación (${err.status}) — probá de nuevo.`;
+    return t("commands.action.error.status", { status: err.status });
   }
-  return "No se pudo conectar — revisá el backend y probá de nuevo.";
+  return t("commands.action.error.network");
 }
 
 // ─── /acciones → PUT /api/stream/chat-live/limits (R22-R26) ──────────────────
@@ -123,8 +126,8 @@ export function toStreamLimits(values: Record<string, StepValue>): StreamLimitsR
  */
 export function describeStreamLimits(response: StreamChatLiveResponse): string {
   return response.connected
-    ? "Listo — se aplicó al chat en vivo conectado."
-    : "Guardado — se va a usar la próxima vez que conectes el chat en vivo.";
+    ? t("commands.acciones.limits.applied")
+    : t("commands.acciones.limits.saved");
 }
 
 // ─── /agenda → POST /api/agenda/topic (R12-R15, R33-R35) ─────────────────────
@@ -200,8 +203,8 @@ export function isYoutubeChannelUrl(canal: string): boolean {
  * the /vivo submit polls status until connected or throws (timeout/422/409/503,
  * all surfaced by `errorCopy`), so this never has to fake a false connect. */
 export function describeConnect(response: StreamChatLiveResponse): string {
-  const platform = response.platform ?? "el chat";
-  return `Chat en vivo conectado — ${platform}.`;
+  const platform = response.platform ?? t("commands.vivo.defaultPlatform");
+  return t("commands.vivo.connected", { platform });
 }
 
 // ─── /sesion → POST /api/agenda/session/action (R27/R28) ─────────────────────
@@ -213,21 +216,21 @@ export function describeConnect(response: StreamChatLiveResponse): string {
 export function describeSessionAction(action: AgendaSessionAction, response: AgendaResponse): string {
   if (response.applied === false) {
     if (response.reason === "empty_queue") {
-      return "No se activó: la cola está vacía. Agregá un tema antes de activar la sesión.";
+      return t("commands.sesion.error.empty_queue");
     }
     if (response.reason === "guardrails_missing") {
-      return "No se activó: faltan las salvaguardas de seguridad. Revisá la configuración antes de activar.";
+      return t("commands.sesion.error.guardrails_missing");
     }
     // Unknown refusal reason — never interpolate the raw backend code (F4).
-    return "No se pudo aplicar — probá de nuevo.";
+    return t("commands.sesion.error.refused");
   }
   switch (action) {
     case "soft_stop":
-      return "Sesión pausada.";
+      return t("commands.sesion.action.paused");
     case "emergency_stop":
-      return "Parada de emergencia aplicada.";
+      return t("commands.sesion.action.emergencyApplied");
     default:
-      return "Sesión activada.";
+      return t("commands.sesion.action.activated");
   }
 }
 
@@ -274,7 +277,7 @@ export function toAgendaSessionRequest(values: Record<string, StepValue>): Agend
  * its normal/any pool) rather than claiming the requested mood is active. */
 export function describeMood(response: MusicMoodResponse): string {
   if (response.fallback) {
-    return `No había pistas para ese mood — se usó el pool normal/general (mood activo: ${response.active_mood}).`;
+    return t("commands.musica.mood.fallback", { mood: response.active_mood });
   }
-  return `Mood activo: ${response.active_mood}.`;
+  return t("commands.musica.mood.active", { mood: response.active_mood });
 }

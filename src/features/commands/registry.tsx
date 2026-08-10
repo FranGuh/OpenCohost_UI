@@ -20,6 +20,7 @@ import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
 import { pickRotationTrack } from "../musica/MusicPanel.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
+import { t, useT } from "../../i18n/t.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
@@ -111,22 +112,23 @@ function priorityBadge(priority: string): { tone: BadgeTone; label: string } {
 function TemasScreen({ onClose }: { onClose: () => void }) {
   // WU1/R11: /temas reads the live agenda queue (GET /api/agenda) instead of
   // the old SAMPLE_TEMAS mock. Empty and unavailable states are explicit.
+  const t = useT();
   const { data, isError } = useAgendaQuery();
 
   let body: ReactElement;
   if (isError) {
     body = (
       <p role="alert" className="text-[13px] text-danger">
-        No se pudo leer la agenda — el motor no está disponible ahora.
+        {t("commands.temas.load.error")}
       </p>
     );
   } else if (!data) {
-    body = <p className="text-[13px] text-dim">Cargando agenda…</p>;
+    body = <p className="text-[13px] text-dim">{t("commands.temas.loading")}</p>;
   } else if (data.queued_topics.length === 0) {
-    body = <p className="text-[13px] text-dim">No hay temas en la cola de agenda.</p>;
+    body = <p className="text-[13px] text-dim">{t("commands.temas.empty")}</p>;
   } else {
     body = (
-      <ul aria-label="Temas en agenda" className="flex flex-col gap-2">
+      <ul aria-label={t("commands.temas.list.aria")} className="flex flex-col gap-2">
         {data.queued_topics.map((tema) => {
           const priority = priorityBadge(tema.priority);
           return (
@@ -151,7 +153,7 @@ function TemasScreen({ onClose }: { onClose: () => void }) {
       {body}
       <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
         <Button type="button" variant="outline" className="h-8 px-3 text-[13px]" onClick={onClose}>
-          Cerrar
+          {t("commands.temas.close.action")}
         </Button>
       </div>
     </div>
@@ -167,15 +169,16 @@ function TemasScreen({ onClose }: { onClose: () => void }) {
 const SESION_PAUSED_STATES = new Set(["PAUSED", "PAUSED_NEEDS_OPERATOR", "HARD_PAUSED"]);
 
 function sessionToggle(state: string | undefined): { label: string; action: AgendaSessionAction } {
-  if (state === "OFF") return { label: "Activar", action: "enable" };
-  if (state && SESION_PAUSED_STATES.has(state)) return { label: "Reanudar", action: "enable" };
-  return { label: "Pausar", action: "soft_stop" };
+  if (state === "OFF") return { label: t("commands.sesion.toggle.activate"), action: "enable" };
+  if (state && SESION_PAUSED_STATES.has(state)) return { label: t("commands.sesion.toggle.resume"), action: "enable" };
+  return { label: t("commands.sesion.toggle.pause"), action: "soft_stop" };
 }
 
 function SesionScreen({ onClose }: { onClose: () => void }) {
   // WU9/R27-R28: the four inert buttons collapse to one live-state-driven toggle
   // (Pausar/Reanudar/Activar) + the danger emergency stop, dispatched for real.
   // The label is derived from live agenda state, not local click history.
+  const t = useT();
   const { data, isError } = useAgendaQuery();
   const mutation = useAgendaSessionActionMutation();
   const [ack, setAck] = useState<string | null>(null);
@@ -198,10 +201,10 @@ function SesionScreen({ onClose }: { onClose: () => void }) {
     <div className="flex flex-col gap-3">
       {isError ? (
         <p role="alert" className="text-[13px] text-danger">
-          No se pudo leer el estado de la sesión — el motor no está disponible ahora.
+          {t("commands.sesion.load.error")}
         </p>
       ) : !data ? (
-        <p className="text-[13px] text-dim">Cargando estado de la sesión…</p>
+        <p className="text-[13px] text-dim">{t("commands.sesion.loading")}</p>
       ) : (
         <div className="space-y-2">
           <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => dispatch(toggle.action)}>
@@ -214,7 +217,7 @@ function SesionScreen({ onClose }: { onClose: () => void }) {
             disabled={busy}
             onClick={() => dispatch("emergency_stop")}
           >
-            Parada de emergencia
+            {t("commands.sesion.emergencyStop.action")}
           </Button>
         </div>
       )}
@@ -225,7 +228,7 @@ function SesionScreen({ onClose }: { onClose: () => void }) {
       )}
       <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
         <Button type="button" variant="outline" className="h-8 px-3 text-[13px]" onClick={onClose}>
-          Cerrar
+          {t("commands.sesion.close.action")}
         </Button>
       </div>
     </div>
@@ -238,6 +241,7 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
   // WU11/R29-R31 selection + Lote B playback: the mood submit and the transport
   // buttons drive the SAME client-side <audio> element MusicPanel uses, via the
   // shared PlaybackProvider ("the API orchestrates, the client plays" — 2911).
+  const t = useT();
   const { data, isError } = useMusicLibraryQuery();
   const mutation = useMusicMoodMutation();
   const playback = usePlaybackContext();
@@ -276,9 +280,9 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
         const picked = pickTrack(res);
         if (picked) {
           playback.playTrack(picked.id, picked.label);
-          setAck(`${describeMood(res)} · sonando ${picked.label}`);
+          setAck(`${describeMood(res)} · ${t("commands.musica.ack.playing", { track: picked.label })}`);
         } else {
-          setAck(`${describeMood(res)} · sin pista disponible para reproducir`);
+          setAck(`${describeMood(res)} · ${t("commands.musica.ack.noTrack")}`);
         }
       },
       onError: (err) => setAck(errorCopy(err))
@@ -306,17 +310,17 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
     <div className="flex flex-col gap-3">
       {isError ? (
         <p role="alert" className="text-[13px] text-danger">
-          No se pudo leer la biblioteca de música — el motor no está disponible ahora.
+          {t("commands.musica.load.error")}
         </p>
       ) : !data ? (
-        <p className="text-[13px] text-dim">Cargando biblioteca…</p>
+        <p className="text-[13px] text-dim">{t("commands.musica.loading")}</p>
       ) : moods.length === 0 ? (
-        <p className="text-[13px] text-dim">No hay moods disponibles en la biblioteca.</p>
+        <p className="text-[13px] text-dim">{t("commands.musica.empty")}</p>
       ) : (
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-semibold text-foreground">Mood de la música</p>
+          <p className="text-sm font-semibold text-foreground">{t("commands.musica.moodLabel")}</p>
           <Select
-            aria-label="Mood de la música"
+            aria-label={t("commands.musica.moodLabel")}
             options={moods.map((name) => ({ value: name, label: name }))}
             value={mood}
             onChange={applyMood}
@@ -328,13 +332,13 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
           network call: playback is client-side. Pausar disables when idle. */}
       <div className="flex gap-2">
         <Button type="button" variant="outline" className="flex-1" onClick={handleReproducir}>
-          Reproducir
+          {t("commands.musica.transport.play.action")}
         </Button>
         <Button type="button" variant="outline" className="flex-1" disabled={!playback.playing} onClick={() => playback.pause()}>
-          Pausar
+          {t("commands.musica.transport.pause.action")}
         </Button>
         <Button type="button" variant="outline" className="flex-1" onClick={handleSiguiente}>
-          Siguiente
+          {t("commands.musica.transport.next.action")}
         </Button>
       </div>
 
@@ -345,7 +349,7 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
       )}
       <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
         <Button type="button" variant="outline" className="h-8 px-3 text-[13px]" onClick={onClose}>
-          Cerrar
+          {t("commands.musica.close.action")}
         </Button>
       </div>
     </div>
