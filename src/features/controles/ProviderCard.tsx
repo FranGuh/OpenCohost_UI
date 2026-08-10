@@ -17,6 +17,7 @@ import {
   useUpdateLlmProvider
 } from "../../api/llmProvider.js";
 import type { LlmProviderRequest } from "../../api/llmProvider.js";
+import { t, useT } from "../../i18n/t.js";
 
 const inputClass =
   "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -45,39 +46,39 @@ function providerErrorMessage(
   const status = error instanceof ApiError ? error.status : 0;
   const detail = error.message;
   if (status === 0) {
-    return "No hay conexión con el backend — ¿se está reiniciando? Probá en unos segundos.";
+    return t("controles.provider.error.noBackend");
   }
   if (status === 404) {
-    return "El backend en ejecución todavía no tiene proveedores en la nube — cerrá y volvé a abrir la app.";
+    return t("controles.provider.error.routeMissing");
   }
   if (status === 401 || status === 403) {
-    return "Necesitás permisos de operador para cambiar el proveedor.";
+    return t("controles.provider.error.forbidden");
   }
   if (status === 422) {
     if (detail.includes("base_url required")) {
-      return "Para activar este proveedor en la nube falta la URL base (base_url).";
+      return t("controles.provider.error.missingBaseUrl");
     }
     if (detail.includes("model required")) {
-      return "Para activar este proveedor en la nube falta el modelo.";
+      return t("controles.provider.error.missingModel");
     }
     if (detail.includes("api_key required")) {
       // Same backend safety rule ("never leave an active cloud profile
       // keyless"), two honest framings depending on what the operator tried.
       return operation === "delete-key"
-        ? "Para borrar la key del proveedor activo, primero cambiá a Local u otro proveedor."
-        : "Para activar este proveedor en la nube falta la API key.";
+        ? t("controles.provider.error.missingApiKey.deleteKey")
+        : t("controles.provider.error.missingApiKey.activate");
     }
     if (detail === "profile_id required") {
-      return "Falta indicar a qué proveedor pertenece este cambio.";
+      return t("controles.provider.error.missingProfileId");
     }
     if (detail === "invalid profile_id") {
-      return "El id del proveedor no es válido: usá minúsculas, números y guion bajo. 'local' está reservado.";
+      return t("controles.provider.error.invalidProfileId");
     }
     if (detail === "unknown preset") {
-      return "El preset elegido no existe.";
+      return t("controles.provider.error.unknownPreset");
     }
     if (detail === "unknown provider") {
-      return "Ese proveedor todavía no está configurado.";
+      return t("controles.provider.error.unknownProvider");
     }
     // Profile-deletion ladder (owner amendment 2026-07-24). The UI never SENDS a
     // combined delete+edit and resolves an active delete via a single switch-then-
@@ -85,28 +86,28 @@ function providerErrorMessage(
     // returns them (older build / a racing client) we still surface them honestly
     // instead of leaking the raw detail. The safety rules stay UNCHANGED.
     if (detail.includes("delete_profile cannot be combined")) {
-      return "No se puede combinar la eliminación con cambios del proveedor.";
+      return t("controles.provider.error.deleteCombined");
     }
     if (detail === "unknown profile") {
-      return "Ese proveedor ya no existe.";
+      return t("controles.provider.error.unknownProfile");
     }
     if (detail === "cannot delete active profile") {
-      return "No podés eliminar el proveedor activo; cambiá a Local primero.";
+      return t("controles.provider.error.cannotDeleteActive");
     }
     return detail; // honest fallback
   }
   if (status === 503) {
     if (detail === "key_store_write_failed") {
-      return "No se pudo guardar la API key en el almacén seguro. Probá de nuevo.";
+      return t("controles.provider.error.keyStoreWriteFailed");
     }
     if (detail === "provider_config_write_failed") {
-      return "No se pudo guardar la configuración del proveedor. Probá de nuevo.";
+      return t("controles.provider.error.configWriteFailed");
     }
-    return "El proveedor no está disponible ahora. Probá de nuevo en un momento.";
+    return t("controles.provider.error.unavailable");
   }
   return operation === "load"
-    ? "No se pudo cargar la configuración del proveedor."
-    : "No se pudo guardar la configuración del proveedor.";
+    ? t("controles.provider.error.loadGeneric")
+    : t("controles.provider.error.saveGeneric");
 }
 
 /**
@@ -126,6 +127,7 @@ function providerErrorMessage(
  * one-instance-per-control pattern.
  */
 export function ProviderCard() {
+  const t = useT();
   const { data, isError: getError, error: getErrorObj } = useLlmProvider();
   const globalMutation = useUpdateLlmProvider();
   const profileMutation = useUpdateLlmProvider();
@@ -193,7 +195,7 @@ export function ProviderCard() {
     return (
       <Card className="flex flex-col p-4">
         <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-          <h2 className="text-sm font-bold text-foreground">Proveedor LLM</h2>
+          <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
         </div>
         <Alert tone="danger" className="mt-3.5">
           {providerErrorMessage(getErrorObj ?? undefined, "load")}
@@ -206,10 +208,10 @@ export function ProviderCard() {
     return (
       <Card className="flex flex-col p-4">
         <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-          <h2 className="text-sm font-bold text-foreground">Proveedor LLM</h2>
+          <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
         </div>
         <p role="status" className="pt-3.5 text-xs leading-relaxed text-dim">
-          Cargando…
+          {t("controles.provider.loading.status")}
         </p>
       </Card>
     );
@@ -219,7 +221,7 @@ export function ProviderCard() {
   const addablePresets = PRESET_IDS.filter((id) => !configuredIds.includes(id));
 
   const activeOptions = [
-    { value: "local", label: "Local (Ollama)" },
+    { value: "local", label: t("controles.provider.active.local") },
     ...configuredIds.map((id) => ({ value: id, label: providerLabel(id) }))
   ];
 
@@ -335,10 +337,10 @@ export function ProviderCard() {
   const editingActive = isConfigured && data.active_provider === editId;
   const editingHasKey = isConfigured && Boolean(editId && data.profiles[editId]?.api_key_set);
   const deleteMessage = editingActive
-    ? "Esto cambia a Local y elimina el proveedor y su key. No se puede deshacer."
+    ? t("controles.provider.delete.message.active")
     : editingHasKey
-      ? "Se elimina el proveedor y su key guardada. No se puede deshacer."
-      : "Se elimina el proveedor. No se puede deshacer.";
+      ? t("controles.provider.delete.message.hasKey")
+      : t("controles.provider.delete.message.plain");
 
   // Why is Guardar disabled for a custom id? (owner tried "z-ai".) The inline
   // field hint alone was missable — surface an actionable reason NEXT to the
@@ -351,15 +353,15 @@ export function ProviderCard() {
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Proveedor LLM</h2>
-        {anyPending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
+        {anyPending && <Badge tone="info">{t("controles.provider.card.pending")}</Badge>}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {/* Active provider */}
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
           <span id="provider-active-label" className="text-[13px] text-foreground">
-            Proveedor activo
+            {t("controles.provider.active.label")}
           </span>
           <Select
             options={activeOptions}
@@ -377,39 +379,37 @@ export function ProviderCard() {
         {/* Failure posture */}
         <div className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">Si la nube falla</span>
+            <span className="text-[13px] text-foreground">{t("controles.provider.fallback.label")}</span>
             <Segmented
               options={[
-                { value: "auto", label: "Cambiar a local" },
-                { value: "manual", label: "Avisar y esperar" }
+                { value: "auto", label: t("controles.provider.fallback.auto") },
+                { value: "manual", label: t("controles.provider.fallback.manual") }
               ]}
               value={data.fallback_mode}
               onChange={(mode) => globalMutation.mutate({ fallback_mode: mode })}
-              ariaLabel="Modo de respaldo ante fallo de la nube"
+              ariaLabel={t("controles.provider.fallback.aria")}
               disabled={anyPending}
             />
           </div>
           <p className="text-[11px] leading-relaxed text-dim">
             {data.fallback_mode === "auto"
-              ? "Si la nube falla, Kira sigue sola con el modelo local."
-              : "Si la nube falla, Kira avisa y no responde hasta que lo resuelvas."}
+              ? t("controles.provider.fallback.hint.auto")
+              : t("controles.provider.fallback.hint.manual")}
           </p>
         </div>
 
         {/* Spend posture */}
         <div className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">Pregenerar respuestas en la nube</span>
+            <span className="text-[13px] text-foreground">{t("controles.provider.spend.label")}</span>
             <Switch
               checked={data.pregen_enabled}
               onChange={(on) => globalMutation.mutate({ pregen_enabled: on })}
               disabled={anyPending}
-              aria-label="Pregenerar respuestas en la nube"
+              aria-label={t("controles.provider.spend.aria")}
             />
           </div>
-          <p className="text-[11px] leading-relaxed text-dim">
-            Cada pregeneración en la nube consume tokens facturados.
-          </p>
+          <p className="text-[11px] leading-relaxed text-dim">{t("controles.provider.spend.hint")}</p>
         </div>
 
         {/* Provider configuration */}
@@ -419,7 +419,7 @@ export function ProviderCard() {
           onToggle={(e) => setConfigOpen(e.currentTarget.open)}
         >
           <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Configurar proveedores
+            {t("controles.provider.config.summary")}
           </summary>
 
           <div className="flex flex-col gap-3.5 pt-3.5">
@@ -437,11 +437,15 @@ export function ProviderCard() {
                 >
                   <span className="flex flex-col">
                     <span className="text-[13px] font-semibold text-foreground">{providerLabel(id)}</span>
-                    <span className="mono text-[11px] text-dim">{data.profiles[id].base_url || "sin URL base"}</span>
+                    <span className="mono text-[11px] text-dim">
+                      {data.profiles[id].base_url || t("controles.provider.config.noBaseUrl")}
+                    </span>
                   </span>
                   <span className="flex items-center gap-1.5">
-                    {data.active_provider === id && <Badge tone="ok">activo</Badge>}
-                    {data.profiles[id].api_key_set && <Badge tone="neutral">con key</Badge>}
+                    {data.active_provider === id && <Badge tone="ok">{t("controles.provider.config.badge.active")}</Badge>}
+                    {data.profiles[id].api_key_set && (
+                      <Badge tone="neutral">{t("controles.provider.config.badge.hasKey")}</Badge>
+                    )}
                   </span>
                 </button>
               ))}
@@ -453,7 +457,7 @@ export function ProviderCard() {
                   onClick={() => selectEdit(id)}
                   className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border px-3 py-2 text-left text-[13px] text-muted-foreground transition-colors duration-fast ease-io hover:border-primary hover:text-foreground"
                 >
-                  <span>Agregar {LLM_PROVIDER_PRESETS[id].label}</span>
+                  <span>{t("controles.provider.config.addPreset.action", { preset: LLM_PROVIDER_PRESETS[id].label })}</span>
                   <span className="mono text-[11px] text-dim">{LLM_PROVIDER_PRESETS[id].base_url}</span>
                 </button>
               ))}
@@ -466,7 +470,7 @@ export function ProviderCard() {
                   customMode ? "border-ring text-foreground" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"
                 }`}
               >
-                Agregar proveedor…
+                {t("controles.provider.config.addCustom.action")}
               </button>
             </div>
 
@@ -476,7 +480,7 @@ export function ProviderCard() {
                 {customMode && (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="provider-custom-id" className="text-[13px] text-foreground">
-                      Id del proveedor
+                      {t("controles.provider.editor.customId.label")}
                     </label>
                     <input
                       id="provider-custom-id"
@@ -486,12 +490,12 @@ export function ProviderCard() {
                         resetProfileError();
                         setCustomId(e.target.value);
                       }}
-                      placeholder="mi_proveedor"
+                      placeholder={t("controles.provider.editor.customId.placeholder")}
                       className={inputClass}
                     />
                     {customId.trim().length > 0 && !isValidProfileId(customId.trim()) && (
                       <p className="text-[11px] leading-relaxed text-warn">
-                        Usá minúsculas, números y guion bajo. 'local' está reservado.
+                        {t("controles.provider.editor.customId.hint")}
                       </p>
                     )}
                   </div>
@@ -499,7 +503,7 @@ export function ProviderCard() {
 
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="provider-base-url" className="text-[13px] text-foreground">
-                    URL base
+                    {t("controles.provider.editor.baseUrl.label")}
                   </label>
                   <input
                     id="provider-base-url"
@@ -510,14 +514,14 @@ export function ProviderCard() {
                       resetProfileError();
                       setBaseUrl(e.target.value);
                     }}
-                    placeholder="https://…/v1"
+                    placeholder={t("controles.provider.editor.baseUrl.placeholder")}
                     className={inputClass}
                   />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="provider-model" className="text-[13px] text-foreground">
-                    Modelo
+                    {t("controles.provider.editor.model.label")}
                   </label>
                   <input
                     id="provider-model"
@@ -527,18 +531,18 @@ export function ProviderCard() {
                       resetProfileError();
                       setModel(e.target.value);
                     }}
-                    placeholder="gpt-… / deepseek-…"
+                    placeholder={t("controles.provider.editor.model.placeholder")}
                     className={inputClass}
                   />
                 </div>
 
                 <div className="flex flex-col gap-1.5">
                   <span id="provider-preset-label" className="text-[13px] text-foreground">
-                    Preset
+                    {t("controles.provider.editor.preset.label")}
                   </span>
                   <Select
                     options={[
-                      { value: "", label: "(ninguno)" },
+                      { value: "", label: t("controles.provider.editor.preset.none") },
                       ...PRESET_IDS.map((id) => ({ value: id, label: LLM_PROVIDER_PRESETS[id].label }))
                     ]}
                     value={preset}
@@ -550,9 +554,9 @@ export function ProviderCard() {
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <label htmlFor="provider-api-key" className="text-[13px] text-foreground">
-                      API key
+                      {t("controles.provider.editor.apiKey.label")}
                     </label>
-                    {currentApiKeySet && <Badge tone="neutral">key guardada</Badge>}
+                    {currentApiKeySet && <Badge tone="neutral">{t("controles.provider.editor.apiKey.savedBadge")}</Badge>}
                   </div>
                   <input
                     id="provider-api-key"
@@ -563,21 +567,23 @@ export function ProviderCard() {
                       resetProfileError();
                       setApiKey(e.target.value);
                     }}
-                    placeholder={currentApiKeySet ? "Nueva API key (opcional)" : "API key"}
+                    placeholder={
+                      currentApiKeySet
+                        ? t("controles.provider.editor.apiKey.placeholder.change")
+                        : t("controles.provider.editor.apiKey.placeholder.new")
+                    }
                     className={inputClass}
                   />
-                  <p className="text-[11px] leading-relaxed text-dim">
-                    La key se guarda cifrada en tu equipo y nunca se muestra de vuelta.
-                  </p>
+                  <p className="text-[11px] leading-relaxed text-dim">{t("controles.provider.editor.apiKey.hint")}</p>
                 </div>
 
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <Button type="button" disabled={!canSave} onClick={saveProfile}>
-                    Guardar
+                    {t("controles.provider.editor.save.action")}
                   </Button>
                   {currentApiKeySet && (
                     <Button type="button" variant="outline" disabled={profileMutation.isPending} onClick={deleteKey}>
-                      Borrar key
+                      {t("controles.provider.editor.deleteKey.action")}
                     </Button>
                   )}
                 </div>
@@ -590,7 +596,9 @@ export function ProviderCard() {
                     <div className="border-t border-border-soft pt-3">
                       <ConfirmFooter
                         active
-                        stages={[{ message: deleteMessage, advanceLabel: "Eliminar proveedor" }]}
+                        stages={[
+                          { message: deleteMessage, advanceLabel: t("controles.provider.delete.confirm.action") }
+                        ]}
                         onConfirm={deleteProfile}
                         onCancel={() => setConfirmingDelete(false)}
                         busy={profileMutation.isPending}
@@ -599,7 +607,7 @@ export function ProviderCard() {
                   ) : (
                     <div className="flex flex-wrap items-center gap-2 border-t border-border-soft pt-3">
                       <Button type="button" variant="ghost" disabled={profileMutation.isPending} onClick={duplicateProfile}>
-                        Duplicar
+                        {t("controles.provider.duplicate.action")}
                       </Button>
                       <Button
                         type="button"
@@ -607,18 +615,18 @@ export function ProviderCard() {
                         disabled={profileMutation.isPending}
                         onClick={() => setConfirmingDelete(true)}
                       >
-                        Eliminar proveedor
+                        {t("controles.provider.delete.trigger.action")}
                       </Button>
                     </div>
                   ))}
 
                 {customIdInvalid && (
                   <p className="text-[11px] leading-relaxed text-warn">
-                    No se puede guardar: el id “{customIdTrimmed}” tiene caracteres no permitidos (solo minúsculas,
-                    números y guion bajo).
+                    {t("controles.provider.editor.customId.invalid", { id: customIdTrimmed })}
                     {isValidProfileId(suggestedId) && (
                       <>
-                        {" "}Probá con{" "}
+                        {" "}
+                        {t("controles.provider.editor.customId.suggestion.prompt")}{" "}
                         <button
                           type="button"
                           onClick={() => {
