@@ -43,10 +43,12 @@ name a module that moves in this migration. They are listed in §3 and §7 — c
 - Batches run **sequentially**. `MainStage.tsx`, `AppLayout.tsx` and `App.tsx` are edited by
   almost every batch; parallel batches would collide in those three files.
 
-**One warning about `pnpm test`.** The `pretest` script runs `gen:api:offline`, which
-rewrites `src/api/types.gen.ts` from `openapi.snapshot.json`. On a clean tree this is a
-no-op. If `git status` shows `types.gen.ts` dirty after a test run, that is the generator,
-not your batch — do not include it in the diff.
+**One note about `pnpm test`.** The `pretest` script runs `gen:api:offline`, which rewrites
+`src/api/types.gen.ts` from `openapi.snapshot.json`. This document originally warned that the
+file could show up dirty in a batch diff; it cannot. `.gitignore:7` is `**/types.gen.ts` and
+`git ls-files --error-unmatch src/api/types.gen.ts` fails — the file is untracked and the
+hazard does not exist. Left here as a correction, since the same claim appeared twice (§7.8)
+and both were written without checking.
 
 ---
 
@@ -1008,6 +1010,13 @@ reword, which this plan forbids.
 4. **Keys are sorted alphabetically within each bundle file.** Trivial, but it makes the
    ES/EN files diffable side by side, which is how a missing translation gets spotted before
    `tsc` even runs.
+5. **`lib/appEvents.ts` splits by origin, not by reading surface.** One rendered list draws
+   from two bundles: backend telemetry goes to `shell.events.motor.*` (24 keys) and
+   user-initiated mutations go to `experiencia.events.*` (38 keys), even though both stream
+   into the same `eventStore` and render in the same Alertas/Logs tabs. Rule 1 of §5 is
+   satisfiable either way here, so the split needs stating or the next person adding an event
+   has to read all 62 existing keys to guess right. Added after review pointed out the rule
+   was being followed and never written down.
 
 ### Five real examples, from real strings in this repo
 
@@ -1033,8 +1042,20 @@ but run them one at a time** — several of them touch `t.ts`'s consumers and al
 1. **The ES bundle returns every string byte for byte identical.** Copy the literal, never
    retype it. The characters that will bite you: `…` (U+2026, not three dots), `—` (em dash),
    `·` (middot), `▸`, `→`, `✓`, `≤`, all the accented vowels, `¿`/`¡`, and trailing periods.
-   The 37 test files that assert Spanish literals are the safety net — but only if the bundle
-   is a copy, not a transcription.
+   The 37 test files that assert Spanish literals catch **part** of this — but nowhere near
+   all of it, and the original wording of this line ("are the safety net") was wrong. Measured
+   at HEAD with the most generous rule available (a value counts as covered if it appears
+   anywhere in any test file, even an unrelated one): **463 of 1013 ES values — 45.7% — appear
+   in no test at all.** Worst offenders: `controles` 143 of 314, `experiencia` 77 of 149,
+   `commands` 72 of 169, `shell` 65 of 144.
+
+   So a green suite does not prove the invariant. It proves that the ~54% of values some test
+   happens to mention still render in the same place under the default `es` locale. Anything in
+   the other 463 could have been mangled — wrong conditional arm, dropped `{" "}`, collapsed
+   whitespace — with nothing able to fail. What actually established byte-identity here was a
+   mechanical value-by-value diff of every bundle against the pre-migration tree, run per batch
+   and re-run independently during the judgment round (§9). Run that, or do not claim the
+   invariant holds. The script is ~40 lines; see §9 for what it must handle.
 2. **Test count unchanged: 1050 in, 1050 out. 82 files in, 82 files out.** (E0 is the single
    exception — see below.)
 3. **No test file appears in the batch diff.** Before handing the batch over, run
@@ -1169,11 +1190,13 @@ the imports to deep paths before continuing.
 environment must degrade to the default locale, not break module initialisation for the entire
 app. `t.test.ts` should cover the throwing-storage path.
 
-### 8. `pretest` regenerates a tracked file
+### 8. ~~`pretest` regenerates a tracked file~~ — it does not
 
-`pnpm test` runs `gen:api:offline`, rewriting `src/api/types.gen.ts`. On a clean tree it is a
-no-op. Confirm that before starting Batch 1; if it is *not* a no-op on this machine, every
-batch diff will carry a generated file and the orchestrator's commits will be noisy.
+**Withdrawn.** `pnpm test` does run `gen:api:offline` and rewrite `src/api/types.gen.ts`, but
+the file is untracked (`.gitignore:7` = `**/types.gen.ts`), so it can never appear in a batch
+diff. This risk was written twice — here and in §0 — without checking either time. Kept
+visible rather than deleted: a stated risk that cannot occur trains the reader to skim the
+ones that can.
 
 ---
 
@@ -1316,18 +1339,23 @@ Closed in `e9d8735`, choosing per field against actual test evidence rather than
 | `PRIORITY/LENGTH/SAFETY_VOCAB` | `labelKey` + a `get label()` accessor, **flips live** | the drift-guard test reads `entry.label`; a getter keeps that read working *and* live |
 | `title`, `description`, `summaryTitle`, `primaryLabel`, `question`, `chipLabel` | `t()` at module init, **flips on restart** | `commands.test.tsx:285-295`'s `oneStepCommand()` fixture builds a `Command` with literal strings; typing those fields as `TKey` fails `tsc` on the fixture |
 
-The six restart-scoped fields are the last thing standing between this UI and a fully live
-language switch. Unblocking them is one edit to that fixture — which is exactly the test edit
-E12 was always going to need, now reduced from "three test files" to one function.
+The six restart-scoped fields were the last thing standing between this UI and a fully live
+language switch. **They are now unblocked** (§9): the judgment round contested the acceptance —
+`question` is also each stepper input's `aria-label`, so an English user got Spanish
+screen-reader names on the most-used surface, with nothing in the UI disclosing that a restart
+would finish the job. The fix cost exactly what this section estimated: one edit to
+`oneStepCommand()`. The real call count was **56**, not the 50 first reported — `/vivo` has
+three step definitions, not two. `registry.tsx` now has zero module-level `t()`.
 
 **The general lesson**: an instruction that overrides the plan needs the same scrutiny the plan
 got. A batch report that flags a contradiction is a stop condition, not a footnote.
 
 ### 8.9 What the suite could not see, and now can
 
-Every one of the 1058 tests ran in the default `es` locale, so a green suite proved the Spanish
-was byte-identical and said **nothing at all** about English. Three defects lived in that blind
-spot and were found by review rather than by the gate:
+Every test ran in the default `es` locale, so a green suite said **nothing at all** about
+English. (It also proved less about the Spanish than this document claimed — see the corrected
+invariant in §6.) Three defects lived in that blind spot and were found by review rather than
+by the gate:
 
 1. The palette gap above.
 2. `t.ts` selected its dictionary with `locale === "en" ? EN : ES`. A third locale added to
@@ -1340,16 +1368,28 @@ spot and were found by review rather than by the gate:
    `ConversationPanel`'s `visibleTurns` memo, which bakes in a translated pending note, now
    lists it (`6aa026b`).
 
-`src/i18n/localeFlip.test.tsx` (`1723ff9`) closes the blind spot: it drives a real component
-tree through a flip in both directions, checks a subtree mounted *after* the flip, and asserts
-the two language controls stay distinguishable in English. Baseline is now **84 files / 1061
-tests**.
+`src/i18n/localeFlip.test.tsx` (`1723ff9`) was written to close the blind spot. It **narrowed**
+it; it did not close it, and two of its claims here were false:
+
+- It asserted 7 English values in one component, while 33 of the 34 `useT()` consumers had no
+  English guard at all.
+- The test named for "a subtree mounted *after* the flip" set the store **before** `render()`.
+  Nothing flipped through a mounted tree — it only proved the tree renders correctly when
+  mounted in English, which is a different and much weaker statement.
+- Fix 3 above (`useT` identity) was guarded by nothing: reverting it to `return t;` left `tsc`
+  and all 1062 tests green.
+
+All three are repaired in `623d4e5`, which also adds one tripwire per domain and proves every
+guard load-bearing by breaking what it protects and recording the red. Baseline is now
+**84 files / 1065 tests**. The remaining honest statement: English is guarded at one point per
+domain, not comprehensively.
 
 ### 8.10 Known limits at the end of the migration
 
 Not defects — decisions, each with its cost stated:
 
-- **Six palette fields are restart-scoped**, per §8.8.
+- ~~**Six palette fields are restart-scoped**~~ — **resolved in §9.** The palette translates
+  live, `aria-label`s included.
 - **`eventStore` holds resolved strings.** `lib/appEvents.ts` and `api/agenda.ts` translate at
   emit time, so the Alertas and Logs tabs keep up to 200 rows in whatever language was active
   when each row was written. Fixing it means storing key + vars and resolving at render — a
@@ -1357,13 +1397,147 @@ Not defects — decisions, each with its cost stated:
   time. Left as is, deliberately.
 - **`TEMPLATE_TOPICS`** (`AgendaPanel.tsx`) stays Spanish — §7's open question, still open.
 - **`ui.es.ts` holds three English values** — §8.7.
-- **Dead code with live keys**: `src/ui/Snackbar.tsx` has zero importers, and
-  `api/mock/fixtures.ts`'s preset labels are no longer read (`StreamPanel` remaps them through
-  `PRESET_LABEL_KEYS`). Both predate or belong to the owner's call, not this migration's.
+- **Dead code with live keys**, largest first: `experiencia/PlayerBar.tsx` owns **8** keys
+  (`experiencia.playerBar.*`) and has no production importer — `AppLayout.tsx:10` and its
+  `<PlayerBar />` mount at :136 are both commented out — yet it keeps a live 6-case test suite.
+  `src/ui/Snackbar.tsx` has zero importers and 1 key. `api/mock/fixtures.ts`'s preset labels are
+  no longer read (`StreamPanel` remaps them through `PRESET_LABEL_KEYS`). All three predate or
+  belong to the owner's call, not this migration's — **do not delete them**; PlayerBar in
+  particular is shelved, not abandoned, and `docs/LAYOUT.md` now says so.
 - **`agendaTurnOptions.test.tsx`** sits in `features/agenda/` but guards a contract owned by
   `api/agenda.ts` and reaches into `features/commands/`. It is the one cross-domain edge the
-  domain map did not anticipate.
+  plan **accepted rather than resolved** — §1.3 and §7.4 both called it out in advance. An
+  earlier revision of this bullet described it as unanticipated, which was wrong and made the
+  plan look less thorough than it was.
+- **Six `commands.fixture.*` keys ship in the production bundles** and are reachable only from
+  `commands.test.tsx`. They exist because unfreezing the palette made every label field a
+  `TKey`, and the test's synthetic `Command` needs keys that resolve. Both bundle files carry a
+  `TEST-ONLY` comment above the block so a translation export can skip them. This is the one
+  place where "zero keys referenced only from tests" no longer holds.
 - **No second gate.** `tsc` + vitest is the entire net: no ESLint, no CI workflow, no
   pre-commit hook. Nothing detects unused exports, orphan files, or stale path strings in
   non-TS files — which is how `scripts/optimize-boot-art.py` kept pointing at
   `src/components/ui/BootCollage.tsx` until review caught it.
+
+---
+
+## 9. The judgment round
+
+Four judges reviewed `264017d..8a30c46` in parallel, blind to each other, each with a single
+lens: **i18n correctness**, **architecture and migration integrity**, **test integrity**, and
+**runtime behavior**. Every one was read-only, was told to verify before claiming, and was
+required to separate defects this branch *introduced* from ones it merely moved or exposed.
+
+**No judge found a blocker.** What follows is everything they did find, and what was done.
+
+### 9.1 What survived attack
+
+Worth recording, because it is the part that will be assumed rather than re-checked:
+
+- **The compile-time completeness proof is real.** One judge compiled probes with the repo's
+  own `tsc`: an extra EN key produces `TS2353`; a domain missing from the EN bundle produces
+  `TS2741`. All nine EN bundles carry the direct `Record<keyof typeof xEs, string>` annotation.
+  **One hole exists but is not currently reachable**: excess-property checking does not fire for
+  keys arriving via a *spread*, so the guarantee depends on every EN bundle keeping a direct
+  object literal — not `satisfies`, not a spread build. Do not "tidy" them into either.
+- **Key and placeholder parity.** 1013 ES keys, 1013 EN keys, zero missing, zero extra, zero
+  empty, zero duplicated across domains, every bundle alphabetically sorted. 66 keys carry
+  `{var}` placeholders and **every ES/EN pair has an identical placeholder set** — a class of
+  corruption neither `tsc` nor the suite can see, checked mechanically and clean.
+- **The ES byte-identity invariant holds.** Two judges reconstructed it independently. Every ES
+  value traces to the pre-migration tree; the handful that did not match verbatim are prettier
+  line-wraps that collapse to the same rendered text (verified at each render site), the four
+  values with load-bearing leading or trailing spaces are byte-exact, and no key got wired to a
+  site its literal did not originally occupy.
+- **The structure is sound.** The feature graph is a DAG — no domain cycle. `src/ui/` has zero
+  inbound edges from `src/features/`. All 135 moves are real `git` renames with `--follow`-able
+  history and zero deletions. All 12 `vi.mock` string literals and all 6 dynamic `import()`
+  strings resolve. No `.only`, no `.skip`, no emptied or deleted test file.
+- **Locale persistence degrades correctly.** Unknown values (`"fr"`, `"EN"`, non-JSON, `null`)
+  fall back to `es` without throwing; a throwing storage write leaves the in-memory flip intact;
+  `document.documentElement.lang` is set at module init *and* on change, so there is no
+  wrong-language first paint.
+
+### 9.2 Copy that translated once and then never again
+
+The largest finding, in three classes — all invisible to `tsc`, all invisible to a suite that
+only runs in `es`:
+
+| Class | Size | Fixed by |
+| --- | --- | --- |
+| **Event-time freeze** — `t()` ran on an event and the resolved string went into `useState` | 21 sites, 7 files | state holds a `TKey`, JSX resolves it |
+| **Boot freeze** — `t()` at module init in the command palette | 56 calls | key-holding; `registry.tsx` now has zero module-level `t()` |
+| **Subscription gaps** — copy read through the bare module-level `t` | `ThemeSwitcher`, `ConfirmFooter` | `useT()` |
+
+The event-time class is the one this document had missed entirely: §8.10 catalogued the
+module-init freeze and the `eventStore` freeze and stopped there. The user-visible shape is
+specific — type an invalid URL in Stream, flip to English, and that one error line stays
+Spanish while the entire shell around it translates.
+
+Two sites keep a raw string on purpose: a caught `Error`'s `.message` is never-translated
+backend text, and `ActionRow`'s success ack is pinned by `Command.submit`'s `Promise<string>`
+contract, asserted literally in ~15 places in `commands.test.tsx`. Both are the `eventStore`
+category — a record of what was said at the time.
+
+### 9.3 The palette acceptance was contested, and correctly
+
+§8.8 had accepted six restart-scoped fields on the reasoning that few sessions open the palette
+twice in two languages. The runtime judge rejected that: `question` is also the `aria-label` of
+every stepper input, so an English user got Spanish screen-reader names on the most-used
+surface — and nothing in the UI disclosed that a restart would finish the job, because §4.8
+deliberately gives the interface control no restart badge. Either the fix or a disclosure was
+required. The fix cost one fixture edit, exactly as estimated. See §8.8.
+
+### 9.4 Corrections to this document
+
+Six claims were wrong. They are corrected in place rather than deleted:
+
+1. **§6's invariant** said the 37 Spanish-asserting test files "are the safety net". Measured:
+   **463 of 1013 ES values (45.7%) appear in no test at all**, under the most generous counting
+   rule available. The suite is not what proved the invariant; a mechanical value-by-value diff
+   against the pre-migration tree is.
+2. **§8.9** claimed `localeFlip.test.tsx` "checks a subtree mounted *after* the flip". It set
+   the store *before* `render()` — no flip occurred. Two of its three tests had this shape.
+3. **§0 and §7.8** both warned that `pretest` could dirty a *tracked* `src/api/types.gen.ts`.
+   It is untracked (`.gitignore:7`). The hazard cannot occur and was never checked.
+4. **§8.10** called `agendaTurnOptions.test.tsx`'s placement unanticipated. §1.3 and §7.4 had
+   both called it out in advance; it was an accepted trade, not a discovery.
+5. **§8.10's dead-code bullet** omitted its own largest instance, `PlayerBar.tsx` (8 keys).
+6. **`docs/LAYOUT.md`** — not this file, but the one live guide a contributor actually reads —
+   still pointed at `src/components/ui/` and still described `NAV_ITEMS` entries as carrying a
+   `label`. Following its "add a nav item" steps produced a `tsc` failure. The stale-path sweep
+   in `68ee7ed` and the verification grep in §3 were both scoped to `src/`. **Widen that grep
+   to the whole tree minus `node_modules` and `dist`.**
+
+### 9.5 Also fixed
+
+`musica.library.trackCount` rendered `"1 tracks"` in both locales — a sixth plural site given a
+single key, missed by §4.5's survey. EN said `"asleep"` for the backend `sleeping` state, which
+is the exact word `experiencia` reserves for the local doze and which
+`features/experiencia/kiraState.ts` explicitly forbids reusing. The `"Otro"` import-source
+fallback rendered untranslated (display now translated, wire value deliberately not). The
+agenda tag-cap placeholder hardcoded `12` beside a sibling interpolating `MAX_CONSTRAINTS`.
+Four keys held two values, against §5's one-key rule. `matchCommands` filtered on Spanish `id`
+only, so `/topics` and `/profile` found nothing in English — ids now carry aliases; translated
+labels are still deliberately not matched. `pttCopy.ts` finally left `src/api/` as §1.8
+promised, and the rotation policy left `MusicPanel.tsx` for `lib/` so the palette stops pulling
+a 458-line panel in for two React-free functions.
+
+### 9.6 What is still open
+
+- **`TEMPLATE_TOPICS`** — §7's question, unchanged. Owner's call.
+- **Voseo neutralization** and the three English values in `ui.es.ts` (§8.7) — copy changes, one
+  file now instead of thirty components.
+- **English is guarded at one point per domain, not comprehensively.** That is the honest state
+  after `623d4e5`. 463 ES values and the great majority of EN values remain unasserted.
+- **`Intl.DateTimeFormat("es-AR")`** is hardcoded in `ConversationPanel` and `LogsPanel` — the
+  one locale-bearing formatter the substrate does not reach. Pre-existing; harmless; noted.
+- **Still no second gate.** No ESLint, no CI. Every stale-path and orphan finding in this round
+  came from a directed sweep, which is not a process.
+
+### 9.7 The lesson, restated
+
+§8.8 recorded that an instruction overriding the plan needs the same scrutiny the plan got.
+This round adds the other half: **a claim about what the tests prove needs measuring, not
+asserting.** Every false statement in §9.4 was confident, plausible, and written without
+running the check that would have falsified it.
