@@ -9,6 +9,7 @@ import type { BadgeTone } from "../../ui/Badge.js";
 import { Alert } from "../../ui/Alert.js";
 import { Button } from "../../ui/Button.js";
 import { cn } from "../../lib/cn.js";
+import { t, useT } from "../../i18n/t.js";
 
 // health.overall_status/*_status are untyped strings on the backend (no
 // enum in openapi.snapshot.json). Real health_monitor.py emits
@@ -73,13 +74,6 @@ export interface MotorRollup {
   todo?: string;
 }
 
-const DIM_NAMES: Array<[keyof HealthInputs, string]> = [
-  ["vram_status", "VRAM"],
-  ["rtf_status", "velocidad"],
-  ["ollama_status", "Ollama"],
-  ["qwen_status", "voz (Qwen)"]
-];
-
 // A dim is a "problem" (named in the Motor why-copy) when its healthTone is
 // warn/danger OR its raw value is "unknown"/"unhealthy" — EXCEPT "unavailable",
 // which is graceful degradation (pynvml or a service simply absent), never a
@@ -92,8 +86,20 @@ function isDimProblem(value: string): boolean {
   return tone === "warn" || tone === "danger" || value === "unknown" || value === "unhealthy";
 }
 
+// Built inside the function (not module scope) because two of the four names
+// are translated copy — "VRAM"/"Ollama" are proper nouns/acronyms and stay
+// literal, "velocidad"/"voz (Qwen)" are real words and need t(). Resolving
+// them here keeps this a join-site: the ", " separator stays as punctuation
+// in the component, never baked into a pre-joined bundle string (§6).
 function degradedDims(health: HealthInputs): string {
-  return DIM_NAMES.filter(([key]) => isDimProblem(health[key]))
+  const dimNames: Array<[keyof HealthInputs, string]> = [
+    ["vram_status", "VRAM"],
+    ["rtf_status", t("shell.statusRail.dim.speed")],
+    ["ollama_status", "Ollama"],
+    ["qwen_status", t("shell.statusRail.dim.voice")]
+  ];
+  return dimNames
+    .filter(([key]) => isDimProblem(health[key]))
     .map(([, name]) => name)
     .join(", ");
 }
@@ -109,9 +115,9 @@ export function computeSistemaRollup(data: SistemaInputs | undefined, isError = 
   if (isError || !data) {
     return {
       taxonomy: "action",
-      label: "Sin conexión",
-      why: "No hay respuesta del motor local.",
-      todo: "Revisá que OpenCohost esté corriendo y reintentá."
+      label: t("shell.statusRail.motor.disconnected.label"),
+      why: t("shell.statusRail.motor.disconnected.why"),
+      todo: t("shell.statusRail.motor.disconnected.todo")
     };
   }
 
@@ -121,48 +127,50 @@ export function computeSistemaRollup(data: SistemaInputs | undefined, isError = 
   if (tone === "danger") {
     return {
       taxonomy: "action",
-      label: "Motor: necesita acción",
-      why: dims ? `La salud del sistema está en rojo (${dims}).` : "La salud del sistema está en rojo.",
-      todo: "Revisá el detalle abajo; si sigue en rojo, reiniciá el motor."
+      label: t("shell.statusRail.motor.actionNeeded.label"),
+      why: dims
+        ? t("shell.statusRail.motor.actionNeeded.why", { dims })
+        : t("shell.statusRail.motor.actionNeeded.why.empty"),
+      todo: t("shell.statusRail.motor.actionNeeded.todo")
     };
   }
   if (tone === "warn") {
     return {
       taxonomy: "attention",
-      label: "Motor: atención",
+      label: t("shell.statusRail.motor.attention.label"),
       why: dims
-        ? `La salud está en amarillo (${dims}). Kira sigue funcionando.`
-        : "La salud está en amarillo. Kira sigue funcionando.",
-      todo: "Si pasa a rojo, bajá el tier del modelo desde Controles."
+        ? t("shell.statusRail.motor.attention.why", { dims })
+        : t("shell.statusRail.motor.attention.why.empty"),
+      todo: t("shell.statusRail.motor.attention.todo")
     };
   }
   if (!data.is_ready && data.ollama_warming) {
     return {
       taxonomy: "attention",
-      label: "Motor: cargando modelo",
-      why: "El modelo se está cargando en Ollama.",
-      todo: "Suele tardar menos de un minuto — no hace falta hacer nada."
+      label: t("shell.statusRail.motor.loadingModel.label"),
+      why: t("shell.statusRail.motor.loadingModel.why"),
+      todo: t("shell.statusRail.motor.loadingModel.todo")
     };
   }
   if (!data.is_ready) {
     return {
       taxonomy: "attention",
-      label: "Motor: preparando",
-      why: "El motor todavía no está listo para responder.",
-      todo: "Esperá unos segundos; si no arranca, revisá Ollama."
+      label: t("shell.statusRail.motor.preparing.label"),
+      why: t("shell.statusRail.motor.preparing.why"),
+      todo: t("shell.statusRail.motor.preparing.todo")
     };
   }
   if (tone === "neutral") {
     return {
       taxonomy: "neutral",
-      label: "Motor: …",
-      why: "Todavía no llegó el primer reporte de salud."
+      label: t("shell.statusRail.motor.pending.label"),
+      why: t("shell.statusRail.motor.pending.why")
     };
   }
   return {
     taxonomy: "ok",
-    label: "Motor OK",
-    why: "Todo en orden: salud verde y modelo cargado."
+    label: t("shell.statusRail.motor.ok.label"),
+    why: t("shell.statusRail.motor.ok.why")
   };
 }
 
@@ -177,16 +185,24 @@ interface KiraState {
 // activity readout, named from the operator's perspective.
 function computeKira(data: StatusResponse): KiraState {
   if (data.is_speaking) {
-    return { taxonomy: "info", label: "Kira: hablando", why: "Está reproduciendo su respuesta por voz." };
+    return {
+      taxonomy: "info",
+      label: t("shell.statusRail.kira.speaking.label"),
+      why: t("shell.statusRail.kira.speaking.why")
+    };
   }
   if (data.is_processing) {
-    return { taxonomy: "info", label: "Kira: pensando…", why: "Está generando una respuesta." };
+    return {
+      taxonomy: "info",
+      label: t("shell.statusRail.kira.thinking.label"),
+      why: t("shell.statusRail.kira.thinking.why")
+    };
   }
   return {
     taxonomy: "neutral",
-    label: "Kira: en espera",
-    why: "Sin turnos nuevos — no es un error.",
-    todo: "Escribile en el chat o mantené el micrófono para hablarle."
+    label: t("shell.statusRail.kira.idle.label"),
+    why: t("shell.statusRail.kira.idle.why"),
+    todo: t("shell.statusRail.kira.idle.todo")
   };
 }
 
@@ -241,6 +257,7 @@ interface StatusChipProps {
  * same pattern as SettingsPopover). Only `action` fills the chip surface.
  */
 function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail, align = "left", className, footer }: StatusChipProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const popoverId = useId();
@@ -301,7 +318,7 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
 
           {hasDetail && (
             <>
-              <PopoverDivider label="detalle" />
+              <PopoverDivider label={t("shell.statusRail.popover.detail.eyebrow")} />
               <ul className="flex flex-col gap-1">
                 {detail.map((row) => (
                   <li key={row.label} className="flex flex-col gap-1">
@@ -321,7 +338,7 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
 
           {todo && (
             <>
-              {hasDetail && <PopoverDivider label="qué hacer" />}
+              {hasDetail && <PopoverDivider label={t("shell.statusRail.popover.todo.eyebrow")} />}
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{todo}</p>
             </>
           )}
@@ -342,10 +359,11 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
  * as-is, never upgraded into a fake success.
  */
 function CloudProbeFooter() {
+  const t = useT();
   const mutation = useTriggerCloudProbe();
   return (
     <>
-      <PopoverDivider label="acción" />
+      <PopoverDivider label={t("shell.statusRail.popover.action.eyebrow")} />
       <Button
         type="button"
         variant="outline"
@@ -353,15 +371,15 @@ function CloudProbeFooter() {
         disabled={mutation.isPending}
         onClick={() => mutation.mutate()}
       >
-        {mutation.isPending ? "Probando…" : "Probar ahora"}
+        {mutation.isPending ? t("shell.statusRail.cloudProbe.action.pending") : t("shell.statusRail.cloudProbe.action")}
       </Button>
       {mutation.data && (
         <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
           {mutation.data.armed
-            ? "Reintento armado — esperá la próxima respuesta."
+            ? t("shell.statusRail.cloudProbe.armed")
             : mutation.data.reason
-              ? `No se armó (${mutation.data.reason}).`
-              : "No se armó — probablemente ya no hacía falta."}
+              ? t("shell.statusRail.cloudProbe.notArmed.reason", { reason: mutation.data.reason })
+              : t("shell.statusRail.cloudProbe.notArmed")}
         </p>
       )}
       {/* Should-fix (stage judge): mirrors ProviderCard.tsx's
@@ -370,7 +388,7 @@ function CloudProbeFooter() {
        * no feedback. */}
       {mutation.isError && (
         <Alert tone="danger" className="mt-1.5">
-          No se pudo forzar el reintento — probá de nuevo.
+          {t("shell.statusRail.cloudProbe.error")}
         </Alert>
       )}
     </>
@@ -397,16 +415,19 @@ function CloudFallbackChip({
   fallback_reason?: string | null;
   next_cloud_probe_in_seconds?: number | null;
 }) {
+  const t = useT();
   const probeScheduled = typeof next_cloud_probe_in_seconds === "number";
   const taxonomy: Taxonomy = probeScheduled ? "attention" : "action";
-  const label = probeScheduled ? "Cloud: reintentando" : "Cloud: acción requerida";
+  const label = probeScheduled
+    ? t("shell.statusRail.cloudFallback.retrying.label")
+    : t("shell.statusRail.cloudFallback.actionRequired.label");
   const why = probeScheduled
-    ? `Cloud cayó temporalmente — reintento automático en ${next_cloud_probe_in_seconds}s.`
+    ? t("shell.statusRail.cloudFallback.retrying.why", { seconds: next_cloud_probe_in_seconds })
     : fallback_reason === "bad_key"
-      ? "El proveedor cloud rechazó la API key — no se reintenta solo."
+      ? t("shell.statusRail.cloudFallback.badKey.why")
       : fallback_reason === "ambiguous_429"
-        ? "Cloud devolvió un 429 ambiguo — podría ser cuota agotada, no se reintenta solo."
-        : "Cloud cayó y el motor dejó de reintentar solo — hace falta actuar.";
+        ? t("shell.statusRail.cloudFallback.ambiguous429.why")
+        : t("shell.statusRail.cloudFallback.actionRequired.why");
 
   return (
     <StatusChip
@@ -427,13 +448,14 @@ function CloudFallbackChip({
  * renders, in its `Sin conexión` action state (spec revision #5).
  */
 export function StatusRail() {
+  const t = useT();
   const { data, isLoading, isError } = useStatusQuery();
 
   if (isLoading || (!data && !isError)) {
     return (
       <div className="flex min-w-0 items-center px-2.5">
         <span className="mono inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground">
-          Conectando con el motor…
+          {t("shell.statusRail.loading")}
         </span>
       </div>
     );
@@ -447,17 +469,20 @@ export function StatusRail() {
         {
           // "unavailable" = no pynvml / no GPU probe, NOT out-of-memory: 0 MB
           // would read as an OOM crisis, so name the real state instead.
-          label: "VRAM libre",
-          value: data.health.vram_status === "unavailable" ? "no disponible" : `${Math.round(data.health.free_vram_mb)} MB`,
+          label: t("shell.statusRail.detail.vramFree"),
+          value:
+            data.health.vram_status === "unavailable"
+              ? t("shell.statusRail.detail.unavailable")
+              : `${Math.round(data.health.free_vram_mb)} MB`,
           tone: healthTone(data.health.vram_status)
         },
         {
           // Same nvmlDeviceGetMemoryInfo() read as VRAM libre — total/used
           // were being discarded before 2.4 (F9).
-          label: "VRAM usada",
+          label: t("shell.statusRail.detail.vramUsed"),
           value:
             data.health.vram_status === "unavailable"
-              ? "no disponible"
+              ? t("shell.statusRail.detail.unavailable")
               : `${Math.round(data.health.used_vram_mb ?? 0)}/${Math.round(data.health.total_vram_mb ?? 0)} MB`,
           tone: healthTone(data.health.vram_status)
         },
@@ -466,19 +491,28 @@ export function StatusRail() {
           // is Ollama's own accounting of the model, never process RSS —
           // labelled "(est.)" in every row below, distinct from the
           // history/digest/memoria concepts in MemoryCard (F11).
-          sectionLabel: "Modelo (estimado por Ollama)",
-          label: "Modelo residente (est.)",
-          value: data.health.model_resident_mb_est != null ? `${Math.round(data.health.model_resident_mb_est)} MB` : "no disponible",
+          sectionLabel: t("shell.statusRail.detail.modelSection.eyebrow"),
+          label: t("shell.statusRail.detail.modelResident"),
+          value:
+            data.health.model_resident_mb_est != null
+              ? `${Math.round(data.health.model_resident_mb_est)} MB`
+              : t("shell.statusRail.detail.unavailable"),
           tone: "neutral"
         },
         {
-          label: "Modelo en VRAM (est.)",
-          value: data.health.model_vram_mb_est != null ? `${Math.round(data.health.model_vram_mb_est)} MB` : "no disponible",
+          label: t("shell.statusRail.detail.modelVram"),
+          value:
+            data.health.model_vram_mb_est != null
+              ? `${Math.round(data.health.model_vram_mb_est)} MB`
+              : t("shell.statusRail.detail.unavailable"),
           tone: "neutral"
         },
         {
-          label: "Spill a RAM (est.)",
-          value: data.health.model_ram_spill_mb_est != null ? `${Math.round(data.health.model_ram_spill_mb_est)} MB` : "no disponible",
+          label: t("shell.statusRail.detail.ramSpill"),
+          value:
+            data.health.model_ram_spill_mb_est != null
+              ? `${Math.round(data.health.model_ram_spill_mb_est)} MB`
+              : t("shell.statusRail.detail.unavailable"),
           tone:
             data.health.model_ram_spill_mb_est != null && data.health.model_ram_spill_mb_est > SPILL_WARN_THRESHOLD_MB
               ? "warn"
@@ -486,7 +520,7 @@ export function StatusRail() {
         },
         {
           label: "CPU/GPU",
-          value: data.health.model_processor_split ?? "no disponible",
+          value: data.health.model_processor_split ?? t("shell.statusRail.detail.unavailable"),
           tone: "neutral",
           mono: true
         },
@@ -495,23 +529,29 @@ export function StatusRail() {
           // concept — deliberately its own section, distinct from "Modelo
           // (estimado por Ollama)" above (F11's four-memory-concepts split).
           // None before the first generation of the process.
-          sectionLabel: "Contexto (KV)",
-          label: "Contexto usado",
+          sectionLabel: t("shell.statusRail.detail.contextSection.eyebrow"),
+          label: t("shell.statusRail.detail.contextUsed"),
           value:
             data.ctx_telemetry != null
-              ? `${Math.round(data.ctx_telemetry.ratio * 100)} % de ${data.ctx_telemetry.effective_ctx}`
-              : "no disponible",
+              ? t("shell.statusRail.detail.contextUsed.value", {
+                  pct: Math.round(data.ctx_telemetry.ratio * 100),
+                  ctx: data.ctx_telemetry.effective_ctx
+                })
+              : t("shell.statusRail.detail.unavailable"),
           tone: "neutral"
         },
         {
-          label: "Pares evictados",
-          value: data.ctx_telemetry != null ? String(data.ctx_telemetry.evicted_pairs) : "no disponible",
+          label: t("shell.statusRail.detail.evictedPairs"),
+          value: data.ctx_telemetry != null ? String(data.ctx_telemetry.evicted_pairs) : t("shell.statusRail.detail.unavailable"),
           tone: "neutral"
         },
         {
           // rtf_rolling_avg only populates after the first voice synthesis.
-          label: "Velocidad",
-          value: data.health.rtf_rolling_avg != null ? `RTF ${data.health.rtf_rolling_avg.toFixed(2)}` : "sin datos aún",
+          label: t("shell.statusRail.detail.speed"),
+          value:
+            data.health.rtf_rolling_avg != null
+              ? `RTF ${data.health.rtf_rolling_avg.toFixed(2)}`
+              : t("shell.statusRail.detail.speed.empty"),
           tone: healthTone(data.health.rtf_status)
         },
         { label: "Ollama", value: data.health.ollama_status, tone: healthTone(data.health.ollama_status), mono: true },
@@ -519,8 +559,8 @@ export function StatusRail() {
           // "unknown" is what holds overall_status red on the backend, so surface
           // it as "sin iniciar" with a danger dot — the red is then traceable to
           // its cause. Raw statuses stay mono; the prose fallback does not.
-          label: "Qwen (voz)",
-          value: data.health.qwen_status === "unknown" ? "sin iniciar" : data.health.qwen_status,
+          label: t("shell.statusRail.detail.qwen"),
+          value: data.health.qwen_status === "unknown" ? t("shell.statusRail.detail.qwen.notStarted") : data.health.qwen_status,
           tone:
             data.health.qwen_status === "unknown" || data.health.qwen_status === "unhealthy"
               ? "danger"
@@ -535,7 +575,7 @@ export function StatusRail() {
   return (
     <div
       role="status"
-      aria-label="Estado operativo de OpenCohost"
+      aria-label={t("shell.statusRail.root.aria")}
       // Container is now bare: it lives inside the h-10 title bar, so the old
       // rounded/border/shadow/bg pill was dropped and the chips sit directly on
       // the bar. Kept flex/gap-2 (chip spacing) + px-2.5; dropped py-2 (it made
@@ -557,10 +597,10 @@ export function StatusRail() {
           <StatusChip
             icon={Cpu}
             taxonomy="neutral"
-            label={<span className="max-w-[190px] truncate">{data.current_model ?? "sin modelo"}</span>}
-            labelText={data.current_model ?? "sin modelo"}
-            why="Modelo activo en Ollama."
-            todo="Lo cambiás desde Controles → Modelo."
+            label={<span className="max-w-[190px] truncate">{data.current_model ?? t("shell.statusRail.model.none")}</span>}
+            labelText={data.current_model ?? t("shell.statusRail.model.none")}
+            why={t("shell.statusRail.model.why")}
+            todo={t("shell.statusRail.model.todo")}
           />
           {data.fallback_active && (
             <CloudFallbackChip
@@ -581,8 +621,8 @@ export function StatusRail() {
             taxonomy="neutral"
             label={data.active_profile}
             labelText={data.active_profile}
-            why="Personalidad activa de Kira."
-            todo="La cambiás desde Perfiles en la barra lateral."
+            why={t("shell.statusRail.profile.why")}
+            todo={t("shell.statusRail.profile.todo")}
             align="right"
             className="ml-auto"
           />
