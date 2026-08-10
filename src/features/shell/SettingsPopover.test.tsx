@@ -263,7 +263,18 @@ describe("SettingsPopover Idioma card — interface locale (E0, local-only, no b
 
     expect(document.documentElement.lang).toBe("en");
     expect(window.localStorage.getItem("oc-ui-locale")).toBe("en");
-    expect(putCalled).toBe(false);
+    // A synchronous check right after the click can never observe a
+    // fire-and-forget PUT — it hasn't had a chance to resolve yet, so it would
+    // read `false` no matter what the code does. Give it a real window to land
+    // (waitFor polls) and require that window to time out, i.e. that the PUT
+    // never happens at all, not just that it hasn't happened yet.
+    let putEventuallyFired = true;
+    try {
+      await waitFor(() => expect(putCalled).toBe(true), { timeout: 200 });
+    } catch {
+      putEventuallyFired = false;
+    }
+    expect(putEventuallyFired).toBe(false);
     // The backend "Voz de Kira" control is untouched by the interface flip.
     expect(screen.queryByText(/Reinicio requerido/)).not.toBeInTheDocument();
   });

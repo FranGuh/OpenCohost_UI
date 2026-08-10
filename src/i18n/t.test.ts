@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "./t.js";
 import { useUiLocaleStore } from "./locale.js";
-import { EN, ES, type TKey } from "./bundles.js";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -16,23 +15,27 @@ describe("t()", () => {
   });
 
   it("substitutes {name} interpolation and leaves a missing variable's placeholder intact", () => {
-    // No shipped key carries a placeholder yet (E0 only adds the two Idioma
-    // row labels), so this seeds a throwaway entry to exercise the resolver's
-    // regex directly — it is not real UI copy.
-    const key = "shell.__t_test__.interp" as TKey;
-    (ES as Record<string, string>)[key] = "Hola {name}, tenés {count} mensajes";
-    (EN as Record<string, string>)[key] = "Hello {name}, you have {count} messages";
+    // Real shipped interpolated keys — 66 of them carry a {placeholder} today,
+    // agenda.constraints.max among them — so this asserts the resolver
+    // against actual bundle content instead of mutating the live ES/EN
+    // dictionaries to seed a throwaway key.
+    expect(t("agenda.constraints.max", { n: 5 })).toBe("Máximo 5 etiquetas.");
+    expect(t("agenda.constraints.max")).toBe("Máximo {n} etiquetas.");
 
-    expect(t(key, { name: "Kira" })).toBe("Hola Kira, tenés {count} mensajes");
-    expect(t(key)).toBe("Hola {name}, tenés {count} mensajes");
-
-    delete (ES as Record<string, string>)[key];
-    delete (EN as Record<string, string>)[key];
+    useUiLocaleStore.getState().setLocale("en");
+    expect(t("agenda.constraints.max", { n: 5 })).toBe("5 tags maximum.");
+    expect(t("agenda.constraints.max")).toBe("{n} tags maximum.");
   });
 
-  it("keeps EN and ES structurally complete with each other", () => {
-    expect(Object.keys(EN).length).toBe(Object.keys(ES).length);
-  });
+  // No "EN/ES key count" case here, deliberately: bundles.ts's
+  // `EN: Record<keyof typeof ES, string>` annotation already makes a
+  // dropped-or-extra EN key a hard `tsc` failure (TS2739/TS2741 for missing,
+  // TS2353 for extra — verified by deliberately breaking a bundle, §8.2 of
+  // the migration doc). A runtime `Object.keys(...).length` comparison is
+  // strictly weaker than that compile-time check (it can't even tell a
+  // dropped key from a stray added one apart), so it was deleted rather than
+  // upgraded to a sorted-array comparison — it would still only be a slower,
+  // redundant copy of a guarantee the type system already gives for free.
 });
 
 describe("locale.ts storage safety (§7)", () => {
