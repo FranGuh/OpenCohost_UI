@@ -208,6 +208,15 @@ describe("StreamPanel", () => {
     expect(document.body.textContent).not.toMatch(/mensaje de|viewer_message|chat_text/i);
   });
 
+  it("shows the stream-not-migrated notice ahead of the cards, without disabling any existing control", async () => {
+    renderPanel();
+    expect(screen.getByText("Modo stream no disponible")).toBeInTheDocument();
+    expect(
+      screen.getByText(/integración de chat en vivo.*aún no está migrada desde la aplicación anterior/i)
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Conectar" })).not.toBeDisabled());
+  });
+
   it("shows a single non-interactive deferred note for the RF4 Emisión area (OAuth/metadata/moderación)", async () => {
     renderPanel();
     const heading = screen.getByRole("heading", { name: /Emisión/ });

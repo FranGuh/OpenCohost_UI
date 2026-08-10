@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Card } from "./ui/Card.js";
+import { Alert } from "./ui/Alert.js";
 import { Badge } from "./ui/Badge.js";
 import type { BadgeTone } from "./ui/Badge.js";
 import { Button } from "./ui/Button.js";
@@ -394,10 +395,18 @@ function DeferredStreamAdminNote() {
  * Contract switch (pending the boolean->filter_policy mapping decision)
  * and the RF4 note stay deliberately non-wired — see AccionesCard and
  * DeferredStreamAdminNote.
+ *
+ * The actual chat sources (Twitch/YouTube ingestion) only run in the
+ * deprecated CTK app, so this whole section is dormant on Tauri until that
+ * migration lands — the banner below says so up front, ahead of the cards.
  */
 export function StreamPanel() {
   return (
     <>
+      <Alert tone="info" title="Modo stream no disponible" role="status">
+        La integración de chat en vivo (Twitch/YouTube) aún no está migrada desde la aplicación anterior. Esta
+        sección estará inactiva hasta esa migración.
+      </Alert>
       <ChatLiveCard />
       <AccionesCard />
       <DeferredStreamAdminNote />
