@@ -1265,3 +1265,33 @@ reintroduced and pass when it is not.
 | After E0 (`3ddffc1`) | 83 | 1058 |
 
 E1-E11 must leave both numbers untouched.
+
+### 8.6 The per-file tables in §6 are a floor, not the scope
+
+E1 found copy that §6's own table did not name. The tables were built from module-level copy
+(`const` maps, option arrays, exported records) and do not enumerate **inline JSX literals** —
+`aria-label`, `placeholder`, `title`, `alt`, and bare text nodes — which is where most of the
+copy in a 40-site component actually lives.
+
+**Every extraction batch must run its own literal sweep over each file it owns**, and treat the
+§6 table as a starting list rather than the full inventory. A useful pass:
+
+```
+grep -nE '"[^"]*[a-záéíóúñ¿¡][^"]*"' <file>      # quoted literals, incl. attributes
+grep -nE '>[^<>{}]*[a-záéíóúñ][^<>{}]*<'  <file>  # bare JSX text nodes
+```
+
+Then discard what is not copy: `className`, imports, `data-*`, test ids, CSS values, proper
+nouns (`Kira`, `OpenCohost`, `Twitch`, `OBS`), locale codes, and units.
+
+### 8.7 Pre-existing English strings inside the Spanish UI
+
+`Snackbar.tsx` and `Toast.tsx` shipped hardcoded **English** aria labels (`"Dismiss"`,
+`"Notifications"`) in an otherwise Spanish interface. E1 extracted them byte-identically, which
+is correct under the invariant but means `ui.es.ts` currently holds English values for three
+keys.
+
+That is a **pre-existing copy bug now made visible and cheap to fix** — the ES values want to
+become `"Descartar"` and `"Notificaciones"`. Like voseo neutralization, it is a copy change and
+therefore out of scope for extraction. Added to the follow-up list; do not fix it inside an
+extraction batch.
