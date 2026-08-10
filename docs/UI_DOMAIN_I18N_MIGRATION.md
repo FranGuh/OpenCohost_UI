@@ -1200,7 +1200,26 @@ ones that can.
 
 ---
 
-## Open question for the owner
+## Open question for the owner — **RESOLVED 2026-08-10**
+
+**Owner's decision: leave `TEMPLATE_TOPICS` in Spanish, unextracted.** This section is kept for
+the reasoning; nothing here is still open.
+
+Two things reinforce that call, found after it was first written:
+
+- The backend already answers this question for its own seeded content, and it does not answer
+  it with UI copy. `opencohost/i18n/active.py::topic_templates()` serves locale-varying topic
+  templates from a manifest slot (`nlp.topic_templates`) with a Spanish legacy fallback, and
+  normalizes each entry through `_normalize_topic_template_entry`. That is a *different*
+  feature — it feeds the topic-suggester engine, keyed by `game`/`trade`/`collab`/`generic`/
+  `vibe_high`/`transition` with an `{entity}` placeholder, not the agenda form's five quick-fill
+  buttons — but it establishes the pattern: **locale-varying seed content belongs in the
+  backend manifest, not in `src/i18n/bundles/`.**
+- So if these five ever need an English form, the move is a manifest slot, not 25 keys in
+  `agenda.es.ts`. Extracting them into the UI bundles now would put them in the wrong layer and
+  make the later move harder.
+
+The original reasoning follows.
 
 One thing could not be resolved from the code, and the answer changes extraction batch E5:
 
@@ -1395,7 +1414,8 @@ Not defects — decisions, each with its cost stated:
   when each row was written. Fixing it means storing key + vars and resolving at render — a
   change to the store contract, and arguably wrong: a log is a record of what was said at the
   time. Left as is, deliberately.
-- **`TEMPLATE_TOPICS`** (`AgendaPanel.tsx`) stays Spanish — §7's open question, still open.
+- **`TEMPLATE_TOPICS`** (`AgendaPanel.tsx`) stays Spanish — §7, **resolved by the owner
+  2026-08-10**, no longer open.
 - **`ui.es.ts` holds three English values** — §8.7.
 - **Dead code with live keys**, largest first: `experiencia/PlayerBar.tsx` owns **8** keys
   (`experiencia.playerBar.*`) and has no production importer — `AppLayout.tsx:10` and its
@@ -1525,7 +1545,7 @@ a 458-line panel in for two React-free functions.
 
 ### 9.6 What is still open
 
-- **`TEMPLATE_TOPICS`** — §7's question, unchanged. Owner's call.
+- ~~**`TEMPLATE_TOPICS`**~~ — **resolved 2026-08-10**: stays Spanish, unextracted. If it ever needs English it goes to the backend manifest, not the UI bundles (§7).
 - **Voseo neutralization** and the three English values in `ui.es.ts` (§8.7) — copy changes, one
   file now instead of thirty components.
 - **English is guarded at one point per domain, not comprehensively.** That is the honest state
