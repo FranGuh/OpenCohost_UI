@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../../test/handlers.js";
 import { useLogsPrefStore } from "../../store/useLogsPref.js";
+import { useUiLocaleStore } from "../../i18n/locale.js";
 import {
   SettingsPopover as SettingsPopoverComponent,
   type SettingsPopoverProps
@@ -17,14 +18,18 @@ beforeEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.density;
   delete document.documentElement.dataset.alertStyle;
-  // The logs pref is a module singleton — reset it so tests don't leak state.
+  // The logs pref and the UI locale are module singletons — reset them so
+  // tests don't leak state into each other.
   useLogsPrefStore.setState({ showLogs: false });
+  useUiLocaleStore.setState({ locale: "es" });
+  document.documentElement.lang = "es";
 });
 
 afterEach(() => {
   window.localStorage.clear();
   delete document.documentElement.dataset.density;
   delete document.documentElement.dataset.alertStyle;
+  document.documentElement.lang = "es";
 });
 
 describe("SettingsPopover", () => {
@@ -224,5 +229,68 @@ describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", (
     await waitFor(() => expect(capturedBody).toEqual({ locale: "en" }));
     await waitFor(() => expect(screen.getByText(/Reinicio requerido/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("SettingsPopover Idioma card — interface locale (E0, local-only, no backend call)", () => {
+  it("renders a distinct 'Idioma de la interfaz' control defaulted to ES, alongside the existing Idioma control", async () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
+    const interfaceGroup = screen.getByRole("group", { name: "Idioma de la interfaz" });
+    expect(interfaceGroup).toBeInTheDocument();
+    expect(screen.getByText("Interfaz")).toBeInTheDocument();
+    expect(screen.getByText("Voz de Kira")).toBeInTheDocument();
+    expect(within(interfaceGroup).getByRole("button", { name: "ES" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(interfaceGroup).getByRole("button", { name: "EN" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("flipping the interface control updates document.documentElement.lang and localStorage, without calling the backend", async () => {
+    let putCalled = false;
+    server.use(
+      http.put(`${API_BASE_URL}/api/i18n`, async () => {
+        putCalled = true;
+        return HttpResponse.json(defaultI18nState);
+      })
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
+
+    const interfaceGroup = screen.getByRole("group", { name: "Idioma de la interfaz" });
+    fireEvent.click(within(interfaceGroup).getByRole("button", { name: "EN" }));
+
+    expect(document.documentElement.lang).toBe("en");
+    expect(window.localStorage.getItem("oc-ui-locale")).toBe("en");
+    expect(putCalled).toBe(false);
+    // The backend "Voz de Kira" control is untouched by the interface flip.
+    expect(screen.queryByText(/Reinicio requerido/)).not.toBeInTheDocument();
+  });
+
+  it("survives a failing GET /api/i18n — the interface control renders, only the Kira row is withheld", async () => {
+    // The interface locale is local-only, so an unreachable or erroring backend
+    // must not take its control down along with the backend-driven row.
+    let getCalled = false;
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () => {
+        getCalled = true;
+        return HttpResponse.json({ detail: "boom" }, { status: 500 });
+      })
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    // Wait until the failure has actually been observed, so the assertions
+    // below describe the post-failure state rather than a pre-fetch race.
+    await waitFor(() => expect(getCalled).toBe(true));
+
+    const interfaceGroup = await screen.findByRole("group", { name: "Idioma de la interfaz" });
+    expect(within(interfaceGroup).getByRole("button", { name: "ES" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(interfaceGroup).getByRole("button", { name: "EN" }));
+    expect(document.documentElement.lang).toBe("en");
+
+    expect(screen.queryByRole("group", { name: "Idioma" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Voz de Kira")).not.toBeInTheDocument();
   });
 });
