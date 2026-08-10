@@ -147,7 +147,7 @@ function matchesTab(tab: TabValue, kind: TurnKind): boolean {
 }
 
 // ONE formatter for the module — same reason LogsPanel hoists TS_FORMAT
-// (src/components/commands/LogsPanel.tsx): Date#toLocaleTimeString builds a
+// (src/features/experiencia/LogsPanel.tsx): Date#toLocaleTimeString builds a
 // fresh locale formatter on every call, and this one is paid per ROW on every
 // parent render. Hour+minute only; the feed is a cockpit, LogsPanel is the log
 // viewer and keeps the seconds.
@@ -273,7 +273,7 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
   return null;
 }
 
-/** Memoized for the same reason Markdown is (src/components/ui/Markdown.tsx —
+/** Memoized for the same reason Markdown is (src/ui/Markdown.tsx —
  * the in-repo pattern): every row was re-rendered on every parent render, and
  * the parent re-renders on four polls plus every keystroke. `turn` objects are
  * stable across renders now that visibleTurns is memoized, so this actually

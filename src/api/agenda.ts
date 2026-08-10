@@ -150,7 +150,7 @@ export const COHOST_PROFILES_QUERY_KEY = ["cohost-profiles"] as const;
  * `KiraAgendaController.MIN_TURNS_PER_TOPIC`..`MAX_TURNS_PER_TOPIC`
  * (opencohost/smart_aggregator/kira_agenda_controller.py ~267-269, currently
  * 1..20). ONE array so AgendaPanel's session Select and the /perfil command
- * step (components/commands/registry.tsx) read the same range and can't
+ * step (features/commands/registry.tsx) read the same range and can't
  * drift from each other — or from the backend — again.
  */
 export const AGENDA_TURN_OPTIONS: readonly { value: string; label: string }[] = Array.from(

@@ -87,7 +87,7 @@ select:focus-visible,
   scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
 }
 
-/* Kira chat markdown (src/components/ui/Markdown.tsx). Inline code only —
+/* Kira chat markdown (src/ui/Markdown.tsx). Inline code only —
    the :not(pre) selector excludes fenced blocks, which are the styled <pre>,
    so inline code and code blocks are never double-styled. */
 .oc-md :not(pre) > code {
@@ -186,7 +186,7 @@ select:focus-visible,
   height: 100% !important;
 }
 
-/* ===== Boot loader (src/components/ui/BootLoader.tsx) =================
+/* ===== Boot loader (src/ui/BootLoader.tsx) =================
    The single boot animation: Kira's mark breathes over a soft glow while the
    BackendGate waits. Both keyframes LOOP infinitely — the loader never
    "finishes" on a timer; the gate unmounts it the moment real readiness flips,
@@ -223,7 +223,7 @@ select:focus-visible,
 }
 
 /* ===== Boot memory wall + splash fade-out ============================
-   BootCollage (src/components/ui/BootCollage.tsx) paints a faint, slowly
+   BootCollage (src/ui/BootCollage.tsx) paints a faint, slowly
    drifting grid of Kira art behind the BootLoader mark; BackendGate keeps the
    whole splash as an absolute overlay that fades out on ready. The overlay
    anchors to .oc-app-body, so that container needs a positioning context — it
