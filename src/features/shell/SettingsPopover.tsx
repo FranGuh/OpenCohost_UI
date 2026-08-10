@@ -4,7 +4,7 @@ import { ThemeSwitcher } from "../../theme/ThemeSwitcher.js";
 import { useDensity } from "../../theme/useDensity.js";
 import { ALERT_STYLES, useAlertStyle } from "../../theme/useAlertStyle.js";
 import { useLogsPref } from "../../store/useLogsPref.js";
-import { useT } from "../../i18n/t.js";
+import { useT, type TKey } from "../../i18n/t.js";
 import { useUiLocale, type UiLocale } from "../../i18n/locale.js";
 import { Alert } from "../../ui/Alert.js";
 import { Segmented } from "../../ui/Segmented.js";
@@ -12,10 +12,10 @@ import { Select } from "../../ui/Select.js";
 import { Switch } from "../../ui/Switch.js";
 
 const ALERT_STYLE_OPTIONS = [
-  { value: "sereno", label: "Sereno" },
-  { value: "marcado", label: "Marcado" },
-  { value: "contorno", label: "Contorno" }
-] as const satisfies ReadonlyArray<{ value: (typeof ALERT_STYLES)[number]; label: string }>;
+  { value: "sereno", labelKey: "shell.settings.alertStyle.sereno" },
+  { value: "marcado", labelKey: "shell.settings.alertStyle.marcado" },
+  { value: "contorno", labelKey: "shell.settings.alertStyle.contorno" }
+] as const satisfies ReadonlyArray<{ value: (typeof ALERT_STYLES)[number]; labelKey: TKey }>;
 
 // Locale codes, not translated content — kept distinct from the "Voz de Kira"
 // control's "Español"/"English" endonyms below so the two controls' option
@@ -25,27 +25,12 @@ const UI_LOCALE_OPTIONS: ReadonlyArray<{ value: UiLocale; label: string }> = [
   { value: "en", label: "EN" }
 ];
 
-const HELP_TOPICS: ReadonlyArray<{ title: string; body: string }> = [
-  {
-    title: "Experiencia",
-    body: "Chateá con Kira en texto o por voz (Push-to-Talk). El avatar refleja su estado — idle, escuchando, pensando, hablando."
-  },
-  {
-    title: "Controles",
-    body: "Elegí el modelo LLM y el tier de calidad, la voz y el motor TTS, y revisá los conteos de memoria de la sesión."
-  },
-  {
-    title: "Agenda",
-    body: "Armá una agenda de temas aprobados para que Kira los desarrolle en vivo — priorizá, encolá y controlá la sesión (activar, pausa suave, emergencia)."
-  },
-  {
-    title: "Stream",
-    body: "Conectá tu cuenta de streaming, gestioná metadata del stream (título, categoría, tags) y monitoreá el chat en vivo."
-  },
-  {
-    title: "Música",
-    body: "Importá loops de audio agrupados por mood y dejá que Kira haga fade y ducking automático mientras habla."
-  }
+const HELP_TOPICS: ReadonlyArray<{ titleKey: TKey; bodyKey: TKey }> = [
+  { titleKey: "shell.settings.help.experiencia.title", bodyKey: "shell.settings.help.experiencia.body" },
+  { titleKey: "shell.settings.help.controles.title", bodyKey: "shell.settings.help.controles.body" },
+  { titleKey: "shell.settings.help.agenda.title", bodyKey: "shell.settings.help.agenda.body" },
+  { titleKey: "shell.settings.help.stream.title", bodyKey: "shell.settings.help.stream.body" },
+  { titleKey: "shell.settings.help.musica.title", bodyKey: "shell.settings.help.musica.body" }
 ];
 
 /**
@@ -143,7 +128,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
       <button
         ref={triggerRef}
         type="button"
-        aria-label="Configuración"
+        aria-label={t("shell.settings.trigger.aria")}
         aria-haspopup="true"
         aria-expanded={open}
         aria-controls="settings-popover-panel"
@@ -160,43 +145,43 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
         >
           <section aria-labelledby="settings-theme-label" className="space-y-2">
             <span id="settings-theme-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Tema
+              {t("shell.settings.theme.eyebrow")}
             </span>
             <ThemeSwitcher />
           </section>
 
           <section aria-labelledby="settings-alerts-label" className="space-y-2 border-t border-border-soft pt-3.5">
             <span id="settings-alerts-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Alertas
+              {t("shell.settings.alerts.eyebrow")}
             </span>
             <Segmented
-              ariaLabel="Estilo de alertas"
-              options={ALERT_STYLE_OPTIONS}
+              ariaLabel={t("shell.settings.alerts.style.aria")}
+              options={ALERT_STYLE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
               value={alertStyle}
               onChange={setAlertStyle}
             />
-            <Alert tone="info" title="Así se ve una alerta">
-              Elegí el estilo que más te acomode.
+            <Alert tone="info" title={t("shell.settings.alerts.preview.title")}>
+              {t("shell.settings.alerts.preview.body")}
             </Alert>
           </section>
 
           <section aria-labelledby="settings-view-label" className="space-y-2 border-t border-border-soft pt-3.5">
             <span id="settings-view-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Vista
+              {t("shell.settings.view.eyebrow")}
             </span>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">Compacto</span>
-              <Switch checked={compact} onChange={setCompact} aria-label="Compacto" />
+              <span className="text-[13px] text-foreground">{t("shell.settings.view.compact")}</span>
+              <Switch checked={compact} onChange={setCompact} aria-label={t("shell.settings.view.compact.aria")} />
             </div>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">Mostrar logs</span>
-              <Switch checked={showLogs} onChange={setShowLogs} aria-label="Mostrar logs" />
+              <span className="text-[13px] text-foreground">{t("shell.settings.view.showLogs")}</span>
+              <Switch checked={showLogs} onChange={setShowLogs} aria-label={t("shell.settings.view.showLogs.aria")} />
             </div>
           </section>
 
           <section aria-labelledby="settings-language-label" className="space-y-3 border-t border-border-soft pt-3.5">
             <span id="settings-language-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Idioma
+              {t("shell.settings.language.eyebrow")}
             </span>
 
             {/* Two controls, one card (§4.8): the UI locale flips instantly and
@@ -211,7 +196,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
             <div className="space-y-1.5">
               <span className="text-[13px] text-foreground">{t("shell.settings.language.interface")}</span>
               <Segmented
-                ariaLabel="Idioma de la interfaz"
+                ariaLabel={t("shell.settings.language.interface.aria")}
                 options={UI_LOCALE_OPTIONS}
                 value={uiLocale}
                 onChange={(code) => setUiLocale(code)}
@@ -227,7 +212,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
                   // SAME control as Alertas right above — so it matches the design
                   // and adds zero scroll region inside the popover.
                   <Segmented
-                    ariaLabel="Idioma"
+                    ariaLabel={t("shell.settings.language.kiraVoice.aria")}
                     options={i18n.available.map((bundle) => ({ value: bundle.code, label: bundle.display }))}
                     value={i18n.persisted_locale}
                     onChange={(code: string) => void handleLocaleChange(code)}
@@ -238,7 +223,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
                   // The app's custom Select opens an absolute/z-50 menu that
                   // escapes the popover with no nested scrollbar.
                   <Select
-                    aria-label="Idioma"
+                    aria-label={t("shell.settings.language.kiraVoice.aria")}
                     options={i18n.available.map((bundle) => ({ value: bundle.code, label: bundle.display }))}
                     value={i18n.persisted_locale}
                     onChange={(code: string) => void handleLocaleChange(code)}
@@ -246,7 +231,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
                 )}
                 {i18n.pending_restart && (
                   <p className="text-xs font-semibold text-amber-500">
-                    Reinicio requerido — se aplica en el próximo inicio de OpenCohost.
+                    {t("shell.settings.language.pendingRestart.notice")}
                   </p>
                 )}
               </div>
@@ -255,14 +240,14 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
 
           <section aria-labelledby="settings-welcome-label" className="space-y-2 border-t border-border-soft pt-3.5">
             <span id="settings-welcome-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              Bienvenida
+              {t("shell.settings.welcome.eyebrow")}
             </span>
             <button
               type="button"
               onClick={handleShowWelcome}
               className="w-full rounded-md border border-border px-3 py-2 text-left text-[13px] font-semibold text-foreground transition-colors duration-fast ease-io hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
-              Volver a ver bienvenida
+              {t("shell.settings.welcome.action")}
             </button>
           </section>
 
@@ -274,7 +259,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
               onClick={() => setHelpOpen((value) => !value)}
               className="flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.09em] text-dim transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
-              Ayuda
+              {t("shell.settings.help.action")}
               <span
                 aria-hidden="true"
                 className={`text-dim transition-transform duration-base ease-io ${helpOpen ? "rotate-180" : ""}`}
@@ -294,9 +279,9 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
               className="absolute right-full top-0 z-20 mr-2 flex max-h-[70vh] w-64 flex-col gap-2 overflow-y-auto rounded-md border border-border-soft bg-card p-3 shadow-panel animate-rise-in"
             >
               {HELP_TOPICS.map((topic) => (
-                <details key={topic.title} className="rounded-md border border-border-soft bg-background px-3 py-2">
-                  <summary className="cursor-pointer text-[13px] font-semibold text-foreground">{topic.title}</summary>
-                  <p className="pt-2 text-xs leading-relaxed text-muted-foreground">{topic.body}</p>
+                <details key={topic.titleKey} className="rounded-md border border-border-soft bg-background px-3 py-2">
+                  <summary className="cursor-pointer text-[13px] font-semibold text-foreground">{t(topic.titleKey)}</summary>
+                  <p className="pt-2 text-xs leading-relaxed text-muted-foreground">{t(topic.bodyKey)}</p>
                 </details>
               ))}
             </div>

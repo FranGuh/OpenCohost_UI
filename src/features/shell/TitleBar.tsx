@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Minus, Square, X } from "lucide-react";
 import { BrandMark } from "../../ui/BrandMark.js";
+import { useT } from "../../i18n/t.js";
 
 type WindowAction = "minimize" | "toggleMaximize" | "close";
 
@@ -61,6 +62,7 @@ export const TITLEBAR_APP_CONTROLS_SLOT_ID = "oc-titlebar-app-controls";
  * from theme tokens, so the bar re-skins with the app.
  */
 export function TitleBar() {
+  const t = useT();
   return (
     <header
       data-tauri-drag-region
@@ -77,16 +79,16 @@ export function TitleBar() {
           {/* Tagline + credit — hidden below xl so brand + chips + gear + caption
               buttons never crowd at the 1280 min window width. */}
           <span className="hidden items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground xl:flex">
-            <span>focus over panic</span>
+            <span>{t("shell.titleBar.tagline")}</span>
             <span aria-hidden="true" className="text-border">/</span>
             <a
               href="https://github.com/franguh"
               target="_blank"
               rel="noreferrer"
-              aria-label="Developed by Franguh"
+              aria-label={t("shell.titleBar.credit")}
               className="pointer-events-auto normal-case tracking-normal transition-colors duration-fast ease-io hover:text-[var(--kira-cyan)] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
-              Developed by Franguh
+              {t("shell.titleBar.credit")}
             </a>
           </span>
         </div>
@@ -102,17 +104,17 @@ export function TitleBar() {
       <div className="flex h-full items-center">
         <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-border-soft" />
         <WindowButton
-          label="Minimizar"
+          label={t("shell.titleBar.window.minimize.action")}
           icon={<Minus size={15} />}
           onClick={() => void runWindowAction("minimize")}
         />
         <WindowButton
-          label="Maximizar"
+          label={t("shell.titleBar.window.maximize.action")}
           icon={<Square size={13} />}
           onClick={() => void runWindowAction("toggleMaximize")}
         />
         <WindowButton
-          label="Cerrar"
+          label={t("shell.titleBar.window.close.action")}
           icon={<X size={16} />}
           variant="danger"
           onClick={() => void runWindowAction("close")}

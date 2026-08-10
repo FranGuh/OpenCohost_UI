@@ -5,23 +5,24 @@ import { ProfilePlaylist } from "../perfiles/ProfilePlaylist.js";
 import { usePerfilDetailQuery } from "../../api/profiles.js";
 import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
 import { cn } from "../../lib/cn.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
 export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica";
 
 interface NavItem {
   id: Section;
   icon: string;
-  label: string;
+  labelKey: TKey;
 }
 
 // Flat, honest nav — every entry here is real and wired. Owner edits this
 // array to add/reorder/remove sections; no inert placeholders live here.
 const NAV_ITEMS: readonly NavItem[] = [
-  { id: "experiencia", icon: "◈", label: "Experiencia" },
-  { id: "agenda", icon: "▤", label: "Agenda" },
-  { id: "stream", icon: "◉", label: "Stream" },
-  { id: "musica", icon: "♪", label: "Música" },
-  { id: "controles", icon: "⚙", label: "Controles" }
+  { id: "experiencia", icon: "◈", labelKey: "shell.nav.experiencia" },
+  { id: "agenda", icon: "▤", labelKey: "shell.nav.agenda" },
+  { id: "stream", icon: "◉", labelKey: "shell.nav.stream" },
+  { id: "musica", icon: "♪", labelKey: "shell.nav.musica" },
+  { id: "controles", icon: "⚙", labelKey: "shell.nav.controles" }
 ];
 
 // Hover dwell before the profile preview card appears. Keyboard focus shows it
@@ -56,6 +57,7 @@ interface PreviewState {
  * row would decouple it, but that file is out of scope here.
  */
 function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
+  const t = useT();
   const { profiles } = useProfileSwitchContext();
   const regionRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,17 +225,17 @@ function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
           <p className="truncate text-sm font-semibold text-foreground">{preview.name}</p>
           <p className="mt-1 flex items-center gap-1.5 text-[11px] text-dim">
             <Info size={11} aria-hidden="true" />
-            Info del perfil — se edita desde Controles
+            {t("shell.profilePreview.hint")}
           </p>
           <p className="mt-2 line-clamp-5 text-xs text-muted-foreground">
             {detail.isLoading ? (
-              <span className="text-dim">cargando…</span>
+              <span className="text-dim">{t("shell.profilePreview.loading")}</span>
             ) : detail.isError ? (
-              "no se pudo cargar la vista previa"
+              t("shell.profilePreview.error")
             ) : detail.data?.prompt.trim() ? (
               detail.data.prompt
             ) : (
-              <span className="text-dim">sin prompt configurado</span>
+              <span className="text-dim">{t("shell.profilePreview.empty")}</span>
             )}
           </p>
         </div>
@@ -255,6 +257,7 @@ export interface SidebarProps {
  * icon rail when `collapsed`, keeping every nav item's accessible name via
  * aria-label (the visible label is what's hidden). */
 export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCollapse }: SidebarProps) {
+  const t = useT();
   return (
     // The rail is a fixed-height flex column: [nav (fixed)] · [profiles (scrolls)]
     // · [footer toggle (fixed)]. overflow-hidden so the nav itself never scrolls —
@@ -273,7 +276,7 @@ export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCo
               // so aria-label carries it. No native `title` — the unstyled
               // browser tooltip it produced was owner-rejected (a11y stays on
               // aria-label).
-              aria-label={item.label}
+              aria-label={t(item.labelKey)}
               onClick={() => onSelect(item.id)}
               className={cn(
                 "flex h-9 items-center rounded-md font-mono text-sm font-semibold text-muted-foreground transition-colors duration-fast ease-io",
@@ -284,7 +287,7 @@ export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCo
               )}
             >
               <span aria-hidden="true">{item.icon}</span>
-              {!collapsed && item.label}
+              {!collapsed && t(item.labelKey)}
             </button>
           );
         })}
@@ -301,14 +304,14 @@ export function Sidebar({ activeSection, onSelect, collapsed = false, onToggleCo
         <button
           type="button"
           onClick={onToggleCollapse}
-          aria-label={collapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+          aria-label={t(collapsed ? "shell.sidebarToggle.expand.aria" : "shell.sidebarToggle.collapse.aria")}
           className={cn(
             "flex h-9 w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             collapsed ? "justify-center px-0" : "gap-3 px-3"
           )}
         >
           {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
-          {!collapsed && <span>Colapsar</span>}
+          {!collapsed && <span>{t("shell.sidebarToggle.label")}</span>}
         </button>
       </div>
     </nav>

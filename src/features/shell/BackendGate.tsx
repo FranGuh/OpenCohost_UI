@@ -4,6 +4,7 @@ import { getApiBaseUrl } from "../../api/client.js";
 import { cn } from "../../lib/cn.js";
 import { bootstrapBackend, type BootstrapResult } from "../../lib/backendBootstrap.js";
 import { BootLoader } from "../../ui/BootLoader.js";
+import { useT } from "../../i18n/t.js";
 
 const HEALTH_QUERY_KEY = ["backend-gate-health"] as const;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
@@ -89,6 +90,7 @@ export function BackendGate({
   healthTimeoutMs = DEFAULT_HEALTH_TIMEOUT_MS,
   backendError
 }: BackendGateProps) {
+  const t = useT();
   const [phase, setPhase] = useState<BootstrapPhase>("bootstrapping");
   const failureCount = useRef(0);
   const [errorDetail, setErrorDetail] = useState<string | null>(backendError ?? null);
@@ -157,9 +159,11 @@ export function BackendGate({
         className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-background text-foreground"
       >
         <h1 className="mono text-2xl font-bold text-[var(--kira-cyan)]">OpenCohost</h1>
-        <p className="text-sm text-muted-foreground">No se pudo conectar con el motor local.</p>
+        <p className="text-sm text-muted-foreground">{t("shell.backendGate.error.message")}</p>
         {errorDetail ? (
-          <p className="text-xs text-muted-foreground">Detalle: {errorDetail}</p>
+          <p className="text-xs text-muted-foreground">
+            {t("shell.backendGate.error.detail", { detail: errorDetail })}
+          </p>
         ) : null}
         <button
           type="button"
@@ -167,14 +171,16 @@ export function BackendGate({
           onClick={retry}
           className="rounded-full border border-border-soft bg-card px-4 py-1.5 text-sm text-foreground hover:bg-[var(--accent-soft)]"
         >
-          Reintentar
+          {t("shell.backendGate.retry.action")}
         </button>
       </div>
     );
   }
 
   const statusCopy =
-    phase === "bootstrapping" ? "Preparando motor local…" : "Comprobando motor local…";
+    phase === "bootstrapping"
+      ? t("shell.backendGate.status.bootstrapping")
+      : t("shell.backendGate.status.probing");
 
   // Ready mounts the app immediately; the splash stays as a full-viewport
   // overlay above it, fades opacity 1→0 (--dur-slow), then unmounts on the

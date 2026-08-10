@@ -1,6 +1,65 @@
 import type { shellEs } from "./shell.es.js";
 
 export const shellEn: Record<keyof typeof shellEs, string> = {
+  "shell.backendGate.error.detail": "Detail: {detail}",
+  "shell.backendGate.error.message": "Could not connect to the local engine.",
+  "shell.backendGate.retry.action": "Retry",
+  "shell.backendGate.status.bootstrapping": "Preparing local engine…",
+  "shell.backendGate.status.probing": "Checking local engine…",
+  "shell.nav.agenda": "Agenda",
+  "shell.nav.controles": "Controls",
+  "shell.nav.experiencia": "Experience",
+  "shell.nav.musica": "Music",
+  "shell.nav.stream": "Stream",
+  "shell.profilePreview.empty": "no prompt configured",
+  "shell.profilePreview.error": "the preview couldn't load",
+  "shell.profilePreview.hint": "Profile info — edit it from Controls",
+  "shell.profilePreview.loading": "loading…",
+  "shell.settings.alertStyle.contorno": "Outline",
+  "shell.settings.alertStyle.marcado": "Bold",
+  "shell.settings.alertStyle.sereno": "Calm",
+  "shell.settings.alerts.eyebrow": "Alerts",
+  "shell.settings.alerts.preview.body": "Pick the style that suits you best.",
+  "shell.settings.alerts.preview.title": "This is what an alert looks like",
+  "shell.settings.alerts.style.aria": "Alert style",
+  "shell.settings.help.action": "Help",
+  "shell.settings.help.agenda.body":
+    "Build an agenda of approved topics for Kira to develop live — prioritize, queue, and control the session (activate, soft pause, emergency).",
+  "shell.settings.help.agenda.title": "Agenda",
+  "shell.settings.help.controles.body":
+    "Pick the LLM model and quality tier, the voice and TTS engine, and review the session's memory counts.",
+  "shell.settings.help.controles.title": "Controls",
+  "shell.settings.help.experiencia.body":
+    "Chat with Kira by text or voice (Push-to-Talk). The avatar reflects her state — idle, listening, thinking, speaking.",
+  "shell.settings.help.experiencia.title": "Experience",
+  "shell.settings.help.musica.body":
+    "Import audio loops grouped by mood and let Kira fade and auto-duck them while she talks.",
+  "shell.settings.help.musica.title": "Music",
+  "shell.settings.help.stream.body":
+    "Connect your streaming account, manage stream metadata (title, category, tags), and monitor live chat.",
+  "shell.settings.help.stream.title": "Stream",
+  "shell.settings.language.eyebrow": "Language",
   "shell.settings.language.interface": "Interface",
-  "shell.settings.language.kiraVoice": "Kira's voice"
+  "shell.settings.language.interface.aria": "Interface language",
+  "shell.settings.language.kiraVoice": "Kira's voice",
+  "shell.settings.language.kiraVoice.aria": "Language",
+  "shell.settings.language.pendingRestart.notice":
+    "Restart required — applies the next time OpenCohost starts.",
+  "shell.settings.theme.eyebrow": "Theme",
+  "shell.settings.trigger.aria": "Settings",
+  "shell.settings.view.compact": "Compact",
+  "shell.settings.view.compact.aria": "Compact",
+  "shell.settings.view.eyebrow": "View",
+  "shell.settings.view.showLogs": "Show logs",
+  "shell.settings.view.showLogs.aria": "Show logs",
+  "shell.settings.welcome.action": "Show welcome again",
+  "shell.settings.welcome.eyebrow": "Welcome",
+  "shell.sidebarToggle.collapse.aria": "Collapse sidebar",
+  "shell.sidebarToggle.expand.aria": "Expand sidebar",
+  "shell.sidebarToggle.label": "Collapse",
+  "shell.titleBar.credit": "Developed by Franguh",
+  "shell.titleBar.tagline": "focus over panic",
+  "shell.titleBar.window.close.action": "Close",
+  "shell.titleBar.window.maximize.action": "Maximize",
+  "shell.titleBar.window.minimize.action": "Minimize"
 };
