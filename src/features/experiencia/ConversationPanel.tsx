@@ -6,23 +6,23 @@ import type {
   PointerEvent as ReactPointerEvent
 } from "react";
 import { ChevronDown, MessageSquareOff, Mic, MicOff } from "lucide-react";
-import { Alert } from "../ui/Alert.js";
-import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "../features/commands/ComposerCommandPanel.js";
-import { Input } from "../ui/Input.js";
-import { KiraFace } from "../ui/KiraFace.js";
-import { Markdown } from "../ui/Markdown.js";
-import { Tab, TabList, TabPanel, Tabs } from "../ui/Tabs.js";
-import { matchCommands } from "../features/commands/registry.js";
-import { LogsPanel } from "../features/experiencia/LogsPanel.js";
-import { useLogsPref } from "../store/useLogsPref.js";
-import { useAgendaEvents } from "../api/agenda.js";
-import { useLastReply, useSendChatTurn } from "../api/chat.js";
-import { useLiveTranscript } from "../api/liveTranscript.js";
-import { usePttHold, type PttUiState } from "../api/ptt.js";
-import { useStatusQuery } from "../api/status.js";
-import { ERROR_COPY } from "../api/pttCopy.js";
-import { cn } from "../lib/cn.js";
-import { selectEvents, useEventStore, type AppEventTone } from "../store/eventStore.js";
+import { Alert } from "../../ui/Alert.js";
+import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "../commands/ComposerCommandPanel.js";
+import { Input } from "../../ui/Input.js";
+import { KiraFace } from "../../ui/KiraFace.js";
+import { Markdown } from "../../ui/Markdown.js";
+import { Tab, TabList, TabPanel, Tabs } from "../../ui/Tabs.js";
+import { matchCommands } from "../commands/registry.js";
+import { LogsPanel } from "./LogsPanel.js";
+import { useLogsPref } from "../../store/useLogsPref.js";
+import { useAgendaEvents } from "../../api/agenda.js";
+import { useLastReply, useSendChatTurn } from "../../api/chat.js";
+import { useLiveTranscript } from "../../api/liveTranscript.js";
+import { usePttHold, type PttUiState } from "../../api/ptt.js";
+import { useStatusQuery } from "../../api/status.js";
+import { ERROR_COPY } from "../../api/pttCopy.js";
+import { cn } from "../../lib/cn.js";
+import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
 
 /** Owner layout correction (2026-07-18): ONE unified strip
  * `Todo | Chat | Comandos | Alertas` (+ `Logs` when the pref is on). Todo/Chat/

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
-import { useStatusQuery } from "../api/status.js";
-import { useAvatarLiveState } from "../store/avatarLiveStore.js";
+import { useStatusQuery } from "../../api/status.js";
+import { useAvatarLiveState } from "../../store/avatarLiveStore.js";
 import { AVATAR_IMAGE, FALLBACK_AVATAR, deriveAvatarState, resolveAvatar } from "./kiraState.js";
 
 function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {

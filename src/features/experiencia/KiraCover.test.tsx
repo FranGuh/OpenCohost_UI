@@ -3,9 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
-import { useAvatarLiveState } from "../store/avatarLiveStore.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultStatus } from "../../test/handlers.js";
+import { useAvatarLiveState } from "../../store/avatarLiveStore.js";
 import { KiraCover, SLEEP_AFTER_IDLE_MS, SPEAKING_ALT_MS } from "./KiraCover.js";
 
 function renderCover() {

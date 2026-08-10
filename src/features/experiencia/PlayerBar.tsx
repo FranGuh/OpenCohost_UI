@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { useStatusQuery } from "../api/status.js";
-import { useLastReply } from "../api/chat.js";
-import { Badge } from "../ui/Badge.js";
-import { Switch } from "../ui/Switch.js";
+import { useStatusQuery } from "../../api/status.js";
+import { useLastReply } from "../../api/chat.js";
+import { Badge } from "../../ui/Badge.js";
+import { Switch } from "../../ui/Switch.js";
 import { AVATAR_LABEL, deriveAvatarState } from "./kiraState.js";
-import { cn } from "../lib/cn.js";
+import { cn } from "../../lib/cn.js";
 
 // Neutral idle label (spec S3): shown when no reply has landed yet — no
 // canned transcript, R8 only ever renders server-provided Kira text.

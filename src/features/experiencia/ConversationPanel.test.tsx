@@ -3,8 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
-import { useEventStore } from "../store/eventStore.js";
+import { server } from "../../test/server.js";
+import { useEventStore } from "../../store/eventStore.js";
 import {
   API_BASE_URL,
   chatTurnConflictHandler,
@@ -18,8 +18,8 @@ import {
   lastReplyHandler,
   pttSessionFlowHandlers,
   pttStartUnreachableHandler
-} from "../test/handlers.js";
-import { useLogsPrefStore } from "../store/useLogsPref.js";
+} from "../../test/handlers.js";
+import { useLogsPrefStore } from "../../store/useLogsPref.js";
 import { ConversationPanel, TRANSCRIPT_CAP } from "./ConversationPanel.js";
 
 // The LiveAudio WS echo hook is unit-tested in src/api/liveTranscript.test.ts;
@@ -27,7 +27,7 @@ import { ConversationPanel, TRANSCRIPT_CAP } from "./ConversationPanel.js";
 // spoken text at most once per hold" — so panel tests drive the append/render
 // path directly instead of re-mocking WebSocket + the state poll.
 let liveTranscriptCb: ((text: string, pttStamp: number) => void) | null = null;
-vi.mock("../api/liveTranscript.js", () => ({
+vi.mock("../../api/liveTranscript.js", () => ({
   useLiveTranscript: (cb: (text: string, pttStamp: number) => void) => {
     liveTranscriptCb = cb;
   }

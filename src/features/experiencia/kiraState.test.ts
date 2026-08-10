@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StatusResponse } from "../api/client.js";
+import type { StatusResponse } from "../../api/client.js";
 import { LOCAL_SLEEP_LABEL, deriveAvatarState, resolveAvatar } from "./kiraState.js";
 
 // deriveAvatarState only reads health.overall_status, but StatusResponse["health"]
