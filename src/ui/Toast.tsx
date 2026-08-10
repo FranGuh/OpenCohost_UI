@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import { useT } from "../i18n/t.js";
 
 /* ------------------------------------------------------------------ */
 /*  Toast — stackable notification system                              */
@@ -91,6 +92,7 @@ export function ToastProvider({
   position = "top-right",
   max = 5,
 }: ToastProviderProps) {
+  const t = useT();
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const counterRef = useRef(0);
 
@@ -154,7 +156,7 @@ export function ToastProvider({
       {toasts.length > 0 && (
         <div
           aria-live="polite"
-          aria-label="Notifications"
+          aria-label={t("ui.toast.notifications.aria")}
           className={cn(
             "fixed z-50 flex flex-col gap-2 pointer-events-none",
             positionClasses[position],
@@ -188,6 +190,7 @@ function ToastItem({
   onDismiss: (id: string) => void;
   onExited: (id: string) => void;
 }) {
+  const t = useT();
   // auto-dismiss timer
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -251,7 +254,7 @@ function ToastItem({
       {/* dismiss */}
       <button
         type="button"
-        aria-label="Dismiss"
+        aria-label={t("ui.toast.dismiss.aria")}
         onClick={() => onDismiss(entry.id)}
         className="shrink-0 rounded-md p-1 text-current opacity-60 transition-opacity duration-fast ease-io hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
       >

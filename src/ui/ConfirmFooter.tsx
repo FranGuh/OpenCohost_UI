@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { Alert } from "./Alert.js";
 import { Button } from "./Button.js";
 import { cn } from "../lib/cn.js";
+import { t } from "../i18n/t.js";
 
 const TOGGLE_TONE = {
   // The mandatory acknowledgment gate ("Sí, entiendo").
@@ -107,7 +108,7 @@ export function ConfirmFooter({
   onConfirm,
   onCancel,
   busy = false,
-  cancelLabel = "Cancelar",
+  cancelLabel = t("ui.confirm.cancel"),
   children,
   className,
   tone = "danger"

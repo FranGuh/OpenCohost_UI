@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
+import { useT } from "../i18n/t.js";
 
 /* ------------------------------------------------------------------ */
 /*  Snackbar — bottom-anchored feedback bar                           */
@@ -54,6 +55,7 @@ export function Snackbar({
   duration = 5000,
   className,
 }: SnackbarProps) {
+  const t = useT();
   // --- animation state: mount → visible → exit → unmount ---
   const [phase, setPhase] = useState<"enter" | "visible" | "exit" | "idle">("idle");
 
@@ -137,7 +139,7 @@ export function Snackbar({
       {/* dismiss */}
       <button
         type="button"
-        aria-label="Dismiss"
+        aria-label={t("ui.snackbar.dismiss.aria")}
         onClick={onClose}
         className="ml-1 shrink-0 rounded-md p-1 text-current opacity-60 transition-opacity duration-fast ease-io hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
       >
