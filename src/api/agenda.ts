@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, NotFoundError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 import type { AppEventMeta } from "../lib/appEvents.js";
+import { t } from "../i18n/t.js";
 
 /**
  * GET/POST/PUT /api/agenda* (opencohost/api/main.py ~472-533) predates
@@ -337,26 +338,36 @@ function diffAgendaSnapshots(prev: AgendaResponse, next: AgendaResponse): Array<
 
   // Session finished: state fell to OFF, or a live topic dropped back to null.
   if ((next.state === "OFF" && prev.state !== "OFF") || (prevTopic !== null && nextTopic === null)) {
-    return [{ id: `agenda-finished-${prevTopic?.id ?? prev.state}`, label: "■ agenda finalizada" }];
+    return [{ id: `agenda-finished-${prevTopic?.id ?? prev.state}`, label: t("experiencia.events.agenda.finished") }];
   }
 
   // Session paused / hard-paused, pending an operator.
   if (AGENDA_PAUSED_STATES.has(next.state) && next.state !== prev.state) {
-    return [{ id: `agenda-paused-${next.state}-${nextTopic?.id ?? "none"}`, label: "⏸ agenda en pausa" }];
+    return [
+      { id: `agenda-paused-${next.state}-${nextTopic?.id ?? "none"}`, label: t("experiencia.events.agenda.paused") }
+    ];
   }
 
   if (nextTopic === null) return [];
 
   // A different topic took the floor (both sides non-null, ids differ).
   if (prevTopic !== null && prevTopic.id !== nextTopic.id) {
-    return [{ id: `agenda-${nextTopic.id}-active`, label: `▸ tema: ${nextTopic.title}` }];
+    return [
+      {
+        id: `agenda-${nextTopic.id}-active`,
+        label: t("experiencia.events.agenda.topicActive", { title: nextTopic.title })
+      }
+    ];
   }
 
   // Topic just activated (null -> set) or the same topic spoke another turn.
   const advancedTurn = prevTopic !== null && prevTopic.id === nextTopic.id && nextTopic.turns_spoken > prevTopic.turns_spoken;
   if (prevTopic === null || advancedTurn) {
     return [
-      { id: `agenda-${nextTopic.id}-turn-${nextTopic.turns_spoken}`, label: `▸ intento ${nextTopic.turns_spoken} · tema: ${nextTopic.title}` }
+      {
+        id: `agenda-${nextTopic.id}-turn-${nextTopic.turns_spoken}`,
+        label: t("experiencia.events.agenda.topicTurn", { n: nextTopic.turns_spoken, title: nextTopic.title })
+      }
     ];
   }
 

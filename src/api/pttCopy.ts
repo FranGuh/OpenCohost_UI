@@ -1,26 +1,32 @@
 import type { PttErrorCode, PttUiState } from "./ptt.js";
+import { t, type TKey } from "../i18n/t.js";
 
 /**
- * PTT display copy — extracted verbatim from PTTCard.tsx so both PTTCard and
- * the ConversationPanel composer mic render the SAME strings without a second
- * copy of the maps drifting out of sync. Pure relocation: the literals are
- * unchanged, which is why the PTTCard test suites still pass untouched.
+ * PTT display copy — read by both PTTCard (controles) and the
+ * ConversationPanel composer mic (experiencia) so they render the SAME
+ * strings. Keys live in the experiencia bundle (ownership, not folder — see
+ * docs/UI_DOMAIN_I18N_MIGRATION.md §5/§6 E11). Functions, not frozen
+ * Records, so a locale flip hot-swaps both readers instead of freezing at
+ * module-eval time.
  */
-export const ERROR_COPY: Record<PttErrorCode, string> = {
-  // liveaudio_url_config: this used to just say "verificá que esté
-  // corriendo", which reads as "the process is down" — misleading when the
-  // real cause is a wrong port. Now that the URL is visible/editable right
-  // below (PTTCard's LiveAudio section), point at both possibilities.
-  stt_unreachable:
-    "STT (WhisperLive) no disponible — puede estar apagado, o la URL configurada más abajo puede apuntar al puerto equivocado.",
-  stt_lost: "Se perdió la conexión con el STT — la sesión se cerró sola.",
-  session_not_active: "El servidor cortó la sesión.",
-  start_failed: "No se pudo iniciar PTT."
+const ERROR_KEYS: Record<PttErrorCode, TKey> = {
+  stt_unreachable: "experiencia.ptt.error.sttUnreachable",
+  stt_lost: "experiencia.ptt.error.sttLost",
+  session_not_active: "experiencia.ptt.error.sessionNotActive",
+  start_failed: "experiencia.ptt.error.startFailed"
 };
 
-export const STATE_COPY: Record<PttUiState, string> = {
-  idle: "Mantené para hablar",
-  connecting: "Conectando…",
-  listening: "Escuchando…",
-  flushing: "Procesando…"
+export function errorCopy(code: PttErrorCode): string {
+  return t(ERROR_KEYS[code]);
+}
+
+const STATE_KEYS: Record<PttUiState, TKey> = {
+  idle: "experiencia.ptt.state.idle",
+  connecting: "experiencia.ptt.state.connecting",
+  listening: "experiencia.ptt.state.listening",
+  flushing: "experiencia.ptt.state.flushing"
 };
+
+export function stateCopy(state: PttUiState): string {
+  return t(STATE_KEYS[state]);
+}

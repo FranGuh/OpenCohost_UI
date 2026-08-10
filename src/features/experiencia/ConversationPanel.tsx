@@ -20,7 +20,7 @@ import { useLastReply, useSendChatTurn } from "../../api/chat.js";
 import { useLiveTranscript } from "../../api/liveTranscript.js";
 import { usePttHold, type PttUiState } from "../../api/ptt.js";
 import { useStatusQuery } from "../../api/status.js";
-import { ERROR_COPY } from "../../api/pttCopy.js";
+import { errorCopy } from "../../api/pttCopy.js";
 import { cn } from "../../lib/cn.js";
 import { t, useT } from "../../i18n/t.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
@@ -838,7 +838,7 @@ export function ConversationPanel() {
               {pttError && (
                 <p role="alert" className="mono mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
                   <MicOff size={12} aria-hidden="true" />
-                  {ERROR_COPY[pttError]}
+                  {errorCopy(pttError)}
                 </p>
               )}
 

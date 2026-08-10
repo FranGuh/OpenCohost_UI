@@ -5,7 +5,7 @@ import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
 import { cn } from "../../lib/cn.js";
 import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../../api/ptt.js";
-import { ERROR_COPY, STATE_COPY } from "../../api/pttCopy.js";
+import { errorCopy, stateCopy } from "../../api/pttCopy.js";
 import { useLastReply } from "../../api/chat.js";
 import { useT } from "../../i18n/t.js";
 
@@ -177,7 +177,7 @@ export function PTTCard() {
 
   const listening = state === "listening";
   const note = error
-    ? ERROR_COPY[error]
+    ? errorCopy(error)
     : repliedSinceHold && state === "idle"
       ? t("controles.ptt.repliedNotice")
       : null;
@@ -195,7 +195,7 @@ export function PTTCard() {
           ref={buttonRef}
           type="button"
           aria-pressed={listening}
-          aria-label={STATE_COPY[state]}
+          aria-label={stateCopy(state)}
           onPointerDown={handlePointerDown}
           onPointerUp={handleStop}
           onPointerCancel={handleStop}
@@ -210,7 +210,7 @@ export function PTTCard() {
               : "border-border bg-card text-foreground hover:border-primary"
           )}
         >
-          {STATE_COPY[state]}
+          {stateCopy(state)}
         </button>
 
         {note && (

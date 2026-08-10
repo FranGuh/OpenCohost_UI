@@ -1,5 +1,6 @@
 import { useEventStore, type AppEvent, type AppEventSource, type AppEventTone } from "../store/eventStore.js";
 import type { QueryClient } from "@tanstack/react-query";
+import { t, type TKey } from "../i18n/t.js";
 
 /** What a mutation may DECLARE. Note what this type cannot express: there is
  * no `label`, no `message`, no `text`, no `body` field — a hook cannot hand
@@ -34,38 +35,58 @@ declare module "@tanstack/react-query" {
 /* ------------------------------------------------------------------ */
 
 const EVENT_LABELS: Record<string, (detail?: string) => string> = {
-  "model.switch": (d) => (d ? `Cambio de modelo enviado → ${d}` : "Cambio de modelo enviado"),
-  "settings.update": (d) => (d ? `Ajuste enviado: ${d}` : "Ajustes enviados"),
-  "settings.clear-history": () => "Historial de conversación borrado",
-  "profile.switch": (d) => (d ? `Perfil → ${d}` : "Perfil cambiado"),
-  "profile.cohost-select": (d) => (d ? `Perfil cohost → ${d}` : "Perfil cohost aplicado"),
-  "music.mood": (d) => (d ? `Música → ${d}` : "Mood musical cambiado"),
-  "music.fade": (d) => (d === "in" ? "Fade in" : "Fade out"),
-  "music.import": (d) => (d ? `Pista importada (${d})` : "Pista importada"),
-  "music.delete": () => "Pista eliminada",
-  "obs.toggle": (d) => (d === "on" ? "OBS activado" : "OBS desactivado"),
-  "obs.config": (d) => (d ? `OBS escena → ${d}` : "OBS config actualizada"),
+  "model.switch": (d) =>
+    d ? t("experiencia.events.modelSwitch.withDetail", { detail: d }) : t("experiencia.events.modelSwitch.plain"),
+  "settings.update": (d) =>
+    d ? t("experiencia.events.settingsUpdate.withDetail", { detail: d }) : t("experiencia.events.settingsUpdate.plain"),
+  "settings.clear-history": () => t("experiencia.events.settingsClearHistory"),
+  "profile.switch": (d) =>
+    d ? t("experiencia.events.profileSwitch.withDetail", { detail: d }) : t("experiencia.events.profileSwitch.plain"),
+  "profile.cohost-select": (d) =>
+    d
+      ? t("experiencia.events.profileCohostSelect.withDetail", { detail: d })
+      : t("experiencia.events.profileCohostSelect.plain"),
+  "music.mood": (d) =>
+    d ? t("experiencia.events.musicMood.withDetail", { detail: d }) : t("experiencia.events.musicMood.plain"),
+  "music.fade": (d) => (d === "in" ? t("experiencia.events.musicFade.in") : t("experiencia.events.musicFade.out")),
+  "music.import": (d) =>
+    d ? t("experiencia.events.musicImport.withDetail", { detail: d }) : t("experiencia.events.musicImport.plain"),
+  "music.delete": () => t("experiencia.events.musicDelete"),
+  "obs.toggle": (d) => (d === "on" ? t("experiencia.events.obsToggle.on") : t("experiencia.events.obsToggle.off")),
+  "obs.config": (d) =>
+    d ? t("experiencia.events.obsConfig.withDetail", { detail: d }) : t("experiencia.events.obsConfig.plain"),
   // multi_provider_llm — operator provider actions. `detail` is a provider id
   // or "Local" only (identifier-shaped); an api_key NEVER reaches here (the
   // mutation's meta.event only ever passes active_provider/profile_id).
-  "llm-provider.activate": (d) => (d ? `Proveedor LLM → ${d}` : "Proveedor LLM cambiado"),
-  "llm-provider.profile": (d) => (d ? `Proveedor ${d} guardado` : "Proveedor guardado"),
-  "llm-provider.delete": (d) => (d ? `Proveedor ${d} eliminado` : "Proveedor eliminado"),
-  "llm-provider.posture": () => "Preferencias de proveedor guardadas",
+  "llm-provider.activate": (d) =>
+    d
+      ? t("experiencia.events.llmProviderActivate.withDetail", { detail: d })
+      : t("experiencia.events.llmProviderActivate.plain"),
+  "llm-provider.profile": (d) =>
+    d
+      ? t("experiencia.events.llmProviderProfile.withDetail", { detail: d })
+      : t("experiencia.events.llmProviderProfile.plain"),
+  "llm-provider.delete": (d) =>
+    d
+      ? t("experiencia.events.llmProviderDelete.withDetail", { detail: d })
+      : t("experiencia.events.llmProviderDelete.plain"),
+  "llm-provider.posture": () => t("experiencia.events.llmProviderPosture"),
   // cloud_rearm_20260801 WU4 — manual re-arm click (audits the click only;
   // the armed/reason outcome renders from mutation.data, never this label).
-  "llm-provider.probe": () => "Reintento de cloud forzado",
-  "stream.connect": () => "Stream conectado",
-  "stream.disconnect": () => "Stream desconectado",
-  "stream.limits": () => "Límites de chat actualizados",
-  "agenda.session-action": (d) => (d ? `Agenda: ${d}` : "Agenda actualizada"),
+  "llm-provider.probe": () => t("experiencia.events.llmProviderProbe"),
+  "stream.connect": () => t("experiencia.events.streamConnect"),
+  "stream.disconnect": () => t("experiencia.events.streamDisconnect"),
+  "stream.limits": () => t("experiencia.events.streamLimits"),
+  "agenda.session-action": (d) =>
+    d
+      ? t("experiencia.events.agendaSessionAction.withDetail", { detail: d })
+      : t("experiencia.events.agendaSessionAction.plain"),
   // PTT hold gesture (liveaudio_ptt_tauri_20260710) — replaces the retired
   // "ptt.toggle" stub label now that PTTCard drives real /api/ptt/* mutations.
-  "ptt.started": () => "PTT escuchando",
-  "ptt.stopped": () => "PTT enviado a Kira",
-  "ptt.error": () => "PTT: STT no disponible",
-  "ptt.buffer_full": () =>
-    "Buffer de voz lleno — lo que sigas diciendo en este envío se pierde. Soltá F10 para mandar.",
+  "ptt.started": () => t("experiencia.events.pttStarted"),
+  "ptt.stopped": () => t("experiencia.events.pttStopped"),
+  "ptt.error": () => t("experiencia.events.pttError"),
+  "ptt.buffer_full": () => t("experiencia.events.pttBufferFull"),
 
   // --- Item B: engine-initiated motor events (feed-only, never toasted).
   // Deliberate SUBSET of the server's whitelist (engine_host.py) — per-turn
@@ -74,27 +95,28 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // never spams the feed. Those known-but-unmapped keys live in KNOWN_SILENT
   // so they drop WITHOUT the DEV warn (reserved for genuinely unrecognized
   // keys). detail is always null server-side; templates ignore it. ---
-  "motor.ready": () => "Motor: listo",
-  "motor.model_warming": () => "Motor: cargando modelo",
-  "motor.ollama_unavailable": () => "Motor: Ollama no disponible",
-  "motor.llm_timeout_recovered": () => "Motor: recuperado tras timeout",
-  "motor.model_switch_pending": () => "Motor: cambio de modelo en curso",
-  "motor.model_switch_applied": () => "Motor: modelo cambiado",
-  "motor.model_switch_failed": () => "Motor: fallo al cambiar modelo",
-  "motor.model_changed": () => "Motor: modelo cambiado",
-  "motor.llm_tier_switch_applied": () => "Motor: nivel LLM cambiado",
-  "motor.llm_tier_switch_failed": () => "Motor: fallo al cambiar nivel LLM",
-  "motor.download_start": () => "Motor: descarga iniciada",
-  "motor.download_done": () => "Motor: descarga completa",
-  "motor.download_error": () => "Motor: error de descarga",
+  "motor.ready": () => t("shell.events.motor.ready"),
+  "motor.model_warming": () => t("shell.events.motor.modelWarming"),
+  "motor.ollama_unavailable": () => t("shell.events.motor.ollamaUnavailable"),
+  "motor.llm_timeout_recovered": () => t("shell.events.motor.llmTimeoutRecovered"),
+  "motor.model_switch_pending": () => t("shell.events.motor.modelSwitchPending"),
+  "motor.model_switch_applied": () => t("shell.events.motor.modelSwitchApplied"),
+  "motor.model_switch_failed": () => t("shell.events.motor.modelSwitchFailed"),
+  "motor.model_changed": () => t("shell.events.motor.modelChanged"),
+  "motor.llm_tier_switch_applied": () => t("shell.events.motor.llmTierSwitchApplied"),
+  "motor.llm_tier_switch_failed": () => t("shell.events.motor.llmTierSwitchFailed"),
+  "motor.download_start": () => t("shell.events.motor.downloadStart"),
+  "motor.download_done": () => t("shell.events.motor.downloadDone"),
+  "motor.download_error": () => t("shell.events.motor.downloadError"),
   // Unit 2.5 (runtime_findings_batch_20260731 F10/2.3): the ONE motor.* key
   // whose server detail is no longer always null — engine_host.py's
   // ctx_pressure_high now carries a numeric-only dict; events.ts's poll loop
   // reduces it to a plain ratio-percent string (identifier-shaped, survives
   // sanitizeDetail) before it ever reaches this template. No dialogue, no
   // free text — just the number, same privacy contract as every other row here.
-  "motor.ctx_pressure_high": (d) => (d ? `Motor: contexto saturado (${d} %)` : "Motor: contexto saturado"),
-  "motor.piper_voice_locale_mismatch": () => "Motor: voz TTS no coincide con el idioma",
+  "motor.ctx_pressure_high": (d) =>
+    d ? t("shell.events.motor.ctxPressureHigh.withDetail", { pct: d }) : t("shell.events.motor.ctxPressureHigh.plain"),
+  "motor.piper_voice_locale_mismatch": () => t("shell.events.motor.piperVoiceLocaleMismatch"),
   // E1 (memoria_quality_20260717): fresh-memoria notice. Owner decision 5 —
   // shown as a chat-panel FEED line (motor.* is feed-only, never toasted), not
   // just a toast. Feed-visible on purpose (NOT in KNOWN_SILENT). `detail`
@@ -104,16 +126,18 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // sanitizeDetail) — no memoria title/content ever rides along.
   "motor.memoria_captured": (d) => {
     const n = Number(d);
-    return Number.isFinite(n) && n > 1 ? `Kira guardó ${n} memorias` : "Kira guardó una memoria";
+    return Number.isFinite(n) && n > 1
+      ? t("shell.events.motor.memoriaCaptured.many", { n })
+      : t("shell.events.motor.memoriaCaptured.one");
   },
   // multi_provider_llm — the engine hit a cloud LLM failure. Feed-only (motor.*
   // is never toasted), honest and actionable: it does NOT auto-switch, so the
   // operator stays on cloud and must act. `detail` is always null server-side.
-  "motor.cloud_llm_error": () => "Proveedor cloud falló — seguís en cloud; revisá el proveedor o cambiá a Local",
+  "motor.cloud_llm_error": () => t("shell.events.motor.cloudLlmError"),
   // Unit 2.1 (runtime_findings_batch_20260731) — `bad_key` cloud class:
   // never retried engine-side, latched to one emission per failure event.
   // `detail` is always null server-side.
-  "motor.cloud_bad_key": () => "Motor: revisá la API key de cloud",
+  "motor.cloud_bad_key": () => t("shell.events.motor.cloudBadKey"),
   // Unit 2.2 (runtime_findings_batch_20260731) — automatic cloud-return
   // narration. Neutral, generic labels (never per-class text) — the reason
   // CLASS is a separate poll field (GET /api/status → fallback_reason), not
@@ -122,13 +146,13 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // `ctx_pressure_high` above — this feed label ignores it on purpose (mirrors
   // that row); a live countdown belongs to a status-poll-driven UI element
   // reading `next_cloud_probe_in_seconds`, not this fire-once feed line.
-  "motor.cloud_fallback_engaged": () => "Motor: cloud caído, usando Ollama local",
-  "motor.cloud_probe_scheduled": () => "Motor: reintento de cloud programado",
-  "motor.cloud_restored": () => "Motor: cloud restaurado",
+  "motor.cloud_fallback_engaged": () => t("shell.events.motor.cloudFallbackEngaged"),
+  "motor.cloud_probe_scheduled": () => t("shell.events.motor.cloudProbeScheduled"),
+  "motor.cloud_restored": () => t("shell.events.motor.cloudRestored"),
   // WU3 (cloud_rearm_20260801) — the conservative ambiguous_429 auto-return
   // gave up after its bounded attempt count. Points at the manual "Probar
   // ahora" button (WU5), which keeps working after this fires.
-  "motor.cloud_probe_gave_up": () => "Motor: reintento de cloud abandonado — probá manualmente"
+  "motor.cloud_probe_gave_up": () => t("shell.events.motor.cloudProbeGaveUp")
 };
 
 /** kira-agenda prefetch guardrail refusals (WU4-4b). `action` is dynamic —
@@ -138,15 +162,16 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
  * dropping the event or crashing. `detail` is always null server-side — the
  * code rides in `action`, never dialogue. */
 const GUARDRAIL_ACTION_PREFIX = "guardrail:";
-const GUARDRAIL_CODE_LABELS: Record<string, string> = {
-  contains_internal_leak: "fuga de contenido interno",
-  is_repetition: "repetición detectada",
-  banned_closure: "cierre artificial"
+const GUARDRAIL_CODE_KEYS: Record<string, TKey> = {
+  contains_internal_leak: "experiencia.events.guardrail.code.containsInternalLeak",
+  is_repetition: "experiencia.events.guardrail.code.isRepetition",
+  banned_closure: "experiencia.events.guardrail.code.bannedClosure"
 };
 
 function guardrailLabel(action: string): string {
   const code = action.slice(GUARDRAIL_ACTION_PREFIX.length);
-  return `Guardrail: prefetch rechazado — ${GUARDRAIL_CODE_LABELS[code] ?? code}`;
+  const codeKey = GUARDRAIL_CODE_KEYS[code];
+  return t("experiencia.events.guardrail.label", { label: codeKey ? t(codeKey) : code });
 }
 
 /* KNOWN-but-unmapped: valid backend actions (engine_host.py / ptt_session.py)
