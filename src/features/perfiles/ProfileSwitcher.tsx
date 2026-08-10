@@ -5,6 +5,7 @@ import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Select } from "../../ui/Select.js";
 import { Button } from "../../ui/Button.js";
+import { useT } from "../../i18n/t.js";
 import { ProfileEditor } from "./ProfileEditor.js";
 
 /**
@@ -14,6 +15,7 @@ import { ProfileEditor } from "./ProfileEditor.js";
  * applied, design D6) — same single poll owner as ProfilePlaylist.
  */
 export function ProfileSwitcher() {
+  const t = useT();
   const { profiles, activeProfile, pendingSwitch, profilesLoading, switchError, switchTo } =
     useProfileSwitchContext();
   const [editorOpen, setEditorOpen] = useState(false);
@@ -28,9 +30,9 @@ export function ProfileSwitcher() {
     <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-bold text-foreground">Perfil</h2>
+          <h2 className="text-sm font-bold text-foreground">{t("perfiles.switcher.title")}</h2>
           <Button type="button" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setEditorOpen(true)}>
-            Editar
+            {t("perfiles.switcher.edit.action")}
           </Button>
         </div>
         {isApplying && (
@@ -39,23 +41,23 @@ export function ProfileSwitcher() {
               aria-hidden="true"
               className="h-3 w-3 animate-spin rounded-full border-2 border-info-bg border-t-info motion-reduce:animate-none"
             />
-            aplicando…
+            {t("perfiles.switcher.status.applying")}
           </span>
         )}
-        {pendingSwitch?.status === "timeout" && <Badge tone="warn">tardando más de lo esperado</Badge>}
-        {!pendingSwitch && <Badge tone="ok">activo</Badge>}
+        {pendingSwitch?.status === "timeout" && <Badge tone="warn">{t("perfiles.switcher.status.timeout")}</Badge>}
+        {!pendingSwitch && <Badge tone="ok">{t("perfiles.switcher.status.active")}</Badge>}
       </div>
 
       <ProfileEditor open={editorOpen} mode="edit" initialName={activeProfile ?? ""} onClose={() => setEditorOpen(false)} />
 
       {/* El select no tiene diseño como los demás*/}
       <Select
-        aria-label="Perfil activo"
+        aria-label={t("perfiles.switcher.select.aria")}
         value={selectValue}
         disabled={isApplying || profilesLoading}
         onChange={handleChange}
       >
-        {profiles.length === 0 && <option value="">Sin perfiles</option>}
+        {profiles.length === 0 && <option value="">{t("perfiles.switcher.select.empty")}</option>}
         {profiles.map((name) => (
           <option key={name} value={name}>
             {name}
@@ -65,7 +67,7 @@ export function ProfileSwitcher() {
 
       {switchError && (
         <p role="alert" className="text-xs text-danger">
-          No se pudo cambiar de perfil. Intentá de nuevo.
+          {t("perfiles.switcher.error")}
         </p>
       )}
     </Card>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
 import { cn } from "../../lib/cn.js";
+import { useT } from "../../i18n/t.js";
 import { ProfileEditor, type ProfileEditorMode } from "./ProfileEditor.js";
 
 /** Which surface the single always-mounted ProfileEditor is showing: a new
@@ -16,6 +17,7 @@ type EditorState = { mode: ProfileEditorMode; name: string };
  * (the active row keeps its highlight; the edit pencil is hidden — rows still
  * switch profiles on click). */
 export function ProfilePlaylist({ collapsed = false }: { collapsed?: boolean }) {
+  const t = useT();
   const { profiles, activeProfile, pendingSwitch, switchTo } = useProfileSwitchContext();
   const [editor, setEditor] = useState<EditorState | null>(null);
 
@@ -25,20 +27,20 @@ export function ProfilePlaylist({ collapsed = false }: { collapsed?: boolean }) 
         <button
           type="button"
           onClick={() => setEditor({ mode: "create", name: "" })}
-          aria-label="Nuevo perfil"
+          aria-label={t("perfiles.playlist.add.aria")}
           className="mx-auto flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast ease-io hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           ＋
         </button>
       ) : (
         <div className="flex items-center justify-between px-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Perfiles</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t("perfiles.playlist.header")}</span>
           <button
             type="button"
             onClick={() => setEditor({ mode: "create", name: "" })}
             className="text-xs font-semibold text-muted-foreground hover:text-foreground"
           >
-            ＋ Nuevo
+            {t("perfiles.playlist.add.action")}
           </button>
         </div>
       )}
@@ -85,7 +87,13 @@ export function ProfilePlaylist({ collapsed = false }: { collapsed?: boolean }) 
                     <span className={cn("truncate text-sm font-semibold text-foreground", isActive && "text-[var(--kira-cyan)]")}>
                       {name}
                     </span>
-                    <span className="truncate text-xs text-dim">{isPending ? "aplicando…" : isActive ? "activo" : "perfil"}</span>
+                    <span className="truncate text-xs text-dim">
+                      {isPending
+                        ? t("perfiles.playlist.row.status.pending")
+                        : isActive
+                          ? t("perfiles.playlist.row.status.active")
+                          : t("perfiles.playlist.row.status.inactive")}
+                    </span>
                   </span>
                 )}
               </button>
@@ -96,7 +104,7 @@ export function ProfilePlaylist({ collapsed = false }: { collapsed?: boolean }) 
               {!collapsed && (
                 <button
                   type="button"
-                  aria-label={`Editar perfil ${name}`}
+                  aria-label={t("perfiles.playlist.row.edit.aria", { name })}
                   onClick={() => setEditor({ mode: "edit", name })}
                   className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-fast ease-io hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring group-hover:opacity-100 group-focus-within:opacity-100"
                 >

@@ -12,6 +12,7 @@ import {
   useUpdateProfileMutation
 } from "../../api/profiles.js";
 import { useMemoriaPurgeMutation } from "../../api/memoria.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
 export type ProfileEditorMode = "create" | "edit";
 
@@ -23,9 +24,9 @@ export interface ProfileEditorProps {
   initialName?: string;
 }
 
-const TITLES: Record<ProfileEditorMode, string> = {
-  create: "Nuevo perfil",
-  edit: "Editar perfil"
+const TITLE_KEYS: Record<ProfileEditorMode, TKey> = {
+  create: "perfiles.editor.title.create",
+  edit: "perfiles.editor.title.edit"
 };
 
 // Calm primary-button family (matches the WelcomeCard primary buttons —
@@ -45,6 +46,7 @@ const SAVE_BUTTON_CLASS =
  * (an omitted field leaves the stored value unchanged).
  */
 export function ProfileEditor({ open, mode, onClose, initialName = "" }: ProfileEditorProps) {
+  const t = useT();
   const [name, setName] = useState(initialName);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
@@ -204,11 +206,11 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
         <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
             <h2 id="profile-editor-title" className="text-sm font-bold text-foreground">
-              {TITLES[mode]}
+              {t(TITLE_KEYS[mode])}
             </h2>
             <button
               type="button"
-              aria-label="Cerrar"
+              aria-label={t("perfiles.editor.close.aria")}
               onClick={onClose}
               className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
@@ -222,7 +224,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 htmlFor="profile-editor-name"
                 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
               >
-                Nombre
+                {t("perfiles.editor.name.label")}
               </label>
               <input
                 id="profile-editor-name"
@@ -231,12 +233,12 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 onBlur={() => setNameTouched(true)}
-                placeholder="Nombre del perfil"
+                placeholder={t("perfiles.editor.name.placeholder")}
                 className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               />
               {nameInvalid && (
                 <p role="alert" className="text-xs text-danger">
-                  El nombre no puede estar vacío.
+                  {t("perfiles.editor.name.error")}
                 </p>
               )}
             </section>
@@ -246,19 +248,19 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 htmlFor="profile-editor-prompt"
                 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
               >
-                System prompt
+                {t("perfiles.editor.prompt.label")}
               </label>
               <textarea
                 id="profile-editor-prompt"
                 value={systemPrompt}
                 onChange={(event) => setSystemPrompt(event.target.value)}
                 rows={5}
-                placeholder="Escribí la personalidad de Kira…"
+                placeholder={t("perfiles.editor.prompt.placeholder")}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               />
               {mode === "edit" && profileDetail.isError && (
                 <p role="alert" className="text-xs text-danger">
-                  No se pudo cargar el perfil.
+                  {t("perfiles.editor.prompt.error")}
                 </p>
               )}
             </section>
@@ -268,7 +270,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               // purge can be retried, never the delete again.
               <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
                 <Alert tone="danger">
-                  Se eliminó «{initialName}», pero no se pudo purgar su memoria asociada.
+                  {t("perfiles.editor.delete.purgeFailed.notice", { name: initialName })}
                 </Alert>
                 <div className="flex justify-end">
                   <Button
@@ -277,7 +279,9 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                     disabled={purgeMutation.isPending}
                     onClick={handleRetryPurge}
                   >
-                    {purgeMutation.isPending ? "Reintentando…" : "Reintentar purga"}
+                    {purgeMutation.isPending
+                      ? t("perfiles.editor.delete.retryPurge.action.pending")
+                      : t("perfiles.editor.delete.retryPurge.action")}
                   </Button>
                 </div>
               </section>
@@ -291,19 +295,19 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                     id="profile-editor-delete-label"
                     className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
                   >
-                    Eliminar perfil
+                    {t("perfiles.editor.delete.eyebrow")}
                   </span>
-                  <span className="text-[13px] text-foreground">Eliminá este perfil de forma permanente.</span>
+                  <span className="text-[13px] text-foreground">{t("perfiles.editor.delete.hint")}</span>
                 </div>
                 <Button type="button" variant="outline" onClick={() => setDeleting(true)}>
-                  Eliminar
+                  {t("perfiles.editor.delete.action")}
                 </Button>
               </section>
             ) : null}
 
             {saveError && (
               <p role="alert" className="text-xs leading-relaxed text-danger">
-                {saveError.message ?? "No se pudo guardar el perfil."}
+                {saveError.message ?? t("perfiles.editor.save.error")}
               </p>
             )}
 
@@ -314,16 +318,16 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               <div className="flex flex-col gap-3 border-t border-border-soft pt-3.5">
                 {deleteMutation.isError && (
                   <Alert tone="danger">
-                    {deleteMutation.error?.message ?? "No se pudo eliminar el perfil."}
+                    {deleteMutation.error?.message ?? t("perfiles.editor.delete.error")}
                   </Alert>
                 )}
                 <ConfirmFooter
                   active
                   stages={[
                     {
-                      message: <>Esta acción borra el perfil «{initialName}» y no se puede deshacer.</>,
-                      acknowledgment: "Sí, entiendo",
-                      advanceLabel: "Eliminar perfil"
+                      message: t("perfiles.editor.delete.confirm.message", { name: initialName }),
+                      acknowledgment: t("perfiles.editor.delete.confirm.acknowledgment"),
+                      advanceLabel: t("perfiles.editor.delete.confirm.advance.action")
                     }
                   ]}
                   onConfirm={handleConfirmDelete}
@@ -335,17 +339,17 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                     pressed={purgeMemory}
                     onToggle={() => setPurgeMemory((value) => !value)}
                   >
-                    Purgar memoria asociada a este perfil
+                    {t("perfiles.editor.delete.purgeToggle.label")}
                   </ConfirmToggle>
                 </ConfirmFooter>
               </div>
             ) : (
               <div className="flex items-center justify-end gap-3 border-t border-border-soft pt-3.5">
                 <Button type="button" variant="ghost" onClick={onClose}>
-                  Cancelar
+                  {t("perfiles.editor.cancel.action")}
                 </Button>
                 <button type="submit" className={SAVE_BUTTON_CLASS} disabled={savePending}>
-                  {savePending ? "Guardando…" : "Guardar"}
+                  {savePending ? t("perfiles.editor.save.action.pending") : t("perfiles.editor.save.action")}
                 </button>
               </div>
             )}
