@@ -26,7 +26,10 @@ export function PlayerBar() {
   const { data } = useStatusQuery();
   const lastReply = useLastReply();
   const [liveVoice, setLiveVoice] = useState(false);
-  const [lastAction, setLastAction] = useState<string | null>(null);
+  // Holds the key, not the resolved label — resolving at click time and
+  // storing the string froze it at the boot locale (and, worse, mixed it
+  // with the notice sentence below if the locale flipped in between).
+  const [lastAction, setLastAction] = useState<TKey | null>(null);
 
   const avatarState = deriveAvatarState(data);
   const isSpeaking = Boolean(data?.is_speaking);
@@ -61,7 +64,7 @@ export function PlayerBar() {
               key={button.id}
               type="button"
               aria-label={t(button.labelKey)}
-              onClick={() => setLastAction(t(button.labelKey))}
+              onClick={() => setLastAction(button.labelKey)}
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {button.icon}
@@ -71,7 +74,7 @@ export function PlayerBar() {
           <button
             type="button"
             aria-label={t("experiencia.playerBar.transport.play.aria")}
-            onClick={() => setLastAction(t("experiencia.playerBar.transport.play.action"))}
+            onClick={() => setLastAction("experiencia.playerBar.transport.play.action")}
             className={cn(
               "flex h-11 w-11 items-center justify-center rounded-full text-lg transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
               isSpeaking
@@ -87,7 +90,7 @@ export function PlayerBar() {
               key={button.id}
               type="button"
               aria-label={t(button.labelKey)}
-              onClick={() => setLastAction(t(button.labelKey))}
+              onClick={() => setLastAction(button.labelKey)}
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {button.icon}
@@ -116,7 +119,7 @@ export function PlayerBar() {
 
       {lastAction && (
         <p role="status" className="sr-only">
-          {t("experiencia.playerBar.action.notice", { action: lastAction })}
+          {t("experiencia.playerBar.action.notice", { action: t(lastAction) })}
         </p>
       )}
     </footer>

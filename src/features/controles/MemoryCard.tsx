@@ -24,7 +24,7 @@ import {
 import type { MemoriaImportResponse } from "../../api/memoria.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
 import { useStatusQuery } from "../../api/status.js";
-import { t, useT } from "../../i18n/t.js";
+import { t, useT, type TKey } from "../../i18n/t.js";
 
 // R8 (privacy): this card renders counts ONLY, never raw chat/persona content.
 function countRows(stats: {
@@ -332,10 +332,20 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
   const [customLabel, setCustomLabel] = useState("");
   const [content, setContent] = useState("");
   const [confirming, setConfirming] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
+  // Holds the key, not the resolved message — see fileError's render site.
+  const [fileError, setFileError] = useState<TKey | null>(null);
   const importMutation = useMemoriaImportMutation(profileId);
 
+  // WIRE value sent as `source_label` below — "Otro" here is a literal
+  // fallback the backend stores verbatim, never translated copy.
   const effectiveLabel = source === "Otro" ? customLabel.trim().slice(0, IMPORT_LABEL_MAX) || "Otro" : source;
+  // DISPLAY value for the confirm message: when the source is "Otro" and no
+  // custom label was typed, effectiveLabel falls back to the raw Spanish
+  // literal "Otro" — read it through the same key the source Select already
+  // uses for that option's label so the confirm sentence reads in the current
+  // locale instead of always Spanish.
+  const displayLabel =
+    source === "Otro" && !customLabel.trim() ? t("controles.memory.import.source.other") : effectiveLabel;
   const oversize = new Blob([content]).size > IMPORT_MAX_BYTES;
   // An oversize body (pasted OR read from a file) can never succeed — the
   // server 422s it — so it must not be submittable either.
@@ -348,13 +358,13 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
     // R1: reject an oversize file BEFORE reading it — never load a body the
     // server is guaranteed to refuse (and don't set content from it).
     if (file.size > IMPORT_MAX_BYTES) {
-      setFileError(t("controles.memory.import.file.tooLarge.error"));
+      setFileError("controles.memory.import.file.tooLarge.error");
       return;
     }
     setFileError(null);
     const reader = new FileReader();
     reader.onload = () => setContent(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => setFileError(t("controles.memory.import.file.read.error"));
+    reader.onerror = () => setFileError("controles.memory.import.file.read.error");
     reader.readAsText(file);
   }
 
@@ -420,7 +430,7 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
             />
           </label>
 
-          {fileError && <p className="text-xs leading-relaxed text-warn">{fileError}</p>}
+          {fileError && <p className="text-xs leading-relaxed text-warn">{t(fileError)}</p>}
 
           <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
             {t("controles.memory.import.paste.label")}
@@ -456,7 +466,7 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
               tone="neutral"
               stages={[
                 {
-                  message: t("controles.memory.import.confirm", { label: effectiveLabel }),
+                  message: t("controles.memory.import.confirm", { label: displayLabel }),
                   advanceLabel: t("controles.memory.import.confirm.action")
                 }
               ]}

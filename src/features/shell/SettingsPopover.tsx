@@ -171,11 +171,11 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
             </span>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
               <span className="text-[13px] text-foreground">{t("shell.settings.view.compact")}</span>
-              <Switch checked={compact} onChange={setCompact} aria-label={t("shell.settings.view.compact.aria")} />
+              <Switch checked={compact} onChange={setCompact} aria-label={t("shell.settings.view.compact")} />
             </div>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
               <span className="text-[13px] text-foreground">{t("shell.settings.view.showLogs")}</span>
-              <Switch checked={showLogs} onChange={setShowLogs} aria-label={t("shell.settings.view.showLogs.aria")} />
+              <Switch checked={showLogs} onChange={setShowLogs} aria-label={t("shell.settings.view.showLogs")} />
             </div>
           </section>
 

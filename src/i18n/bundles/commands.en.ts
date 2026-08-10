@@ -68,6 +68,14 @@ export const commandsEn: Record<keyof typeof commandsEs, string> = {
   "commands.agenda.title": "schedule a topic",
   "commands.chip.emptyValue": "—",
   "commands.chip.noTags": "no tags",
+  // TEST-ONLY — see the note in commands.es.ts. Skip when exporting for
+  // translation.
+  "commands.fixture.description": "fixture command",
+  "commands.fixture.primary.action": "Send",
+  "commands.fixture.step.chip": "field",
+  "commands.fixture.step.question": "Value?",
+  "commands.fixture.summaryTitle": "Ready to send",
+  "commands.fixture.title": "fixture",
   "commands.launcher.list.aria": "Available commands",
   "commands.launcher.title": "Commands",
   "commands.list.cancel.action": "Cancel",

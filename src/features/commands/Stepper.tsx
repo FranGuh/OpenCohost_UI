@@ -133,7 +133,7 @@ export function Stepper({
       {cursor > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {visible.slice(0, cursor).map((step) => (
-            <AnswerChip key={step.id} label={step.chipLabel} value={formatChipValue(step, values[step.id])} />
+            <AnswerChip key={step.id} label={t(step.chipLabelKey)} value={formatChipValue(step, values[step.id])} />
           ))}
         </div>
       )}
@@ -141,7 +141,7 @@ export function Stepper({
       {activeStep ? (
         <div key={activeStep.id} className="flex flex-col gap-2">
           {isFirstOfSection(visible, cursor) && activeStep.section && <SectionHeading section={activeStep.section} />}
-          <p className="text-sm font-semibold text-foreground">{activeStep.question}</p>
+          <p className="text-sm font-semibold text-foreground">{t(activeStep.questionKey)}</p>
           <StepControl
             step={activeStep}
             value={values[activeStep.id]}
@@ -173,7 +173,7 @@ export function Stepper({
       ) : (
         <>
           <SummaryCard
-            title={command.summaryTitle ?? t("commands.stepper.summary.title")}
+            title={command.summaryTitleKey ? t(command.summaryTitleKey) : t("commands.stepper.summary.title")}
             steps={visible}
             values={values}
             onEdit={() => setCursor(0)}
@@ -182,9 +182,11 @@ export function Stepper({
           <ActionRow
             key={resetKey}
             primaryLabel={
-              typeof command.primaryLabel === "function"
-                ? command.primaryLabel(values)
-                : command.primaryLabel ?? t("commands.stepper.confirm.action")
+              typeof command.primaryLabelKey === "function"
+                ? t(command.primaryLabelKey(values))
+                : command.primaryLabelKey
+                  ? t(command.primaryLabelKey)
+                  : t("commands.stepper.confirm.action")
             }
             note={t(command.actionNoteKey ?? "commands.stepper.action.note")}
             onSubmit={command.submit ? () => command.submit!(values) : undefined}

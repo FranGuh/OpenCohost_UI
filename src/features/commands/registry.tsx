@@ -8,6 +8,7 @@ import {
   saveCohostProfile,
   useAgendaQuery,
   useAgendaSessionActionMutation,
+  type AgendaResponse,
   type AgendaSessionAction
 } from "../../api/agenda.js";
 import {
@@ -18,7 +19,7 @@ import {
 import { queryClient } from "../../api/queryClient.js";
 import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
-import { pickRotationTrack } from "../musica/MusicPanel.js";
+import { pickRotationTrack } from "../../lib/musicRotation.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
 import { t, useT, type TKey } from "../../i18n/t.js";
 import { Badge } from "../../ui/Badge.js";
@@ -51,29 +52,28 @@ import {
  */
 
 /**
- * Copy note: `title`, `description`, `summaryTitle`, `primaryLabel` and the
- * steps' `question`/`chipLabel` stay typed as `string` and are resolved with
- * `t(...)` where this array is BUILT (module init). They cannot hold a `TKey`
- * because commands.test.tsx's `oneStepCommand` fixture assigns raw strings to
- * exactly those fields; typing them as keys would not compile without editing
- * that test. They therefore read in the boot locale and need a restart to
- * change. Every other copy field here holds a key and flips live.
+ * Copy note: `titleKey`, `descriptionKey`, `summaryTitleKey`,
+ * `primaryLabelKey` and the steps' `questionKey`/`chipLabelKey` all hold a
+ * `TKey`, resolved with `t(...)` at render/event time — the same pattern as
+ * `actionNoteKey`/`resetLabelKey` below. commands.test.tsx's `oneStepCommand`
+ * fixture holds real bundle keys too (dedicated `commands.fixture.*` entries)
+ * so this stays live: no field on `Command` is frozen at the boot locale.
  */
 export interface Command {
   id: string;
   /** Mono badge shown in the list, e.g. "/agenda". */
   badge: string;
-  /** Short title (entry heading). No renderer reads it today — the list shows
-   * `id — description` — but it is kept, and translated, so a surface that
+  /** Key for the short title (entry heading). No renderer reads it today —
+   * the list shows `id — description` — but it is kept so a surface that
    * starts showing it does not reintroduce hardcoded Spanish. */
-  title: string;
-  /** One-line description shown beside the badge in the list. */
-  description: string;
+  titleKey: TKey;
+  /** Key for the one-line description shown beside the badge in the list. */
+  descriptionKey: TKey;
   steps?: StepDef[];
-  summaryTitle?: string;
-  /** Inert primary action label. A function form lets it reflect an answer
-   * (e.g. /musica's "Poner canción" vs "Aplicar"). */
-  primaryLabel?: string | ((values: Record<string, StepValue>) => string);
+  summaryTitleKey?: TKey;
+  /** Inert primary action label key. A function form lets it reflect an
+   * answer (e.g. /musica's "Poner canción" vs "Aplicar"). */
+  primaryLabelKey?: TKey | ((values: Record<string, StepValue>) => TKey);
   /** Overrides the default "maquetado — todavía no envía" helper under the action. */
   actionNoteKey?: TKey;
   /** Overrides the post-success "Cargar otro" re-arm label (Item 1) —
@@ -88,6 +88,11 @@ export interface Command {
   submit?: (values: Record<string, StepValue>) => Promise<string>;
   /** Custom, non-stepper command surface (review/action screens). */
   screen?: (props: { onClose: () => void }) => ReactElement;
+  /** English search aliases (F4, MINOR): `matchCommands` filters on `id` PLUS
+   * these, so typing "/topics" finds "/temas" in English mode. Matched
+   * against these fixed strings only, never against translated labels — a
+   * locale flip must never change which commands a query matches. */
+  aliases?: readonly string[];
 }
 
 // ─── Shared option sets ─────────────────────────────────────────────────────
@@ -193,15 +198,20 @@ function SesionScreen({ onClose }: { onClose: () => void }) {
   const t = useT();
   const { data, isError } = useAgendaQuery();
   const mutation = useAgendaSessionActionMutation();
-  const [ack, setAck] = useState<string | null>(null);
+  // Stores the raw inputs, not the resolved text — describeSessionAction/
+  // errorCopy run at RENDER time below so a locale flip re-translates an
+  // already-shown ack instead of leaving it frozen at dispatch time.
+  const [ack, setAck] = useState<
+    { ok: true; action: AgendaSessionAction; response: AgendaResponse } | { ok: false; err: unknown } | null
+  >(null);
 
   const dispatch = (action: AgendaSessionAction) => {
     setAck(null);
     mutation.mutate(
       { action },
       {
-        onSuccess: (res) => setAck(describeSessionAction(action, res)),
-        onError: (err) => setAck(errorCopy(err))
+        onSuccess: (res) => setAck({ ok: true, action, response: res }),
+        onError: (err) => setAck({ ok: false, err })
       }
     );
   };
@@ -235,7 +245,7 @@ function SesionScreen({ onClose }: { onClose: () => void }) {
       )}
       {ack && (
         <p role="status" aria-live="polite" className="text-[13px] text-foreground">
-          {ack}
+          {ack.ok ? describeSessionAction(ack.action, ack.response) : errorCopy(ack.err)}
         </p>
       )}
       <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
@@ -257,7 +267,14 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
   const { data, isError } = useMusicLibraryQuery();
   const mutation = useMusicMoodMutation();
   const playback = usePlaybackContext();
-  const [ack, setAck] = useState<string | null>(null);
+  // Stores the raw inputs, not the composed text — describeMood/t/errorCopy
+  // run at RENDER time below so a locale flip re-translates an already-shown
+  // ack instead of leaving it frozen at submit time.
+  const [ack, setAck] = useState<
+    | { ok: true; response: MusicMoodResponse; picked: { id: string; label: string } | null }
+    | { ok: false; err: unknown }
+    | null
+  >(null);
   const [mood, setMood] = useState<string>("");
   // Last mood response, so "Siguiente"/"Reproducir" can rotate over the same
   // bucket the operator last selected instead of always the raw library.
@@ -290,14 +307,10 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
       onSuccess: (res) => {
         setLastResult(res);
         const picked = pickTrack(res);
-        if (picked) {
-          playback.playTrack(picked.id, picked.label);
-          setAck(`${describeMood(res)} · ${t("commands.musica.ack.playing", { track: picked.label })}`);
-        } else {
-          setAck(`${describeMood(res)} · ${t("commands.musica.ack.noTrack")}`);
-        }
+        if (picked) playback.playTrack(picked.id, picked.label);
+        setAck({ ok: true, response: res, picked });
       },
-      onError: (err) => setAck(errorCopy(err))
+      onError: (err) => setAck({ ok: false, err })
     });
   };
 
@@ -356,7 +369,13 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
 
       {ack && (
         <p role="status" aria-live="polite" className="text-[13px] text-foreground">
-          {ack}
+          {ack.ok
+            ? `${describeMood(ack.response)} · ${
+                ack.picked
+                  ? t("commands.musica.ack.playing", { track: ack.picked.label })
+                  : t("commands.musica.ack.noTrack")
+              }`
+            : errorCopy(ack.err)}
         </p>
       )}
       <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
@@ -374,10 +393,10 @@ export const COMMANDS: Command[] = [
   {
     id: "agenda",
     badge: "/agenda",
-    title: t("commands.agenda.title"),
-    description: t("commands.agenda.description"),
-    summaryTitle: t("commands.agenda.summaryTitle"),
-    primaryLabel: t("commands.agenda.primary.action"),
+    titleKey: "commands.agenda.title",
+    descriptionKey: "commands.agenda.description",
+    summaryTitleKey: "commands.agenda.summaryTitle",
+    primaryLabelKey: "commands.agenda.primary.action",
     resetLabelKey: "commands.agenda.reset.action",
     // WU7/R12-R15: map the stepper values to the wire vocab, POST the topic, and
     // invalidate the agenda query so a reopened /temas reflects it (D6). Uses the
@@ -391,36 +410,37 @@ export const COMMANDS: Command[] = [
       {
         kind: "text",
         id: "tema",
-        question: t("commands.agenda.step.tema.question"),
-        chipLabel: t("commands.agenda.step.tema.chip"),
+        questionKey: "commands.agenda.step.tema.question",
+        chipLabelKey: "commands.agenda.step.tema.chip",
         placeholderKey: "commands.agenda.step.tema.placeholder",
         maxLength: 90
       },
       {
         kind: "text",
         id: "angulo",
-        question: t("commands.agenda.step.angulo.question"),
-        chipLabel: t("commands.agenda.step.angulo.chip"),
+        questionKey: "commands.agenda.step.angulo.question",
+        chipLabelKey: "commands.agenda.step.angulo.chip",
         placeholderKey: "commands.agenda.step.angulo.placeholder",
         multiline: true,
         optional: true
       },
-      { kind: "select", id: "prioridad", question: t("commands.agenda.step.prioridad.question"), chipLabel: t("commands.agenda.step.prioridad.chip"), options: PRIORITY_OPTIONS, default: "normal" },
-      { kind: "select", id: "largo", question: t("commands.agenda.step.largo.question"), chipLabel: t("commands.agenda.step.largo.chip"), options: LENGTH_OPTIONS, default: "normal" },
+      { kind: "select", id: "prioridad", questionKey: "commands.agenda.step.prioridad.question", chipLabelKey: "commands.agenda.step.prioridad.chip", options: PRIORITY_OPTIONS, default: "normal" },
+      { kind: "select", id: "largo", questionKey: "commands.agenda.step.largo.question", chipLabelKey: "commands.agenda.step.largo.chip", options: LENGTH_OPTIONS, default: "normal" },
       // No placeholderKey: TagsStep already defaults to the shared
       // "Enter para agregar" key, which is byte-identical to the old literal.
-      { kind: "tags", id: "etiquetas", question: t("commands.agenda.step.etiquetas.question"), chipLabel: t("commands.agenda.step.etiquetas.chip") }
+      { kind: "tags", id: "etiquetas", questionKey: "commands.agenda.step.etiquetas.question", chipLabelKey: "commands.agenda.step.etiquetas.chip" }
     ]
   },
   {
     id: "perfil",
     badge: "/perfil",
+    aliases: ["profile"],
     // WU10/R18: copy explicitly names the COHOST profile (agenda identity), NOT
     // Kira's LLM persona — the old wording was ambiguous about which profile.
-    title: t("commands.perfil.title"),
-    description: t("commands.perfil.description"),
-    summaryTitle: t("commands.perfil.summaryTitle"),
-    primaryLabel: t("commands.perfil.primary.action"),
+    titleKey: "commands.perfil.title",
+    descriptionKey: "commands.perfil.description",
+    summaryTitleKey: "commands.perfil.summaryTitle",
+    primaryLabelKey: "commands.perfil.primary.action",
     resetLabelKey: "commands.perfil.reset.action",
     // WU10/R16-R19: save the cohost profile (identity) AND apply the session
     // fields — two calls, never POST /api/perfiles (the LLM persona). `estandar`
@@ -434,16 +454,16 @@ export const COMMANDS: Command[] = [
       {
         kind: "text",
         id: "nombre",
-        question: t("commands.perfil.step.nombre.question"),
-        chipLabel: t("commands.perfil.step.nombre.chip"),
+        questionKey: "commands.perfil.step.nombre.question",
+        chipLabelKey: "commands.perfil.step.nombre.chip",
         placeholderKey: "commands.perfil.step.nombre.placeholder",
         section: { labelKey: "commands.perfil.section.identidad.label" }
       },
       {
         kind: "text",
         id: "estilo",
-        question: t("commands.perfil.step.estilo.question"),
-        chipLabel: t("commands.perfil.step.estilo.chip"),
+        questionKey: "commands.perfil.step.estilo.question",
+        chipLabelKey: "commands.perfil.step.estilo.chip",
         placeholderKey: "commands.perfil.step.estilo.placeholder",
         multiline: true,
         optional: true,
@@ -452,8 +472,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "turnos",
-        question: t("commands.perfil.step.turnos.question"),
-        chipLabel: t("commands.perfil.step.turnos.chip"),
+        questionKey: "commands.perfil.step.turnos.question",
+        chipLabelKey: "commands.perfil.step.turnos.chip",
         options: AGENDA_TURN_OPTIONS,
         default: "5",
         section: { labelKey: "commands.perfil.section.sesion.label", noteKey: "commands.perfil.section.sesion.note" }
@@ -461,8 +481,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "modo",
-        question: t("commands.perfil.step.modo.question"),
-        chipLabel: t("commands.perfil.step.modo.chip"),
+        questionKey: "commands.perfil.step.modo.question",
+        chipLabelKey: "commands.perfil.step.modo.chip",
         options: SAFETY_OPTIONS,
         default: "live_safe",
         section: { labelKey: "commands.perfil.section.sesion.label", noteKey: "commands.perfil.section.sesion.note" }
@@ -470,8 +490,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "segmented",
         id: "ritmo",
-        question: t("commands.perfil.step.ritmo.question"),
-        chipLabel: t("commands.perfil.step.ritmo.chip"),
+        questionKey: "commands.perfil.step.ritmo.question",
+        chipLabelKey: "commands.perfil.step.ritmo.chip",
         options: RHYTHM_OPTIONS,
         default: "normal",
         section: { labelKey: "commands.perfil.section.sesion.label", noteKey: "commands.perfil.section.sesion.note" }
@@ -481,17 +501,19 @@ export const COMMANDS: Command[] = [
   {
     id: "temas",
     badge: "/temas",
-    title: t("commands.temas.title"),
-    description: t("commands.temas.description"),
+    aliases: ["topics"],
+    titleKey: "commands.temas.title",
+    descriptionKey: "commands.temas.description",
     screen: TemasScreen
   },
   {
     id: "vivo",
     badge: "/vivo",
-    title: t("commands.vivo.title"),
-    description: t("commands.vivo.description"),
-    summaryTitle: t("commands.vivo.summaryTitle"),
-    primaryLabel: t("commands.vivo.primary.action"),
+    aliases: ["live"],
+    titleKey: "commands.vivo.title",
+    descriptionKey: "commands.vivo.description",
+    summaryTitleKey: "commands.vivo.summaryTitle",
+    primaryLabelKey: "commands.vivo.primary.action",
     // WU8/R20-R21 + Lote C: compose a single url (plataforma is UI-only). Reject
     // a YouTube channel URL client-side (it can only 422), then connect and POLL
     // status until connected — the raw POST returns connected:false a beat early
@@ -509,8 +531,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "plataforma",
-        question: t("commands.vivo.step.plataforma.question"),
-        chipLabel: t("commands.vivo.step.plataforma.chip"),
+        questionKey: "commands.vivo.step.plataforma.question",
+        chipLabelKey: "commands.vivo.step.plataforma.chip",
         // Proper nouns — the same in every locale, so they stay literal.
         options: [
           { value: "youtube", label: "YouTube" },
@@ -524,16 +546,16 @@ export const COMMANDS: Command[] = [
       {
         kind: "text",
         id: "canal",
-        question: t("commands.vivo.step.canal.youtube.question"),
-        chipLabel: t("commands.vivo.step.canal.youtube.chip"),
+        questionKey: "commands.vivo.step.canal.youtube.question",
+        chipLabelKey: "commands.vivo.step.canal.youtube.chip",
         placeholderKey: "commands.vivo.step.canal.youtube.placeholder",
         when: (values) => values.plataforma !== "twitch"
       },
       {
         kind: "text",
         id: "canal",
-        question: t("commands.vivo.step.canal.twitch.question"),
-        chipLabel: t("commands.vivo.step.canal.twitch.chip"),
+        questionKey: "commands.vivo.step.canal.twitch.question",
+        chipLabelKey: "commands.vivo.step.canal.twitch.chip",
         placeholderKey: "commands.vivo.step.canal.twitch.placeholder",
         when: (values) => values.plataforma === "twitch"
       }
@@ -542,10 +564,11 @@ export const COMMANDS: Command[] = [
   {
     id: "acciones",
     badge: "/acciones",
-    title: t("commands.acciones.title"),
-    description: t("commands.acciones.description"),
-    summaryTitle: t("commands.acciones.summaryTitle"),
-    primaryLabel: t("commands.acciones.primary.action"),
+    aliases: ["actions"],
+    titleKey: "commands.acciones.title",
+    descriptionKey: "commands.acciones.description",
+    summaryTitleKey: "commands.acciones.summaryTitle",
+    primaryLabelKey: "commands.acciones.primary.action",
     // WU3/R26: same PUT whether or not the chat-live link is connected; only the
     // ack copy differs, read from the PUT response's own `connected` field
     // (R26b — never calls connect/disconnect).
@@ -554,8 +577,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "reacciones",
-        question: t("commands.acciones.step.reacciones.question"),
-        chipLabel: t("commands.acciones.step.reacciones.chip"),
+        questionKey: "commands.acciones.step.reacciones.question",
+        chipLabelKey: "commands.acciones.step.reacciones.chip",
         options: [
           { value: "bajo", labelKey: "commands.acciones.option.reacciones.bajo" },
           { value: "medio", labelKey: "commands.acciones.option.reacciones.medio" },
@@ -567,8 +590,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "cooldown",
-        question: t("commands.acciones.step.cooldown.question"),
-        chipLabel: t("commands.acciones.step.cooldown.chip"),
+        questionKey: "commands.acciones.step.cooldown.question",
+        chipLabelKey: "commands.acciones.step.cooldown.chip",
         options: [
           { value: "bajo", labelKey: "commands.acciones.option.cooldown.bajo" },
           { value: "medio", labelKey: "commands.acciones.option.cooldown.medio" },
@@ -580,8 +603,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "spam",
-        question: t("commands.acciones.step.spam.question"),
-        chipLabel: t("commands.acciones.step.spam.chip"),
+        questionKey: "commands.acciones.step.spam.question",
+        chipLabelKey: "commands.acciones.step.spam.chip",
         options: [
           { value: "5", labelKey: "commands.acciones.option.spam.5" },
           { value: "10", labelKey: "commands.acciones.option.spam.10" },
@@ -593,8 +616,8 @@ export const COMMANDS: Command[] = [
       {
         kind: "select",
         id: "input_contract",
-        question: t("commands.acciones.step.input_contract.question"),
-        chipLabel: t("commands.acciones.step.input_contract.chip"),
+        questionKey: "commands.acciones.step.input_contract.question",
+        chipLabelKey: "commands.acciones.step.input_contract.chip",
         options: [
           { value: "balanced", labelKey: "commands.acciones.option.input_contract.balanced" },
           { value: "twitch_relaxed", labelKey: "commands.acciones.option.input_contract.twitch_relaxed" },
@@ -608,16 +631,17 @@ export const COMMANDS: Command[] = [
   {
     id: "sesion",
     badge: "/sesion",
-    title: t("commands.sesion.title"),
-    description: t("commands.sesion.description"),
+    aliases: ["session"],
+    titleKey: "commands.sesion.title",
+    descriptionKey: "commands.sesion.description",
     screen: SesionScreen
   },
   {
     id: "musica",
     badge: "/musica",
     // WU11/R29-R31: library/mood selection screen — free-text song search dropped.
-    title: t("commands.musica.title"),
-    description: t("commands.musica.description"),
+    titleKey: "commands.musica.title",
+    descriptionKey: "commands.musica.description",
     screen: MusicaScreen
   }
 ];
@@ -629,5 +653,7 @@ export function commandFilter(query: string): string {
 
 export function matchCommands(query: string): Command[] {
   const filter = commandFilter(query);
-  return COMMANDS.filter((command) => command.id.startsWith(filter));
+  return COMMANDS.filter(
+    (command) => command.id.startsWith(filter) || (command.aliases?.some((alias) => alias.startsWith(filter)) ?? false)
+  );
 }

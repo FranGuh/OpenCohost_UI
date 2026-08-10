@@ -98,7 +98,7 @@ export function CommandList({
         {command.badge}
       </span>
       <span className="text-sm text-foreground">
-        {command.id} — <span className="text-muted-foreground">{command.description}</span>
+        {command.id} — <span className="text-muted-foreground">{t(command.descriptionKey)}</span>
       </span>
     </button>
   ));

@@ -1,5 +1,5 @@
-import type { PttErrorCode, PttUiState } from "./ptt.js";
-import { t, type TKey } from "../i18n/t.js";
+import type { PttErrorCode, PttUiState } from "../../api/ptt.js";
+import { t, type TKey } from "../../i18n/t.js";
 
 /**
  * PTT display copy — read by both PTTCard (controles) and the

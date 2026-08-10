@@ -17,7 +17,7 @@ export const controlesEn: Record<keyof typeof controlesEs, string> = {
   "controles.avatar.state.error": "error",
   "controles.avatar.state.idle": "live",
   "controles.avatar.state.listening": "listening",
-  "controles.avatar.state.sleeping": "asleep",
+  "controles.avatar.state.sleeping": "on standby",
   "controles.avatar.state.speaking": "speaking",
   "controles.avatar.state.speakingAlt": "speaking (alt)",
   "controles.avatar.state.thinking": "thinking",

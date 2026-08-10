@@ -69,6 +69,16 @@ export const commandsEs = {
   "commands.agenda.title": "programá un tema",
   "commands.chip.emptyValue": "—",
   "commands.chip.noTags": "sin etiquetas",
+  // TEST-ONLY — not reachable from the app. `commands.test.tsx`'s
+  // `oneStepCommand()` builds a synthetic Command, and every label field now
+  // holds a TKey, so the fixture needs keys that exist. Skip these when
+  // exporting copy for translation.
+  "commands.fixture.description": "fixture command",
+  "commands.fixture.primary.action": "Enviar",
+  "commands.fixture.step.chip": "campo",
+  "commands.fixture.step.question": "¿Valor?",
+  "commands.fixture.summaryTitle": "Listo para enviar",
+  "commands.fixture.title": "fixture",
   "commands.launcher.list.aria": "Comandos disponibles",
   "commands.launcher.title": "Comandos",
   "commands.list.cancel.action": "Cancelar",

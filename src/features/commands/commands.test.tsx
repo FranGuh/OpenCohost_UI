@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerCommandPanel } from "./ComposerCommandPanel.js";
 import { PlaybackContext, type PlaybackContextValue } from "../../state/PlaybackProvider.js";
 import { Stepper } from "./Stepper.js";
-import type { Command } from "./registry.js";
+import { matchCommands, type Command } from "./registry.js";
 import type { StepValue } from "./primitives.js";
 import { PRIORITY_VOCAB } from "./wire.js";
 import { server } from "../../test/server.js";
@@ -97,6 +97,18 @@ describe("command palette — registry + primitives (mockup)", () => {
     // An unknown command shows the empty note.
     rerender(<ComposerCommandPanel query="/zzz" onClose={noop} />);
     expect(screen.getByText("comando desconocido")).toBeInTheDocument();
+  });
+
+  it("matches an English alias in addition to the Spanish id (F4)", () => {
+    // Each of these has no natural Spanish-id prefix match — before the F4 fix
+    // they returned zero results in English mode.
+    expect(matchCommands("/topics").map((c) => c.id)).toEqual(["temas"]);
+    expect(matchCommands("/profile").map((c) => c.id)).toEqual(["perfil"]);
+    expect(matchCommands("/session").map((c) => c.id)).toEqual(["sesion"]);
+    expect(matchCommands("/actions").map((c) => c.id)).toEqual(["acciones"]);
+    expect(matchCommands("/live").map((c) => c.id)).toEqual(["vivo"]);
+    // The Spanish id still matches on its own.
+    expect(matchCommands("/vivo").map((c) => c.id)).toEqual(["vivo"]);
   });
 
   it("/agenda caps the tema at 90 chars with a live counter", () => {
@@ -286,12 +298,20 @@ function oneStepCommand(submit?: (values: Record<string, StepValue>) => Promise<
   return {
     id: "wu2fixture",
     badge: "/wu2",
-    title: "fixture",
-    description: "fixture command",
-    summaryTitle: "Listo para enviar",
-    primaryLabel: "Enviar",
+    titleKey: "commands.fixture.title",
+    descriptionKey: "commands.fixture.description",
+    summaryTitleKey: "commands.fixture.summaryTitle",
+    primaryLabelKey: "commands.fixture.primary.action",
     submit,
-    steps: [{ kind: "text", id: "campo", question: "¿Valor?", chipLabel: "campo", optional: true }]
+    steps: [
+      {
+        kind: "text",
+        id: "campo",
+        questionKey: "commands.fixture.step.question",
+        chipLabelKey: "commands.fixture.step.chip",
+        optional: true
+      }
+    ]
   };
 }
 

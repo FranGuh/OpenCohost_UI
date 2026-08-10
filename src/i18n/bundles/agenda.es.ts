@@ -93,7 +93,7 @@ export const agendaEs = {
   "agenda.topic.constraints.aria": "Etiquetas (constraints)",
   "agenda.topic.constraints.label": "Etiquetas",
   "agenda.topic.constraints.list.aria": "Etiquetas agregadas",
-  "agenda.topic.constraints.placeholder": "Enter o coma para agregar (máx. 12)",
+  "agenda.topic.constraints.placeholder": "Enter o coma para agregar (máx. {max})",
   "agenda.topic.constraints.remove.aria": "Quitar etiqueta {tag}",
   "agenda.topic.form.eyebrow": "Tema aprobado",
   "agenda.topic.heading": "Agregar tema",

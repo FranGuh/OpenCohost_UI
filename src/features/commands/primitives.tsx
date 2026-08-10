@@ -44,18 +44,14 @@ export interface SectionMeta {
 interface StepCommon {
   id: string;
   /**
-   * Visible question/heading AND the control's accessible name.
-   *
-   * Resolved at MODULE INIT in the registry (`question: t("…")`) rather than
-   * held as a key: commands.test.tsx's `oneStepCommand` fixture builds a
-   * `StepDef` with `question: "¿Valor?"`, so typing this as `TKey` would not
-   * compile without editing that test. Consequence: this string is frozen at
-   * the boot locale — a live flip needs a restart to reach it.
+   * Visible question/heading AND the control's accessible name. Held as a
+   * key and resolved at RENDER time (`t(step.questionKey)`), so a locale flip
+   * reaches it without a restart.
    */
-  question: string;
+  questionKey: TKey;
   /** Short label used when the answered step collapses to a chip. Same
-   * module-init resolution (and same restart caveat) as `question`. */
-  chipLabel: string;
+   * render-time resolution as `questionKey`. */
+  chipLabelKey: TKey;
   section?: SectionMeta;
   /** Conditional gate: the step only appears (and collapses/summarizes) when
    * this returns true for the current answers. Absent = always shown. */
@@ -151,7 +147,7 @@ export function TextStep({
         <textarea
           autoFocus
           rows={2}
-          aria-label={step.question}
+          aria-label={t(step.questionKey)}
           value={value}
           placeholder={placeholder}
           onChange={(event) => handleChange(event.target.value)}
@@ -161,7 +157,7 @@ export function TextStep({
         <input
           autoFocus
           type="text"
-          aria-label={step.question}
+          aria-label={t(step.questionKey)}
           value={value}
           placeholder={placeholder}
           onChange={(event) => handleChange(event.target.value)}
@@ -194,7 +190,7 @@ export function SelectStep({
 }) {
   const t = useT();
   const options = step.options.map((option) => ({ value: option.value, label: optionLabel(option, t) }));
-  return <Select aria-label={step.question} options={options} value={value} onChange={onChange} />;
+  return <Select aria-label={t(step.questionKey)} options={options} value={value} onChange={onChange} />;
 }
 
 export function SegmentedStep({
@@ -208,7 +204,7 @@ export function SegmentedStep({
 }) {
   const t = useT();
   const options = step.options.map((option) => ({ value: option.value, label: optionLabel(option, t) }));
-  return <Segmented ariaLabel={step.question} options={options} value={value} onChange={onChange} />;
+  return <Segmented ariaLabel={t(step.questionKey)} options={options} value={value} onChange={onChange} />;
 }
 
 export function TagsStep({
@@ -235,7 +231,7 @@ export function TagsStep({
       <input
         autoFocus
         type="text"
-        aria-label={step.question}
+        aria-label={t(step.questionKey)}
         value={draft}
         placeholder={t(step.placeholderKey ?? "commands.tags.add.placeholder")}
         onChange={(event) => setDraft(event.target.value)}
@@ -292,7 +288,7 @@ export function SummaryCard({
       <p className="text-sm font-semibold text-foreground">{title}</p>
       <div className="flex flex-wrap gap-1.5">
         {steps.map((step) => (
-          <AnswerChip key={step.id} label={step.chipLabel} value={formatChipValue(step, values[step.id])} />
+          <AnswerChip key={step.id} label={t(step.chipLabelKey)} value={formatChipValue(step, values[step.id])} />
         ))}
       </div>
       <div className="flex items-center gap-2">
@@ -336,7 +332,20 @@ export function ActionRow({
 }) {
   const t = useT();
   const [phase, setPhase] = useState<"idle" | "pending" | "settled">("idle");
-  const [message, setMessage] = useState<string | null>(null);
+  /**
+   * `onSubmit`'s contract is `Promise<string>` — the ack is whatever text the
+   * command's `submit` resolved with (commands.test.tsx asserts dozens of
+   * literal ack strings against it directly), so it arrives here already
+   * resolved and CANNOT be re-resolved later; like a receipt, it reflects the
+   * locale active at submit time (same accepted tradeoff as `eventStore`, see
+   * docs/UI_DOMAIN_I18N_MIGRATION.md §8.10). The error branch has no such
+   * constraint: `err` is stored raw and `errorCopy(err)` is called at RENDER
+   * time (in `messageText` below), so it re-resolves on a locale flip.
+   */
+  const [message, setMessage] = useState<{ kind: "ack"; text: string } | { kind: "error"; err: unknown } | null>(
+    null
+  );
+  const messageText = message ? (message.kind === "ack" ? message.text : errorCopy(message.err)) : null;
   const [failed, setFailed] = useState(false);
   // Synchronous guard (F1/F7): `phase` is React state, so two synchronous
   // clicks can both fire before "pending" re-renders and disables the button.
@@ -377,7 +386,7 @@ export function ActionRow({
     try {
       const ack = await onSubmit!();
       setPhase("settled");
-      setMessage(ack);
+      setMessage({ kind: "ack", text: ack });
       // Settled renders the re-arm actions (Cargar otro / Listo) instead of a
       // dead disabled button (Item 1). "Cargar otro" remounts this row (key
       // bump in Stepper), which resets `submittingRef` for the next submit.
@@ -386,7 +395,7 @@ export function ActionRow({
       submittingRef.current = false;
       setPhase("idle");
       setFailed(true);
-      setMessage(errorCopy(err));
+      setMessage({ kind: "error", err });
     }
   }
 
@@ -399,7 +408,7 @@ export function ActionRow({
     return (
       <div className="mt-1 flex flex-col gap-2 border-t border-border-soft pt-3">
         <span role="status" aria-live="polite" className="text-[13px] font-medium text-ok">
-          {message}
+          {messageText}
         </span>
         <div className="flex items-center gap-2">
           <Button type="button" variant="primary" className="h-8 px-3 text-[13px]" onClick={onReset}>
@@ -425,9 +434,9 @@ export function ActionRow({
         >
           {busy ? t("commands.actionRow.submitting.action") : primaryLabel}
         </Button>
-        {message && (
+        {messageText && (
           <span role="status" aria-live="polite" className={cn("mt-1 text-[11px]", failed ? "text-danger" : "text-dim")}>
-            {message}
+            {messageText}
           </span>
         )}
       </div>

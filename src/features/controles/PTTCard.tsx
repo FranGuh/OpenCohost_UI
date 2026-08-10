@@ -5,9 +5,9 @@ import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
 import { cn } from "../../lib/cn.js";
 import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../../api/ptt.js";
-import { errorCopy, stateCopy } from "../../api/pttCopy.js";
+import { errorCopy, stateCopy } from "../experiencia/pttCopy.js";
 import { useLastReply } from "../../api/chat.js";
-import { useT } from "../../i18n/t.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
 const inputClass =
   "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -50,7 +50,8 @@ export function PTTCard() {
   const updateWsConfig = useUpdatePttConfigMutation();
   const testWsConnection = useTestPttConnectionMutation();
   const [wsUrl, setWsUrl] = useState("");
-  const [schemeError, setSchemeError] = useState<string | null>(null);
+  // Holds the key, not the resolved message — see the render site below.
+  const [schemeError, setSchemeError] = useState<TKey | null>(null);
   const activeWsUrl = pttState.data?.stt_ws_url ?? null;
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export function PTTCard() {
   function saveWsUrl() {
     const trimmed = wsUrl.trim();
     if (!isValidWsScheme(trimmed)) {
-      setSchemeError(t("controles.ptt.wsUrl.error.scheme"));
+      setSchemeError("controles.ptt.wsUrl.error.scheme");
       return;
     }
     setSchemeError(null);
@@ -78,7 +79,7 @@ export function PTTCard() {
   function runWsTest() {
     const trimmed = wsUrl.trim();
     if (!isValidWsScheme(trimmed)) {
-      setSchemeError(t("controles.ptt.wsUrl.error.scheme"));
+      setSchemeError("controles.ptt.wsUrl.error.scheme");
       return;
     }
     setSchemeError(null);
@@ -270,7 +271,7 @@ export function PTTCard() {
             </Button>
           </div>
 
-          {schemeError && <Alert tone="warn">{schemeError}</Alert>}
+          {schemeError && <Alert tone="warn">{t(schemeError)}</Alert>}
           {updateWsConfig.isError && (
             <Alert tone="danger">{updateWsConfig.error?.message ?? t("controles.ptt.wsUrl.save.error")}</Alert>
           )}

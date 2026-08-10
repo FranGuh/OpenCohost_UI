@@ -20,9 +20,9 @@ import { useLastReply, useSendChatTurn } from "../../api/chat.js";
 import { useLiveTranscript } from "../../api/liveTranscript.js";
 import { usePttHold, type PttUiState } from "../../api/ptt.js";
 import { useStatusQuery } from "../../api/status.js";
-import { errorCopy } from "../../api/pttCopy.js";
+import { errorCopy } from "./pttCopy.js";
 import { cn } from "../../lib/cn.js";
-import { t, useT } from "../../i18n/t.js";
+import { useT } from "../../i18n/t.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
 
 /** Owner layout correction (2026-07-18): ONE unified strip

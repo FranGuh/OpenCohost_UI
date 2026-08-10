@@ -70,7 +70,8 @@ function ChatLiveCard() {
   const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "stream-chat-live");
   const [url, setUrl] = useState(STREAM_FIXTURE.url);
-  const [error, setError] = useState<string | null>(null);
+  // Holds the key, not the resolved message — see the render site below.
+  const [error, setError] = useState<TKey | null>(null);
   const chatLiveQuery = useStreamChatLiveQuery();
   const connectMutation = useStreamConnectMutation();
   const disconnectMutation = useStreamDisconnectMutation();
@@ -87,14 +88,14 @@ function ChatLiveCard() {
     event.preventDefault();
     const trimmed = url.trim();
     if (!isValidStreamUrl(trimmed)) {
-      setError(t("stream.chatLive.url.error"));
+      setError("stream.chatLive.url.error");
       return;
     }
     setError(null);
     try {
       await connectMutation.mutateAsync(trimmed);
     } catch {
-      setError(t("stream.chatLive.connect.error"));
+      setError("stream.chatLive.connect.error");
     }
   }
 
@@ -137,7 +138,7 @@ function ChatLiveCard() {
             </form>
             {error && (
               <p role="alert" className="text-xs text-danger">
-                {error}
+                {t(error)}
               </p>
             )}
           </section>
@@ -163,20 +164,41 @@ function ChatLiveCard() {
 // Built as functions of `t` (not module-level consts) so they hot-swap with
 // the locale — mirrors MemoryCard's buildImportSources / buildTierOptions.
 
+// CTK-derived preset->value maps (opencohost/ui/stream_admin_ui.py
+// _build_chat_live_tab): threshold presets are 0.5/1/3 msg/s, cooldown
+// presets are 30/60/120s, in bajo/medio/alto order.
+//
+// The option builders below read these instead of repeating the numbers. The
+// preset highlight compares a Select's current value against this map, so two
+// independent copies of the same numbers would let the option list drift until
+// the highlight silently stopped matching — with nothing able to fail.
+const REACTION_PRESET_VALUES = {
+  bajo: "0.5",
+  medio: "1",
+  alto: "3"
+} as const satisfies Record<StreamPresetLevel, string>;
+
+const COOLDOWN_PRESET_VALUES = {
+  bajo: "30",
+  medio: "60",
+  alto: "120"
+} as const satisfies Record<StreamPresetLevel, string>;
+
 function buildReactionOptions(t: ReturnType<typeof useT>) {
   return [
-    { value: "0.5", label: t("stream.acciones.reactionOption.0_5") },
-    { value: "1", label: t("stream.acciones.reactionOption.1") },
-    { value: "3", label: t("stream.acciones.reactionOption.3") }
+    { value: REACTION_PRESET_VALUES.bajo, label: t("stream.acciones.reactionOption.0_5") },
+    { value: REACTION_PRESET_VALUES.medio, label: t("stream.acciones.reactionOption.1") },
+    { value: REACTION_PRESET_VALUES.alto, label: t("stream.acciones.reactionOption.3") }
   ] as const;
 }
 
 function buildCooldownOptions(t: ReturnType<typeof useT>) {
   return [
-    { value: "30", label: t("stream.chatLive.cooldownOption.30") },
+    { value: COOLDOWN_PRESET_VALUES.bajo, label: t("stream.chatLive.cooldownOption.30") },
+    // 45s is Select-only — it deliberately has no preset button.
     { value: "45", label: t("stream.chatLive.cooldownOption.45") },
-    { value: "60", label: t("stream.chatLive.cooldownOption.60") },
-    { value: "120", label: t("stream.chatLive.cooldownOption.120") }
+    { value: COOLDOWN_PRESET_VALUES.medio, label: t("stream.chatLive.cooldownOption.60") },
+    { value: COOLDOWN_PRESET_VALUES.alto, label: t("stream.chatLive.cooldownOption.120") }
   ] as const;
 }
 
@@ -201,21 +223,6 @@ const PRESET_LABEL_KEYS: Record<StreamPresetLevel, TKey> = {
 function buildPresetOptions(t: ReturnType<typeof useT>): ReadonlyArray<{ value: StreamPresetLevel; label: string }> {
   return STREAM_FIXTURE.presets.map((preset) => ({ value: preset.level, label: t(PRESET_LABEL_KEYS[preset.level]) }));
 }
-
-// CTK-derived preset->value maps (opencohost/ui/stream_admin_ui.py
-// _build_chat_live_tab): threshold presets are 0.5/1/3 msg/s, cooldown
-// presets are 30/60/120s, in bajo/medio/alto order.
-const REACTION_PRESET_VALUES: Record<StreamPresetLevel, string> = {
-  bajo: "0.5",
-  medio: "1",
-  alto: "3"
-};
-
-const COOLDOWN_PRESET_VALUES: Record<StreamPresetLevel, string> = {
-  bajo: "30",
-  medio: "60",
-  alto: "120"
-};
 
 // Preset highlight is derived from the current value (not tracked as its
 // own state) so it can never drift out of sync with the Select — returns

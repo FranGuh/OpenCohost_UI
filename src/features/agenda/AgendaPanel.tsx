@@ -99,6 +99,16 @@ function mutationErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+/** A form error is EITHER a bundle key (resolved at render time, so it
+ * survives a locale flip) OR raw text from a thrown Error — a backend/network
+ * message that was never translated copy to begin with, so there's nothing to
+ * re-resolve. */
+type FormError = { key: TKey } | { text: string };
+
+function mutationErrorState(error: unknown, fallbackKey: TKey): FormError {
+  return error instanceof Error ? { text: error.message } : { key: fallbackKey };
+}
+
 /**
  * Co-host style profile (opencohost/core/cohost_profiles.py) + session
  * settings. "Perfiles guardados" hydrates from GET /api/agenda/cohost-
@@ -587,9 +597,17 @@ function AddTopicCard() {
   const [responseLength, setResponseLength] = useState("normal");
   const [constraints, setConstraints] = useState<string[]>([]);
   const [constraintDraft, setConstraintDraft] = useState("");
-  const [constraintWarn, setConstraintWarn] = useState<string | null>(null);
+  // Holds the KEY, not the resolved text — see handleSubmit's `error` state
+  // below for why (resolving at click time and storing the string freezes it
+  // at the boot locale; a later flip would leave a stale-language warning on
+  // screen).
+  const [constraintWarn, setConstraintWarn] = useState<TKey | null>(null);
   const [bulk, setBulk] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // `error` holds either a bundle key (validation) or the raw message from a
+  // thrown Error (mutationErrorState below) — never a pre-resolved string, so
+  // a locale flip re-renders it correctly instead of freezing whatever was
+  // displayed at submit time.
+  const [error, setError] = useState<FormError | null>(null);
   const addTopic = useAddAgendaTopicMutation();
 
   function addConstraint(raw: string) {
@@ -597,7 +615,7 @@ function AddTopicCard() {
     setConstraintDraft("");
     if (!clean || constraints.includes(clean)) return;
     if (constraints.length >= MAX_CONSTRAINTS) {
-      setConstraintWarn(t("agenda.constraints.max", { n: MAX_CONSTRAINTS }));
+      setConstraintWarn("agenda.constraints.max");
       return;
     }
     setConstraintWarn(null);
@@ -636,7 +654,7 @@ function AddTopicCard() {
     event.preventDefault();
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      setError(t("agenda.topic.title.error"));
+      setError({ key: "agenda.topic.title.error" });
       return;
     }
     setError(null);
@@ -645,7 +663,7 @@ function AddTopicCard() {
       {
         onSuccess: resetForm,
         onError: (mutationError) => {
-          setError(mutationErrorMessage(mutationError, t("agenda.topic.add.error")));
+          setError(mutationErrorState(mutationError, "agenda.topic.add.error"));
         }
       }
     );
@@ -657,7 +675,7 @@ function AddTopicCard() {
   async function handleBulkSubmit() {
     const topics = bulk.split("\n").map(parseBulkLine).filter((line): line is AgendaTopicRequest => line !== null);
     if (topics.length === 0) {
-      setError(t("agenda.topic.bulk.empty.error"));
+      setError({ key: "agenda.topic.bulk.empty.error" });
       return;
     }
     setError(null);
@@ -667,7 +685,7 @@ function AddTopicCard() {
       }
       setBulk("");
     } catch (mutationError) {
-      setError(mutationErrorMessage(mutationError, t("agenda.topic.bulk.error")));
+      setError(mutationErrorState(mutationError, "agenda.topic.bulk.error"));
     }
   }
 
@@ -734,7 +752,7 @@ function AddTopicCard() {
                   addConstraint(constraintDraft);
                 }
               }}
-              placeholder={t("agenda.topic.constraints.placeholder")}
+              placeholder={t("agenda.topic.constraints.placeholder", { max: MAX_CONSTRAINTS })}
             />
             {constraints.length > 0 && (
               <ul aria-label={t("agenda.topic.constraints.list.aria")} className="flex flex-wrap gap-1.5">
@@ -756,13 +774,15 @@ function AddTopicCard() {
                 ))}
               </ul>
             )}
-            {constraintWarn && <p className="text-xs text-warn">{constraintWarn}</p>}
+            {constraintWarn && (
+              <p className="text-xs text-warn">{t(constraintWarn, { n: MAX_CONSTRAINTS })}</p>
+            )}
           </div>
         </section>
 
         {error && (
           <p role="alert" className="text-xs text-danger">
-            {error}
+            {"key" in error ? t(error.key) : error.text}
           </p>
         )}
 

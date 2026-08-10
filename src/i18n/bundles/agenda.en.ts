@@ -95,7 +95,7 @@ export const agendaEn: Record<keyof typeof agendaEs, string> = {
   "agenda.topic.constraints.aria": "Tags (constraints)",
   "agenda.topic.constraints.label": "Tags",
   "agenda.topic.constraints.list.aria": "Added tags",
-  "agenda.topic.constraints.placeholder": "Enter or comma to add (max 12)",
+  "agenda.topic.constraints.placeholder": "Enter or comma to add (max {max})",
   "agenda.topic.constraints.remove.aria": "Remove tag {tag}",
   "agenda.topic.form.eyebrow": "Approved topic",
   "agenda.topic.heading": "Add topic",
