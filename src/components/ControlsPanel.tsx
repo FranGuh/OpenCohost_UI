@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Card } from "../ui/Card.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../ui/Collapsible.js";
-import { ProfileSwitcher } from "./ProfileSwitcher.js";
+import { ProfileSwitcher } from "../features/perfiles/ProfileSwitcher.js";
 import { ModelCard } from "./ModelCard.js";
 import { ProviderCard } from "./ProviderCard.js";
 import { VoiceCard } from "./VoiceCard.js";

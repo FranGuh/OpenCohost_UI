@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Card } from "../ui/Card.js";
-import { Button } from "../ui/Button.js";
-import { Alert } from "../ui/Alert.js";
-import { ConfirmFooter, ConfirmToggle } from "../ui/ConfirmFooter.js";
+import { Card } from "../../ui/Card.js";
+import { Button } from "../../ui/Button.js";
+import { Alert } from "../../ui/Alert.js";
+import { ConfirmFooter, ConfirmToggle } from "../../ui/ConfirmFooter.js";
 import {
   type ProfileUpdateRequest,
   useCreateProfileMutation,
   useDeleteProfileMutation,
   useProfileDetailQuery,
   useUpdateProfileMutation
-} from "../api/profiles.js";
-import { useMemoriaPurgeMutation } from "../api/memoria.js";
+} from "../../api/profiles.js";
+import { useMemoriaPurgeMutation } from "../../api/memoria.js";
 
 export type ProfileEditorMode = "create" | "edit";
 

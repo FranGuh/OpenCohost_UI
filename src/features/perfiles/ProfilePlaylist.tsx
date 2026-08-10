@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pencil } from "lucide-react";
-import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
-import { cn } from "../lib/cn.js";
+import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
+import { cn } from "../../lib/cn.js";
 import { ProfileEditor, type ProfileEditorMode } from "./ProfileEditor.js";
 
 /** Which surface the single always-mounted ProfileEditor is showing: a new

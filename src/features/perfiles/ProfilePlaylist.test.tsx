@@ -3,10 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL } from "../test/handlers.js";
-import { useSwitchStore } from "../store/switchStore.js";
-import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL } from "../../test/handlers.js";
+import { useSwitchStore } from "../../store/switchStore.js";
+import { ProfileSwitchProvider } from "../../api/useProfileSwitch.js";
 import { ProfilePlaylist } from "./ProfilePlaylist.js";
 
 // Akira's stored prompt in the default GET /api/perfiles/:name fixture.

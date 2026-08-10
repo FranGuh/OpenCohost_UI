@@ -3,12 +3,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React, { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
+import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
   createPerfilConflictHandler,
   deletePerfilLastProfileHandler
-} from "../test/handlers.js";
+} from "../../test/handlers.js";
 import { ProfileEditor } from "./ProfileEditor.js";
 
 function renderEditor(props: Parameters<typeof ProfileEditor>[0]) {

@@ -3,10 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
-import { useSwitchStore } from "../store/switchStore.js";
-import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultStatus } from "../../test/handlers.js";
+import { useSwitchStore } from "../../store/switchStore.js";
+import { ProfileSwitchProvider } from "../../api/useProfileSwitch.js";
 import { ProfileSwitcher } from "./ProfileSwitcher.js";
 
 function renderSwitcher() {
