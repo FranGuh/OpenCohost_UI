@@ -1295,3 +1295,75 @@ That is a **pre-existing copy bug now made visible and cheap to fix** — the ES
 become `"Descartar"` and `"Notificaciones"`. Like voseo neutralization, it is a copy change and
 therefore out of scope for extraction. Added to the follow-up list; do not fix it inside an
 extraction batch.
+
+### 8.8 The command palette was missed, and why
+
+Two independent post-migration reviews found the same gap: after E6, the whole `COMMANDS`
+array in `registry.tsx` and the `*_VOCAB` arrays in `wire.ts` still held **raw Spanish
+literals with no keys at all** — roughly 85 rendered strings on the app's most-used surface.
+English mode showed them in Spanish, and a restart did not help.
+
+The cause was an instruction, not an oversight by the implementer. §4.6 had prescribed
+`label: t("…")` resolved at module init — frozen at the boot locale, but translated. The E6
+brief overrode that with "leave them literal", reasoning about tests that import those consts
+by identity. E6 flagged the contradiction in its report; it was not acted on until review.
+
+Closed in `e9d8735`, choosing per field against actual test evidence rather than assumption:
+
+| Shape | Pattern | Why |
+| --- | --- | --- |
+| `placeholder`, `section`, `resetLabel`, `actionNote`, inline `options`, `RHYTHM_OPTIONS`, the derived `*_OPTIONS`, `PRIORITY_BADGE` | key-holding, **flips live** | no test fixture constructs them |
+| `PRIORITY/LENGTH/SAFETY_VOCAB` | `labelKey` + a `get label()` accessor, **flips live** | the drift-guard test reads `entry.label`; a getter keeps that read working *and* live |
+| `title`, `description`, `summaryTitle`, `primaryLabel`, `question`, `chipLabel` | `t()` at module init, **flips on restart** | `commands.test.tsx:285-295`'s `oneStepCommand()` fixture builds a `Command` with literal strings; typing those fields as `TKey` fails `tsc` on the fixture |
+
+The six restart-scoped fields are the last thing standing between this UI and a fully live
+language switch. Unblocking them is one edit to that fixture — which is exactly the test edit
+E12 was always going to need, now reduced from "three test files" to one function.
+
+**The general lesson**: an instruction that overrides the plan needs the same scrutiny the plan
+got. A batch report that flags a contradiction is a stop condition, not a footnote.
+
+### 8.9 What the suite could not see, and now can
+
+Every one of the 1058 tests ran in the default `es` locale, so a green suite proved the Spanish
+was byte-identical and said **nothing at all** about English. Three defects lived in that blind
+spot and were found by review rather than by the gate:
+
+1. The palette gap above.
+2. `t.ts` selected its dictionary with `locale === "en" ? EN : ES`. A third locale added to
+   `UI_LOCALES` would have become selectable and persistable and then silently rendered
+   Spanish — no compile error, no runtime error. Now a `Record<UiLocale, …>`, so the omission
+   is a `tsc` failure (`6aa026b`).
+3. `useT()` returned the module-level `t`, whose identity never changes. Any `useMemo` listing
+   it as a dependency would never recompute on a flip. It now returns a fresh closure per
+   locale, which makes the ordinary React dependency rule correct for copy too — and
+   `ConversationPanel`'s `visibleTurns` memo, which bakes in a translated pending note, now
+   lists it (`6aa026b`).
+
+`src/i18n/localeFlip.test.tsx` (`1723ff9`) closes the blind spot: it drives a real component
+tree through a flip in both directions, checks a subtree mounted *after* the flip, and asserts
+the two language controls stay distinguishable in English. Baseline is now **84 files / 1061
+tests**.
+
+### 8.10 Known limits at the end of the migration
+
+Not defects — decisions, each with its cost stated:
+
+- **Six palette fields are restart-scoped**, per §8.8.
+- **`eventStore` holds resolved strings.** `lib/appEvents.ts` and `api/agenda.ts` translate at
+  emit time, so the Alertas and Logs tabs keep up to 200 rows in whatever language was active
+  when each row was written. Fixing it means storing key + vars and resolving at render — a
+  change to the store contract, and arguably wrong: a log is a record of what was said at the
+  time. Left as is, deliberately.
+- **`TEMPLATE_TOPICS`** (`AgendaPanel.tsx`) stays Spanish — §7's open question, still open.
+- **`ui.es.ts` holds three English values** — §8.7.
+- **Dead code with live keys**: `src/ui/Snackbar.tsx` has zero importers, and
+  `api/mock/fixtures.ts`'s preset labels are no longer read (`StreamPanel` remaps them through
+  `PRESET_LABEL_KEYS`). Both predate or belong to the owner's call, not this migration's.
+- **`agendaTurnOptions.test.tsx`** sits in `features/agenda/` but guards a contract owned by
+  `api/agenda.ts` and reaches into `features/commands/`. It is the one cross-domain edge the
+  domain map did not anticipate.
+- **No second gate.** `tsc` + vitest is the entire net: no ESLint, no CI workflow, no
+  pre-commit hook. Nothing detects unused exports, orphan files, or stale path strings in
+  non-TS files — which is how `scripts/optimize-boot-art.py` kept pointing at
+  `src/components/ui/BootCollage.tsx` until review caught it.
