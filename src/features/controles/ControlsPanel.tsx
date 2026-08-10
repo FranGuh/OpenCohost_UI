@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Card } from "../../ui/Card.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../../ui/Collapsible.js";
+import { useT } from "../../i18n/t.js";
 import { ProfileSwitcher } from "../perfiles/ProfileSwitcher.js";
 import { ModelCard } from "./ModelCard.js";
 import { ProviderCard } from "./ProviderCard.js";
@@ -44,23 +45,24 @@ function ControlGroup({ title, persistKey, children }: ControlGroupProps) {
 }
 
 export function ControlsPanel() {
+  const t = useT();
   return (
     <>
-      <ControlGroup title="Perfil y modelo" persistKey="controles-perfil-modelo">
+      <ControlGroup title={t("controles.groups.identity.title")} persistKey="controles-perfil-modelo">
         <ProfileSwitcher />
         <ModelCard />
         <ProviderCard />
       </ControlGroup>
-      <ControlGroup title="Voz y micrófono" persistKey="controles-voz-microfono">
+      <ControlGroup title={t("controles.groups.voice.title")} persistKey="controles-voz-microfono">
         <VoiceCard />
         <PTTCard />
       </ControlGroup>
-      <ControlGroup title="Memoria y personalización" persistKey="controles-memoria-personalizacion">
+      <ControlGroup title={t("controles.groups.memory.title")} persistKey="controles-memoria-personalizacion">
         <MemoryCard />
         <PersonalizationCard />
         <EditorialCardsCard />
       </ControlGroup>
-      <ControlGroup title="Avatar y OBS" persistKey="controles-avatar-obs">
+      <ControlGroup title={t("controles.groups.avatar.title")} persistKey="controles-avatar-obs">
         <AvatarCard />
         <ObsCard />
       </ControlGroup>

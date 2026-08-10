@@ -8,6 +8,7 @@ import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
 import { SubCollapsibleSection } from "../../ui/Collapsible.js";
 import { ApiError, ConflictError, NotFoundError, ValidationError } from "../../api/client.js";
 import { useArmCardMutation, useCardsQuery, useCreateCardMutation } from "../../api/editorialCards.js";
+import { t, useT } from "../../i18n/t.js";
 
 const TOPIC_MAX = 120;
 const SUMMARY_MAX = 1200;
@@ -40,19 +41,19 @@ function hasTooManyLines(value: string): boolean {
  * every branch on both is harmless. */
 function cardErrorMessage(error: Error | null): string {
   if (error instanceof ValidationError) {
-    return `El servidor rechazó la tarjeta: ${error.message}. Acortá el texto o repartilo en los campos.`;
+    return t("controles.editorialCards.error.validation", { message: error.message });
   }
   if (error instanceof NotFoundError) {
-    return "Esa tarjeta ya no existe. Actualizá la lista.";
+    return t("controles.editorialCards.error.notFound");
   }
   if (error instanceof ConflictError) {
-    return "Esa tarjeta ya no se puede armar (vencida o ya usada).";
+    return t("controles.editorialCards.error.conflict");
   }
   const status = error instanceof ApiError ? error.status : 0;
-  if (status === 401) return "No hay sesión de operador válida. Reabrí la app.";
-  if (status === 429) return "Demasiadas operaciones seguidas. Esperá un minuto.";
-  if (status === 503) return "La base de tarjetas no responde. Probá de nuevo en un rato.";
-  return "No se pudo completar la acción.";
+  if (status === 401) return t("controles.editorialCards.error.unauthorized");
+  if (status === 429) return t("controles.editorialCards.error.rateLimited");
+  if (status === 503) return t("controles.editorialCards.error.unavailable");
+  return t("controles.editorialCards.error.generic");
 }
 
 // Shared textarea chrome + growth policy (resize handle + inner scroll past
@@ -72,6 +73,7 @@ const textareaCompact = `${textareaBase} min-h-[64px] max-h-[160px]`;
  * not just a 422 (design D1).
  */
 export function EditorialCardsCard() {
+  const t = useT();
   const [topic, setTopic] = useState("");
   const [summary, setSummary] = useState("");
   const [streamerTake, setStreamerTake] = useState("");
@@ -134,16 +136,16 @@ export function EditorialCardsCard() {
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Tarjetas editoriales</h2>
+        <h2 className="text-sm font-bold text-foreground">{t("controles.editorialCards.card.title")}</h2>
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <SubCollapsibleSection title="Crear tarjeta" persistKey="editorial-create">
+        <SubCollapsibleSection title={t("controles.editorialCards.create.eyebrow")} persistKey="editorial-create">
           <div className="space-y-2">
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              Tema
+              {t("controles.editorialCards.topic")}
               <Input
-                aria-label="Tema"
+                aria-label={t("controles.editorialCards.topic")}
                 value={topic}
                 maxLength={TOPIC_MAX}
                 onChange={(event) => setTopic(event.target.value)}
@@ -151,9 +153,9 @@ export function EditorialCardsCard() {
             </label>
 
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              Resumen
+              {t("controles.editorialCards.summary")}
               <textarea
-                aria-label="Resumen"
+                aria-label={t("controles.editorialCards.summary")}
                 value={summary}
                 maxLength={SUMMARY_MAX}
                 onChange={(event) => setSummary(event.target.value)}
@@ -163,9 +165,9 @@ export function EditorialCardsCard() {
             </label>
 
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              Postura del streamer
+              {t("controles.editorialCards.streamerTake")}
               <textarea
-                aria-label="Postura del streamer"
+                aria-label={t("controles.editorialCards.streamerTake")}
                 value={streamerTake}
                 maxLength={TAKE_MAX}
                 onChange={(event) => setStreamerTake(event.target.value)}
@@ -175,9 +177,9 @@ export function EditorialCardsCard() {
             </label>
 
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              Contrapuntos (uno por línea)
+              {t("controles.editorialCards.counterpoints")}
               <textarea
-                aria-label="Contrapuntos (uno por línea)"
+                aria-label={t("controles.editorialCards.counterpoints")}
                 value={counterpoints}
                 onChange={(event) => setCounterpoints(event.target.value)}
                 rows={2}
@@ -186,9 +188,9 @@ export function EditorialCardsCard() {
             </label>
 
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              Ganchos de discusión (uno por línea)
+              {t("controles.editorialCards.discussionHooks")}
               <textarea
-                aria-label="Ganchos de discusión (uno por línea)"
+                aria-label={t("controles.editorialCards.discussionHooks")}
                 value={discussionHooks}
                 onChange={(event) => setDiscussionHooks(event.target.value)}
                 rows={2}
@@ -197,9 +199,9 @@ export function EditorialCardsCard() {
             </label>
 
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              Disparadores (uno por línea)
+              {t("controles.editorialCards.triggers")}
               <textarea
-                aria-label="Disparadores (uno por línea)"
+                aria-label={t("controles.editorialCards.triggers")}
                 value={triggers}
                 onChange={(event) => setTriggers(event.target.value)}
                 rows={2}
@@ -210,26 +212,26 @@ export function EditorialCardsCard() {
             <label className="flex items-center gap-2 text-[11px] font-semibold text-dim">
               <input
                 type="checkbox"
-                aria-label="De un solo uso"
+                aria-label={t("controles.editorialCards.singleUse")}
                 checked={singleUse}
                 onChange={(event) => setSingleUse(event.target.checked)}
               />
-              De un solo uso
+              {t("controles.editorialCards.singleUse")}
             </label>
 
             {anyLongLine && (
-              <p className="text-xs leading-relaxed text-warn">Cada línea puede tener hasta 240 caracteres.</p>
+              <p className="text-xs leading-relaxed text-warn">{t("controles.editorialCards.lineTooLong.hint")}</p>
             )}
             {anyTooManyLines && (
-              <p className="text-xs leading-relaxed text-warn">Solo se guardan las primeras 8 líneas.</p>
+              <p className="text-xs leading-relaxed text-warn">{t("controles.editorialCards.tooManyLines.hint")}</p>
             )}
 
             {createMutation.isError && <Alert tone="danger">{cardErrorMessage(createMutation.error)}</Alert>}
             {createMutation.data && (
               <p className="text-xs leading-relaxed text-foreground">
                 {createMutation.data.demoted
-                  ? "Guardaste cambios: la tarjeta volvió a borrador. Armala de nuevo cuando quieras."
-                  : "Tarjeta guardada como borrador. Armala cuando quieras."}
+                  ? t("controles.editorialCards.create.success.demoted")
+                  : t("controles.editorialCards.create.success")}
               </p>
             )}
 
@@ -237,35 +239,38 @@ export function EditorialCardsCard() {
               <ConfirmFooter
                 active
                 tone="neutral"
-                stages={[{ message: `Vas a crear la tarjeta "${topic.trim()}".`, advanceLabel: "Confirmar" }]}
+                stages={[
+                  {
+                    message: t("controles.editorialCards.create.confirm", { topic: topic.trim() }),
+                    advanceLabel: t("controles.editorialCards.create.confirm.action")
+                  }
+                ]}
                 onConfirm={handleConfirm}
                 onCancel={() => setConfirming(false)}
                 busy={createMutation.isPending}
               />
             ) : (
               <Button type="button" variant="outline" disabled={!canSubmit} onClick={openConfirm}>
-                Guardar tarjeta
+                {t("controles.editorialCards.create.action")}
               </Button>
             )}
           </div>
         </SubCollapsibleSection>
 
-        <SubCollapsibleSection title="Tarjetas · borrador y armadas" persistKey="editorial-list">
+        <SubCollapsibleSection title={t("controles.editorialCards.list.eyebrow")} persistKey="editorial-list">
           <div className="space-y-2">
             {cardsQuery.isError && (
               <p role="alert" className="text-xs leading-relaxed text-danger">
-                No se pudo leer la lista de tarjetas.
+                {t("controles.editorialCards.list.error")}
               </p>
             )}
             {armMutation.isError && <Alert tone="danger">{cardErrorMessage(armMutation.error)}</Alert>}
             {armMutation.data && (
-              <p className="text-xs leading-relaxed text-foreground">
-                Tarjeta armada. Kira puede usarla cuando el tema salga.
-              </p>
+              <p className="text-xs leading-relaxed text-foreground">{t("controles.editorialCards.arm.success")}</p>
             )}
 
             {visibleCards.length === 0 ? (
-              <p className="text-xs text-dim">No hay tarjetas en borrador o armadas todavía.</p>
+              <p className="text-xs text-dim">{t("controles.editorialCards.list.empty")}</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {visibleCards.map((card) => (
@@ -276,9 +281,11 @@ export function EditorialCardsCard() {
                     <span className="text-sm text-foreground">{card.topic}</span>
                     <span className="flex items-center gap-1.5">
                       <Badge tone={card.status === "armed" ? "info" : "neutral"}>
-                        {card.status === "armed" ? "armada" : "borrador"}
+                        {card.status === "armed"
+                          ? t("controles.editorialCards.status.armed")
+                          : t("controles.editorialCards.status.draft")}
                       </Badge>
-                      {card.single_use && <Badge tone="warn">de un solo uso</Badge>}
+                      {card.single_use && <Badge tone="warn">{t("controles.editorialCards.badge.singleUse")}</Badge>}
                     </span>
                     {card.status === "draft" && (
                       <Button
@@ -287,7 +294,7 @@ export function EditorialCardsCard() {
                         disabled={armMutation.isPending}
                         onClick={() => armMutation.mutate(card.id)}
                       >
-                        Armar
+                        {t("controles.editorialCards.arm.action")}
                       </Button>
                     )}
                   </li>

@@ -4,6 +4,7 @@ import { Badge } from "../../ui/Badge.js";
 import { Switch } from "../../ui/Switch.js";
 import { Button } from "../../ui/Button.js";
 import { useObsConfigQuery, useTestObsConnectionMutation, useUpdateObsConfigMutation } from "../../api/obs.js";
+import { useT } from "../../i18n/t.js";
 
 const inputClass =
   "h-9 w-40 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -21,6 +22,7 @@ const inputClass =
  * is cleared back to empty after every save, so nothing round-trips.
  */
 export function ObsCard() {
+  const t = useT();
   const { data, isError: getError } = useObsConfigQuery();
   const updateConfig = useUpdateObsConfigMutation();
   const testConnection = useTestObsConnectionMutation();
@@ -55,37 +57,37 @@ export function ObsCard() {
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">OBS</h2>
-        {updateConfig.isPending && <Badge tone="info">aplicando…</Badge>}
+        {updateConfig.isPending && <Badge tone="info">{t("controles.obs.card.pending")}</Badge>}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {getError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo leer la configuración de OBS.
+            {t("controles.obs.error.load")}
           </p>
         )}
         {updateConfig.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            {updateConfig.error?.message ?? "No se pudo guardar la configuración de OBS."}
+            {updateConfig.error?.message ?? t("controles.obs.error.save")}
           </p>
         )}
 
         {data && (
           <>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">Habilitar OBS</span>
-              <Switch checked={enabled} onChange={setEnabled} aria-label="Habilitar OBS" />
+              <span className="text-[13px] text-foreground">{t("controles.obs.enabled")}</span>
+              <Switch checked={enabled} onChange={setEnabled} aria-label={t("controles.obs.enabled")} />
             </div>
 
             <details className="border-t border-border-soft pt-3.5">
               <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-                Configuración de conexión
+                {t("controles.obs.connection.eyebrow")}
               </summary>
 
               <div className="flex flex-col gap-3.5 pt-3.5">
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <label htmlFor="obs-host" className="text-[13px] text-foreground">
-                    Host
+                    {t("controles.obs.host.label")}
                   </label>
                   <input
                     id="obs-host"
@@ -98,7 +100,7 @@ export function ObsCard() {
 
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <label htmlFor="obs-port" className="text-[13px] text-foreground">
-                    Puerto
+                    {t("controles.obs.port.label")}
                   </label>
                   <input
                     id="obs-port"
@@ -112,7 +114,7 @@ export function ObsCard() {
 
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <label htmlFor="obs-source" className="text-[13px] text-foreground">
-                    Fuente
+                    {t("controles.obs.source.label")}
                   </label>
                   <input
                     id="obs-source"
@@ -126,9 +128,9 @@ export function ObsCard() {
                 <div className="space-y-2">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                     <label htmlFor="obs-password" className="text-[13px] text-foreground">
-                      Contraseña
+                      {t("controles.obs.password.label")}
                     </label>
-                    {data.password_set && <Badge tone="neutral">configurada</Badge>}
+                    {data.password_set && <Badge tone="neutral">{t("controles.obs.password.setBadge")}</Badge>}
                   </div>
                   <input
                     id="obs-password"
@@ -136,23 +138,29 @@ export function ObsCard() {
                     autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder={data.password_set ? "Nueva contraseña (opcional)" : "Contraseña"}
+                    placeholder={
+                      data.password_set
+                        ? t("controles.obs.password.placeholder.change")
+                        : t("controles.obs.password.placeholder.new")
+                    }
                     className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   />
                 </div>
 
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <Button type="button" disabled={updateConfig.isPending} onClick={save}>
-                    Guardar
+                    {t("controles.obs.save.action")}
                   </Button>
                   <Button type="button" variant="outline" disabled={testConnection.isPending} onClick={runTest}>
-                    Probar conexión
+                    {t("controles.obs.test.action")}
                   </Button>
                 </div>
 
                 {testConnection.data && (
                   <p role="status" className={`text-xs leading-relaxed ${testConnection.data.ok ? "text-ok" : "text-danger"}`}>
-                    {testConnection.data.ok ? "Conexión exitosa." : testConnection.data.error ?? "Fallo de conexión."}
+                    {testConnection.data.ok
+                      ? t("controles.obs.test.success")
+                      : (testConnection.data.error ?? t("controles.obs.test.failure"))}
                   </p>
                 )}
               </div>

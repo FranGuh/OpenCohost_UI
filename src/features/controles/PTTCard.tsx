@@ -7,6 +7,7 @@ import { cn } from "../../lib/cn.js";
 import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../../api/ptt.js";
 import { ERROR_COPY, STATE_COPY } from "../../api/pttCopy.js";
 import { useLastReply } from "../../api/chat.js";
+import { useT } from "../../i18n/t.js";
 
 const inputClass =
   "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -37,6 +38,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 // the backend value; the shortcut later just calls the same usePttHold
 // start/stop — zero backend change. "Mapear atajo" stays disabled.
 export function PTTCard() {
+  const t = useT();
   const { state, error, start, stop } = usePttHold();
   const lastReply = useLastReply();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -66,7 +68,7 @@ export function PTTCard() {
   function saveWsUrl() {
     const trimmed = wsUrl.trim();
     if (!isValidWsScheme(trimmed)) {
-      setSchemeError("La URL debe empezar con ws:// o wss://.");
+      setSchemeError(t("controles.ptt.wsUrl.error.scheme"));
       return;
     }
     setSchemeError(null);
@@ -76,7 +78,7 @@ export function PTTCard() {
   function runWsTest() {
     const trimmed = wsUrl.trim();
     if (!isValidWsScheme(trimmed)) {
-      setSchemeError("La URL debe empezar con ws:// o wss://.");
+      setSchemeError(t("controles.ptt.wsUrl.error.scheme"));
       return;
     }
     setSchemeError(null);
@@ -174,18 +176,20 @@ export function PTTCard() {
   });
 
   const listening = state === "listening";
-  const note = error ? ERROR_COPY[error] : repliedSinceHold && state === "idle" ? "Kira respondió." : null;
+  const note = error
+    ? ERROR_COPY[error]
+    : repliedSinceHold && state === "idle"
+      ? t("controles.ptt.repliedNotice")
+      : null;
 
   return (
     <Card className="flex flex-col p-4">
       <div className="border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">PTT · Push-to-Talk</h2>
+        <h2 className="text-sm font-bold text-foreground">{t("controles.ptt.card.title")}</h2>
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Mantené el botón (o Espacio/Enter) para hablar; soltá para que Kira procese.
-        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.ptt.hold.hint")}</p>
 
         <button
           ref={buttonRef}
@@ -217,19 +221,18 @@ export function PTTCard() {
 
         <section aria-labelledby="ptt-hotkey-label" className="space-y-2">
           <span id="ptt-hotkey-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Atajo de teclado
+            {t("controles.ptt.hotkey.eyebrow")}
           </span>
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <kbd className="mono w-fit rounded-[6px] border border-border bg-card px-2 py-[3px] text-xs text-foreground">
               F10
             </kbd>
-            <Button type="button" variant="outline" disabled title="Requiere la app de escritorio">
-              Mapear atajo
+            <Button type="button" variant="outline" disabled title={t("controles.ptt.hotkey.mapButton.hint")}>
+              {t("controles.ptt.hotkey.mapButton.action")}
             </Button>
           </div>
           <p role="status" className="text-xs text-muted-foreground">
-            Mapear atajo requiere la app de escritorio (Tauri) — un tab de navegador no puede registrar un atajo
-            global.
+            {t("controles.ptt.hotkey.desktopOnly.hint")}
           </p>
         </section>
 
@@ -239,13 +242,13 @@ export function PTTCard() {
           </span>
 
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">URL activa</span>
-            <span className="mono text-[11px] text-dim">{activeWsUrl ?? "sin configurar"}</span>
+            <span className="text-[13px] text-foreground">{t("controles.ptt.wsUrl.active.label")}</span>
+            <span className="mono text-[11px] text-dim">{activeWsUrl ?? t("controles.ptt.wsUrl.unset")}</span>
           </div>
 
           <div className="flex flex-col gap-1.5">
             <label htmlFor="ptt-ws-url" className="text-[13px] text-foreground">
-              URL de conexión
+              {t("controles.ptt.wsUrl.input.label")}
             </label>
             <input
               id="ptt-ws-url"
@@ -253,26 +256,26 @@ export function PTTCard() {
               inputMode="url"
               value={wsUrl}
               onChange={(e) => onWsUrlChange(e.target.value)}
-              placeholder="ws://127.0.0.1:9090"
+              placeholder={t("controles.ptt.wsUrl.input.placeholder")}
               className={inputClass}
             />
           </div>
 
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <Button type="button" disabled={updateWsConfig.isPending} onClick={saveWsUrl}>
-              Guardar
+              {t("controles.ptt.wsUrl.save.action")}
             </Button>
             <Button type="button" variant="outline" disabled={testWsConnection.isPending} onClick={runWsTest}>
-              Probar conexión
+              {t("controles.ptt.wsUrl.test.action")}
             </Button>
           </div>
 
           {schemeError && <Alert tone="warn">{schemeError}</Alert>}
           {updateWsConfig.isError && (
-            <Alert tone="danger">{updateWsConfig.error?.message ?? "No se pudo guardar la URL de LiveAudio."}</Alert>
+            <Alert tone="danger">{updateWsConfig.error?.message ?? t("controles.ptt.wsUrl.save.error")}</Alert>
           )}
           {testWsConnection.isError && (
-            <Alert tone="danger">{testWsConnection.error?.message ?? "No se pudo probar la conexión con LiveAudio."}</Alert>
+            <Alert tone="danger">{testWsConnection.error?.message ?? t("controles.ptt.wsUrl.test.error")}</Alert>
           )}
           {testWsConnection.data && (
             <Alert tone={testWsConnection.data.ok ? "ok" : "danger"}>{testWsConnection.data.detail}</Alert>

@@ -15,6 +15,7 @@ import {
   usePersonalizationQuery,
   useUpdatePersonalizationMutation
 } from "../../api/personalization.js";
+import { useT } from "../../i18n/t.js";
 
 type PersonalizationForm = {
   enabled: boolean;
@@ -50,6 +51,7 @@ const SAVE_BUTTON_CLASS =
  * confirm/cancel row.
  */
 export function PersonalizationCard() {
+  const t = useT();
   const { data, isError: getError } = usePersonalizationQuery();
   const updateMutation = useUpdatePersonalizationMutation();
   const clearMutation = useClearPersonalizationMutation();
@@ -78,44 +80,44 @@ export function PersonalizationCard() {
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Personalización</h2>
-        {updateMutation.isPending && <Badge tone="info">guardando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("controles.personalization.card.title")}</h2>
+        {updateMutation.isPending && <Badge tone="info">{t("controles.personalization.card.pending")}</Badge>}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {getError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            No se pudo leer la personalización.
+            {t("controles.personalization.error.load")}
           </p>
         )}
         {updateMutation.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            {updateMutation.error?.message ?? "No se pudo guardar la personalización."}
+            {updateMutation.error?.message ?? t("controles.personalization.error.save")}
           </p>
         )}
         {clearMutation.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            {clearMutation.error?.message ?? "No se pudo borrar la personalización."}
+            {clearMutation.error?.message ?? t("controles.personalization.error.clear")}
           </p>
         )}
 
         {data && (
           <>
-            <SubCollapsibleSection title="Tus datos" persistKey="personalization-form">
+            <SubCollapsibleSection title={t("controles.personalization.form.eyebrow")} persistKey="personalization-form">
               <div className="flex flex-col gap-3.5">
                 <section className="grid grid-cols-[1fr_auto] items-center gap-3">
-                  <span className="text-[13px] text-foreground">Habilitar personalización</span>
+                  <span className="text-[13px] text-foreground">{t("controles.personalization.enabled")}</span>
                   <Switch
-                    aria-label="Habilitar personalización"
+                    aria-label={t("controles.personalization.enabled")}
                     checked={form.enabled}
                     onChange={(checked) => setForm((prev) => ({ ...prev, enabled: checked }))}
                   />
                 </section>
 
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-                  {`Apodo (máx. ${PERSONALIZATION_NICKNAME_MAX})`}
+                  {t("controles.personalization.nickname.label", { max: PERSONALIZATION_NICKNAME_MAX })}
                   <Input
-                    aria-label="Apodo"
+                    aria-label={t("controles.personalization.nickname.aria")}
                     value={form.nickname}
                     maxLength={PERSONALIZATION_NICKNAME_MAX}
                     onChange={(event) => setForm((prev) => ({ ...prev, nickname: event.target.value }))}
@@ -123,9 +125,9 @@ export function PersonalizationCard() {
                 </label>
 
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-                  {`Ocupación (máx. ${PERSONALIZATION_OCCUPATION_MAX})`}
+                  {t("controles.personalization.occupation.label", { max: PERSONALIZATION_OCCUPATION_MAX })}
                   <Input
-                    aria-label="Ocupación"
+                    aria-label={t("controles.personalization.occupation.aria")}
                     value={form.occupation}
                     maxLength={PERSONALIZATION_OCCUPATION_MAX}
                     onChange={(event) => setForm((prev) => ({ ...prev, occupation: event.target.value }))}
@@ -133,9 +135,9 @@ export function PersonalizationCard() {
                 </label>
 
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-                  {`Intereses (máx. ${PERSONALIZATION_INTERESTS_MAX})`}
+                  {t("controles.personalization.interests.label", { max: PERSONALIZATION_INTERESTS_MAX })}
                   <Input
-                    aria-label="Intereses"
+                    aria-label={t("controles.personalization.interests.aria")}
                     value={form.interests}
                     maxLength={PERSONALIZATION_INTERESTS_MAX}
                     onChange={(event) => setForm((prev) => ({ ...prev, interests: event.target.value }))}
@@ -143,9 +145,9 @@ export function PersonalizationCard() {
                 </label>
 
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-                  {`Instrucciones personalizadas (máx. ${PERSONALIZATION_INSTRUCTIONS_MAX})`}
+                  {t("controles.personalization.instructions.label", { max: PERSONALIZATION_INSTRUCTIONS_MAX })}
                   <textarea
-                    aria-label="Instrucciones personalizadas"
+                    aria-label={t("controles.personalization.instructions.aria")}
                     value={form.custom_instructions}
                     maxLength={PERSONALIZATION_INSTRUCTIONS_MAX}
                     onChange={(event) => setForm((prev) => ({ ...prev, custom_instructions: event.target.value }))}
@@ -161,7 +163,9 @@ export function PersonalizationCard() {
                     disabled={updateMutation.isPending}
                     onClick={() => updateMutation.mutate(form)}
                   >
-                    {updateMutation.isPending ? "Guardando…" : "Guardar"}
+                    {updateMutation.isPending
+                      ? t("controles.personalization.save.pending")
+                      : t("controles.personalization.save.action")}
                   </button>
                 </div>
               </div>
@@ -170,16 +174,19 @@ export function PersonalizationCard() {
             {/* Destructive group defaults CLOSED — a distinct header title
                 ("Borrar datos guardados") avoids colliding with the confirm
                 footer's own "Borrar personalización" advance button. */}
-            <SubCollapsibleSection title="Borrar datos guardados" persistKey="personalization-clear" defaultOpen={false}>
+            <SubCollapsibleSection
+              title={t("controles.personalization.clear.eyebrow")}
+              persistKey="personalization-clear"
+              defaultOpen={false}
+            >
               {confirmingClear ? (
                 <ConfirmFooter
                   active
                   stages={[
                     {
-                      message:
-                        "Esto borra el apodo, ocupación, intereses e instrucciones guardados. No se puede deshacer.",
-                      acknowledgment: "Sí, entiendo",
-                      advanceLabel: "Borrar personalización"
+                      message: t("controles.personalization.clear.confirm"),
+                      acknowledgment: t("controles.personalization.clear.ack"),
+                      advanceLabel: t("controles.personalization.clear.confirm.action")
                     }
                   ]}
                   onConfirm={handleConfirmClear}
@@ -188,16 +195,14 @@ export function PersonalizationCard() {
                 />
               ) : (
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                  <p className="text-xs leading-relaxed text-warn">
-                    Borra el apodo, ocupación, intereses e instrucciones guardados; no se puede deshacer.
-                  </p>
+                  <p className="text-xs leading-relaxed text-warn">{t("controles.personalization.clear.hint")}</p>
                   <Button
                     type="button"
                     variant="outline"
                     disabled={clearMutation.isPending}
                     onClick={() => setConfirmingClear(true)}
                   >
-                    Limpiar
+                    {t("controles.personalization.clear.action")}
                   </Button>
                 </div>
               )}

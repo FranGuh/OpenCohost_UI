@@ -8,11 +8,12 @@ import { Badge } from "../../ui/Badge.js";
 import { Select } from "../../ui/Select.js";
 import { Button } from "../../ui/Button.js";
 import { cn } from "../../lib/cn.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
-const TIER_LABELS: Record<string, string> = {
-  quality: "Quality",
-  balanced: "Balanced",
-  fast: "Fast ⚡"
+const TIER_LABELS: Record<string, TKey> = {
+  quality: "controles.model.tier.quality",
+  balanced: "controles.model.tier.balanced",
+  fast: "controles.model.tier.fast"
 };
 
 function matchesCurrentModel(status: StatusResponse, target: string): boolean {
@@ -35,6 +36,7 @@ function matchesCurrentModel(status: StatusResponse, target: string): boolean {
  * useMockCommand user in this card.
  */
 export function ModelCard() {
+  const t = useT();
   const { data, isError: modelsError } = useModelsQuery();
   const modelCommand = useEngineCommand<string>(matchesCurrentModel);
   const tierCommand = useEngineCommand<string>();
@@ -71,23 +73,26 @@ export function ModelCard() {
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Modelo</h2>
-        <Badge tone={pending ? "info" : "ok"}>{pending ? "aplicando…" : "instalado"}</Badge>
+        <h2 className="text-sm font-bold text-foreground">{t("controles.model.card.title")}</h2>
+        <Badge tone={pending ? "info" : "ok"}>
+          {pending ? t("controles.model.card.pending") : t("controles.model.card.installed")}
+        </Badge>
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {(errorMessage || modelsError) && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            {errorMessage ?? "No se pudo leer el estado del modelo."}
+            {errorMessage ?? t("controles.model.error.load")}
           </p>
         )}
 
         <section aria-labelledby="model-select-label" className="space-y-2">
           <p className="text-xs text-muted-foreground mb-2">
-            Modelo activo ahora: <span className="mono text-foreground">{data?.current_model ?? "—"}</span>
+            {t("controles.model.current.label")}
+            <span className="mono text-foreground">{data?.current_model ?? "—"}</span>
           </p>
           <span id="model-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Modelo Activo
+            {t("controles.model.select.eyebrow")}
           </span>
           {/* Cuando el modelo es cloud no lo muestra,se ve vacio, el select no tiene diseño como los posteriores */}
           <Select
@@ -112,12 +117,13 @@ export function ModelCard() {
 
         <section aria-labelledby="tier-label" className="space-y-2">
           <span id="tier-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Tier LLM manual
+            {t("controles.model.tier.eyebrow")}
           </span>
           <div role="group" aria-labelledby="tier-label" className="grid gap-[6px]">
             {Object.entries(data?.tiers ?? {}).map(([tierId, modelId]) => {
               const isActive = tierId === activeTierId;
               const tierModelLabel = data?.catalog[modelId]?.display ?? modelId;
+              const tierLabelKey = TIER_LABELS[tierId];
               return (
                 <button
                   key={tierId}
@@ -133,21 +139,21 @@ export function ModelCard() {
                   )}
                 >
                   <span>
-                    {TIER_LABELS[tierId] ?? tierId} · {tierModelLabel}
+                    {tierLabelKey ? t(tierLabelKey) : tierId} · {tierModelLabel}
                   </span>
-                  {isActive && <span className="text-[12px] font-semibold text-info">activo</span>}
+                  {isActive && (
+                    <span className="text-[12px] font-semibold text-info">{t("controles.model.tier.activeBadge")}</span>
+                  )}
                 </button>
               );
             })}
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            El tier cambia solo el modelo de próximos pedidos; perfil y memoria se conservan.
-          </p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.model.tier.hint")}</p>
         </section>
 
         <section aria-labelledby="download-label" className="space-y-2">
           <span id="download-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Descargar modelo
+            {t("controles.model.download.eyebrow")}
           </span>
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <span className="text-[13px] text-foreground">{selectedEntry?.display ?? selectedModelId ?? "—"}</span>
@@ -157,7 +163,7 @@ export function ModelCard() {
               disabled={downloadCommand.pending}
               onClick={() => void downloadCommand.run()}
             >
-              Descargar
+              {t("controles.model.download.action")}
             </Button>
           </div>
           {downloadCommand.pending && (
@@ -165,9 +171,7 @@ export function ModelCard() {
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                 <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
               </div>
-              <p role="status" className="text-xs text-muted-foreground">
-                Descargando (simulado)… la descarga real necesita el backend.
-              </p>
+              <p role="status" className="text-xs text-muted-foreground">{t("controles.model.download.pending")}</p>
             </>
           )}
         </section>

@@ -6,24 +6,25 @@ import { Select } from "../../ui/Select.js";
 import { Switch } from "../../ui/Switch.js";
 import { useTtsConfigQuery } from "../../api/tts.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
+import { useT, type TKey } from "../../i18n/t.js";
 
 // Piper voice registry mirrored from opencohost/config/settings.py::PIPER_VOICES
 // — no endpoint exposes this catalog (GET /api/tts/config returns only the
 // SELECTED piper_voice key), so the option list is hand-kept in sync here.
 // ponytail: keep in sync manually if PIPER_VOICES changes.
 const VOICE_OPTIONS = [
-  { id: "argentina", label: "🇦🇷 Argentina" },
-  { id: "neutral", label: "🌎 Neutral" }
-] as const;
+  { id: "argentina", labelKey: "controles.voice.language.argentina" },
+  { id: "neutral", labelKey: "controles.voice.language.neutral" }
+] as const satisfies ReadonlyArray<{ id: string; labelKey: TKey }>;
 
 // Piper speed presets mirrored from opencohost/ui/tts_speed_control.py::SPEED_PRESETS
 // (length_scale — higher is slower). ponytail: keep in sync manually.
 const SPEED_OPTIONS = [
-  { value: "fast", label: "Rápida" },
-  { value: "medium", label: "Media" },
-  { value: "calm", label: "Calma" },
-  { value: "slow", label: "Lenta" }
-] as const;
+  { value: "fast", labelKey: "controles.voice.speed.fast" },
+  { value: "medium", labelKey: "controles.voice.speed.medium" },
+  { value: "calm", labelKey: "controles.voice.speed.calm" },
+  { value: "slow", labelKey: "controles.voice.speed.slow" }
+] as const satisfies ReadonlyArray<{ value: string; labelKey: TKey }>;
 type SpeedOption = (typeof SPEED_OPTIONS)[number]["value"];
 const SPEED_SCALE: Record<SpeedOption, number> = { fast: 1.0, medium: 1.15, calm: 1.3, slow: 1.45 };
 
@@ -37,9 +38,9 @@ function closestSpeedOption(scale: number): SpeedOption {
 // (onvalue="ligero", offvalue="pesado") — "pesado" (heavy) is gated by
 // heavy_available (EXPERIMENTAL_HEAVY_TTS_ENABLED).
 const ENGINE_OPTIONS = [
-  { id: "ligero", label: "Ligero (Edge-TTS)" },
-  { id: "pesado", label: "Pesado (Heavy)" }
-] as const;
+  { id: "ligero", labelKey: "controles.voice.engine.light" },
+  { id: "pesado", labelKey: "controles.voice.engine.heavy" }
+] as const satisfies ReadonlyArray<{ id: string; labelKey: TKey }>;
 
 /**
  * Voz de Kira card — idioma, modo local, velocidad, motor TTS, all wired to
@@ -51,6 +52,7 @@ const ENGINE_OPTIONS = [
  * pattern as ModelCard/ProfileSwitcher.
  */
 export function VoiceCard() {
+  const t = useT();
   const { data, isError: configError } = useTtsConfigQuery();
   const voiceCommand = useEngineCommand<string>();
   const localOnlyCommand = useEngineCommand<boolean>();
@@ -109,65 +111,65 @@ export function VoiceCard() {
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">Voz de Kira</h2>
-        {pending && <Badge tone="info">aplicando…</Badge>}
+        <h2 className="text-sm font-bold text-foreground">{t("controles.voice.card.title")}</h2>
+        {pending && <Badge tone="info">{t("controles.voice.card.pending")}</Badge>}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         {(errorMessage || configError) && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
-            {errorMessage ?? "No se pudo leer la configuración de voz."}
+            {errorMessage ?? t("controles.voice.error.load")}
           </p>
         )}
 
         <section aria-labelledby="voice-select-label" className="space-y-2">
           <span id="voice-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Idioma
+            {t("controles.voice.languageSelect")}
           </span>
           <Select
-            aria-label="Idioma"
+            aria-label={t("controles.voice.languageSelect")}
             value={voice}
             disabled={voiceCommand.pending}
-            options={VOICE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+            options={VOICE_OPTIONS.map((option) => ({ value: option.id, label: t(option.labelKey) }))}
             onChange={applyVoice}
           />
         </section>
 
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-          <span className="text-[13px] text-foreground">Solo TTS local (Piper)</span>
+          <span className="text-[13px] text-foreground">{t("controles.voice.localOnly")}</span>
           <Switch
             checked={localOnly}
             disabled={localOnlyCommand.pending}
             onChange={(checked) => applyLocalOnly(checked)}
-            aria-label="Solo TTS local (Piper)"
+            aria-label={t("controles.voice.localOnly")}
           />
         </div>
 
         <section aria-labelledby="speed-label" className="space-y-1.5 flex items-center space-x-3">
           <span id="speed-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Velocidad
+            {t("controles.voice.speed.eyebrow")}
           </span>
           <Segmented
-            options={SPEED_OPTIONS}
+            options={SPEED_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
             value={speed}
             className="flex items-center gap-1.5 align-center justify-end"
             disabled={speedCommand.pending}
             onChange={(value) => applySpeed(value)}
-            ariaLabel="Velocidad de la voz"
+            ariaLabel={t("controles.voice.speed.aria")}
           />
         </section>
 
         <section aria-labelledby="engine-select-label" className="space-y-2">
           <span id="engine-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            Motor TTS
+            {t("controles.voice.engineSelect")}
           </span>
           <Select
-            aria-label="Motor TTS"
+            aria-label={t("controles.voice.engineSelect")}
             value={engine}
             disabled={engineCommand.pending}
             options={ENGINE_OPTIONS.map((option) => ({
               value: option.id,
-              label: option.label,
+              label: t(option.labelKey),
               disabled: option.id === "pesado" && !data?.heavy_available
             }))}
             onChange={applyEngine}
@@ -175,13 +177,12 @@ export function VoiceCard() {
         </section>
 
         <p className="text-xs leading-relaxed text-muted-foreground">
-          {localOnly
-            ? "TTS 100% local (Piper) — sin conexión a internet ni datos salientes."
-            : "Modo nube desactivado por ahora — Piper local sigue siendo el fallback."}
+          {localOnly ? t("controles.voice.mode.local") : t("controles.voice.mode.cloud")}
         </p>
         <p className="text-xs leading-relaxed text-dim">
-          Voz de referencia (reference-voice) requiere{" "}
-          <span className="mono">EXPERIMENTAL_HEAVY_TTS_ENABLED</span> y hardware compatible — no disponible acá.
+          {t("controles.voice.referenceVoice.hint.prefix")}{" "}
+          <span className="mono">EXPERIMENTAL_HEAVY_TTS_ENABLED</span>
+          {t("controles.voice.referenceVoice.hint.suffix")}
         </p>
       </div>
     </Card>
