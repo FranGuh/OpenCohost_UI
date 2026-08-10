@@ -6,12 +6,12 @@ import type {
   PointerEvent as ReactPointerEvent
 } from "react";
 import { ChevronDown, MessageSquareOff, Mic, MicOff } from "lucide-react";
-import { Alert } from "./ui/Alert.js";
+import { Alert } from "../ui/Alert.js";
 import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
-import { Input } from "./ui/Input.js";
-import { KiraFace } from "./ui/KiraFace.js";
-import { Markdown } from "./ui/Markdown.js";
-import { Tab, TabList, TabPanel, Tabs } from "./ui/Tabs.js";
+import { Input } from "../ui/Input.js";
+import { KiraFace } from "../ui/KiraFace.js";
+import { Markdown } from "../ui/Markdown.js";
+import { Tab, TabList, TabPanel, Tabs } from "../ui/Tabs.js";
 import { matchCommands } from "./commands/registry.js";
 import { LogsPanel } from "./commands/LogsPanel.js";
 import { useLogsPref } from "../store/useLogsPref.js";

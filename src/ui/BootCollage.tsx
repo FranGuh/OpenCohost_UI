@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 /**
  * The eight optimized boot tiles (public/boot/kira-01.webp … kira-08.webp).

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEventHandler, SelectHTMLAttributes } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 export interface SelectOption {
   value: string;

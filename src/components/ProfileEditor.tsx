@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Card } from "./ui/Card.js";
-import { Button } from "./ui/Button.js";
-import { Alert } from "./ui/Alert.js";
-import { ConfirmFooter, ConfirmToggle } from "./ui/ConfirmFooter.js";
+import { Card } from "../ui/Card.js";
+import { Button } from "../ui/Button.js";
+import { Alert } from "../ui/Alert.js";
+import { ConfirmFooter, ConfirmToggle } from "../ui/ConfirmFooter.js";
 import {
   type ProfileUpdateRequest,
   useCreateProfileMutation,

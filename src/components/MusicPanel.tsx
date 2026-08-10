@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Card } from "./ui/Card.js";
-import { Badge } from "./ui/Badge.js";
-import type { BadgeTone } from "./ui/Badge.js";
-import { Button } from "./ui/Button.js";
-import { Slider } from "./ui/Slider.js";
+import { Card } from "../ui/Card.js";
+import { Badge } from "../ui/Badge.js";
+import type { BadgeTone } from "../ui/Badge.js";
+import { Button } from "../ui/Button.js";
+import { Slider } from "../ui/Slider.js";
 import { useMockCommand } from "../api/mock/useMockCommand.js";
 import {
   useDeleteMusicTrackMutation,

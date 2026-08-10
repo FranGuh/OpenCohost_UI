@@ -1,5 +1,5 @@
 import { Button } from "./Button.js";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 export interface SegmentedOption<T extends string> {
   value: T;

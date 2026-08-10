@@ -1,5 +1,5 @@
 import type { StatusResponse } from "../api/client.js";
-import type { BadgeTone } from "./ui/Badge.js";
+import type { BadgeTone } from "../ui/Badge.js";
 
 export type AvatarState =
   | "idle"

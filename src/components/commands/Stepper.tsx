@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cn } from "../../lib/cn.js";
-import { Button } from "../ui/Button.js";
+import { Button } from "../../ui/Button.js";
 import {
   ActionRow,
   AnswerChip,

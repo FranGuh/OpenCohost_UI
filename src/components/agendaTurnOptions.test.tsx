@@ -6,7 +6,7 @@ import { AGENDA_TURN_OPTIONS } from "../api/agenda.js";
 import { AgendaPanel } from "./AgendaPanel.js";
 import { COMMANDS } from "./commands/registry.js";
 import type { StepDef } from "./commands/primitives.js";
-import { ToastProvider } from "./ui/Toast.js";
+import { ToastProvider } from "../ui/Toast.js";
 
 /**
  * Drift guard for the verified "Intentos por tema" defect: the Tauri front used

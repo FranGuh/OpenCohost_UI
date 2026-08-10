@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useStatusQuery } from "../api/status.js";
 import { useLastReply } from "../api/chat.js";
-import { Badge } from "./ui/Badge.js";
-import { Switch } from "./ui/Switch.js";
+import { Badge } from "../ui/Badge.js";
+import { Switch } from "../ui/Switch.js";
 import { AVATAR_LABEL, deriveAvatarState } from "./kiraState.js";
 import { cn } from "../lib/cn.js";
 

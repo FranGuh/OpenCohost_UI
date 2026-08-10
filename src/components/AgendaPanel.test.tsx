@@ -23,7 +23,7 @@ import {
   defaultCohostProfiles
 } from "../test/handlers.js";
 import { AgendaPanel } from "./AgendaPanel.js";
-import { ToastProvider } from "./ui/Toast.js";
+import { ToastProvider } from "../ui/Toast.js";
 
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

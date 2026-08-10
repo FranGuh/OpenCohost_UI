@@ -1,4 +1,4 @@
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 export interface SwitchProps {
   checked: boolean;

@@ -1,6 +1,6 @@
 import { createContext, useContext, useId } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 // The `inert` string-attribute idiom (inert="" present / inert={undefined}
 // absent) and its `declare module "react"` augmentation already live in

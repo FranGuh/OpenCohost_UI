@@ -2,9 +2,9 @@ import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import { cn } from "../../lib/cn.js";
-import { Button } from "../ui/Button.js";
-import { Select } from "../ui/Select.js";
-import { Segmented } from "../ui/Segmented.js";
+import { Button } from "../../ui/Button.js";
+import { Select } from "../../ui/Select.js";
+import { Segmented } from "../../ui/Segmented.js";
 import { errorCopy } from "./wire.js";
 
 /**

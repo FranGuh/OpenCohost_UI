@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useToast } from "./ui/Toast.js";
+import { useToast } from "../ui/Toast.js";
 import { setToastSink, subscribeMutationEvents } from "../lib/appEvents.js";
 import { useServerEventLog } from "../api/events.js";
 import { usePttServerSignal } from "../api/ptt.js";

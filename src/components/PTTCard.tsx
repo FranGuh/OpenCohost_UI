@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { Card } from "./ui/Card.js";
-import { Button } from "./ui/Button.js";
-import { Alert } from "./ui/Alert.js";
+import { Card } from "../ui/Card.js";
+import { Button } from "../ui/Button.js";
+import { Alert } from "../ui/Alert.js";
 import { cn } from "../lib/cn.js";
 import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../api/ptt.js";
 import { ERROR_COPY, STATE_COPY } from "../api/pttCopy.js";

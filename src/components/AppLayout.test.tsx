@@ -6,7 +6,7 @@ import { useSwitchStore } from "../store/switchStore.js";
 import { useWelcomeStore } from "../store/welcomeStore.js";
 import { AppLayout } from "./AppLayout.js";
 import { TitleBar } from "./TitleBar.js";
-import { ToastProvider } from "./ui/Toast.js";
+import { ToastProvider } from "../ui/Toast.js";
 
 beforeEach(() => {
   useSwitchStore.setState({ pendingSwitch: null });

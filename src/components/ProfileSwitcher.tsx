@@ -1,10 +1,10 @@
 import { useState } from "react";
 import type { ChangeEvent } from "react";
 import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
-import { Card } from "./ui/Card.js";
-import { Badge } from "./ui/Badge.js";
-import { Select } from "./ui/Select.js";
-import { Button } from "./ui/Button.js";
+import { Card } from "../ui/Card.js";
+import { Badge } from "../ui/Badge.js";
+import { Select } from "../ui/Select.js";
+import { Button } from "../ui/Button.js";
 import { ProfileEditor } from "./ProfileEditor.js";
 
 /**

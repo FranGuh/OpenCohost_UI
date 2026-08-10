@@ -1,4 +1,4 @@
-import { Button } from "../components/ui/Button.js";
+import { Button } from "../ui/Button.js";
 import { THEME_NAMES, useTheme } from "./useTheme.js";
 import type { ThemeName } from "./useTheme.js";
 

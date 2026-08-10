@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { CircleCheck, CircleDashed, Info, OctagonAlert, TriangleAlert } from "lucide-react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 export type AlertTone = "ok" | "warn" | "danger" | "info" | "neutral";
 

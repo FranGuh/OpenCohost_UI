@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { ReactNode } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 // @types/react 18.3.x doesn't type the native `inert` attribute in its stable
 // HTMLAttributes (only react/experimental.d.ts has it), and react-dom 18

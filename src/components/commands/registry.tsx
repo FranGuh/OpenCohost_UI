@@ -20,10 +20,10 @@ import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
 import { pickRotationTrack } from "../MusicPanel.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
-import { Badge } from "../ui/Badge.js";
-import type { BadgeTone } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Select } from "../ui/Select.js";
+import { Badge } from "../../ui/Badge.js";
+import type { BadgeTone } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Select } from "../../ui/Select.js";
 import { type StepDef, type StepValue } from "./primitives.js";
 import {
   LENGTH_VOCAB,

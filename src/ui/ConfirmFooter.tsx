@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { Alert } from "./Alert.js";
 import { Button } from "./Button.js";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 const TOGGLE_TONE = {
   // The mandatory acknowledgment gate ("Sí, entiendo").

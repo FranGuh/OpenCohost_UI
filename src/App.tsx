@@ -2,7 +2,7 @@ import { AppLayout } from "./components/AppLayout.js";
 import { BackendGate } from "./components/BackendGate.js";
 import { EventBridge } from "./components/EventBridge.js";
 import { TitleBar } from "./components/TitleBar.js";
-import { ToastProvider } from "./components/ui/Toast.js";
+import { ToastProvider } from "./ui/Toast.js";
 
 export function App() {
   return (

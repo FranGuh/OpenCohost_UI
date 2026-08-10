@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 /* ------------------------------------------------------------------ */
 /*  Snackbar — bottom-anchored feedback bar                           */

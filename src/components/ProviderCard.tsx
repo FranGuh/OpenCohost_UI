@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Card } from "./ui/Card.js";
-import { Badge } from "./ui/Badge.js";
-import { Switch } from "./ui/Switch.js";
-import { Button } from "./ui/Button.js";
-import { Select } from "./ui/Select.js";
-import { Segmented } from "./ui/Segmented.js";
-import { Alert } from "./ui/Alert.js";
-import { ConfirmFooter } from "./ui/ConfirmFooter.js";
+import { Card } from "../ui/Card.js";
+import { Badge } from "../ui/Badge.js";
+import { Switch } from "../ui/Switch.js";
+import { Button } from "../ui/Button.js";
+import { Select } from "../ui/Select.js";
+import { Segmented } from "../ui/Segmented.js";
+import { Alert } from "../ui/Alert.js";
+import { ConfirmFooter } from "../ui/ConfirmFooter.js";
 import { ApiError } from "../api/client.js";
 import {
   LLM_PROVIDER_PRESETS,

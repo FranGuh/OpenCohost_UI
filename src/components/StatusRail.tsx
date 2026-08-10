@@ -5,9 +5,9 @@ import type { LucideIcon } from "lucide-react";
 import { useStatusQuery } from "../api/status.js";
 import type { StatusResponse } from "../api/client.js";
 import { useTriggerCloudProbe } from "../api/llmProvider.js";
-import type { BadgeTone } from "./ui/Badge.js";
-import { Alert } from "./ui/Alert.js";
-import { Button } from "./ui/Button.js";
+import type { BadgeTone } from "../ui/Badge.js";
+import { Alert } from "../ui/Alert.js";
+import { Button } from "../ui/Button.js";
 import { cn } from "../lib/cn.js";
 
 // health.overall_status/*_status are untyped strings on the backend (no

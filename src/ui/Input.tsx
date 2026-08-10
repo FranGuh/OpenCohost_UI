@@ -1,5 +1,5 @@
 import type { InputHTMLAttributes, ReactNode } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   /** Optional node rendered inside the input wrapper, trailing the field. */

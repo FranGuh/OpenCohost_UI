@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Card } from "./ui/Card.js";
-import { Badge } from "./ui/Badge.js";
-import { Switch } from "./ui/Switch.js";
-import { Button } from "./ui/Button.js";
+import { Card } from "../ui/Card.js";
+import { Badge } from "../ui/Badge.js";
+import { Switch } from "../ui/Switch.js";
+import { Button } from "../ui/Button.js";
 import { useObsConfigQuery, useTestObsConnectionMutation, useUpdateObsConfigMutation } from "../api/obs.js";
 
 const inputClass =

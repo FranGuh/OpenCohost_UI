@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import { cn } from "../../lib/cn.js";
+import { cn } from "../lib/cn.js";
 
 /** Token-styled surface. `--surface-blur` is `none` on cockpit/studio and a
  * real backdrop blur on aurora (glassy) — applied via inline style since
