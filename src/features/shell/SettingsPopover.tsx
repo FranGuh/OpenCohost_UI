@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { getI18nState, putI18nLocale, type I18nStateResponse } from "../api/i18n.js";
-import { ThemeSwitcher } from "../theme/ThemeSwitcher.js";
-import { useDensity } from "../theme/useDensity.js";
-import { ALERT_STYLES, useAlertStyle } from "../theme/useAlertStyle.js";
-import { useLogsPref } from "../store/useLogsPref.js";
-import { Alert } from "../ui/Alert.js";
-import { Segmented } from "../ui/Segmented.js";
-import { Select } from "../ui/Select.js";
-import { Switch } from "../ui/Switch.js";
+import { getI18nState, putI18nLocale, type I18nStateResponse } from "../../api/i18n.js";
+import { ThemeSwitcher } from "../../theme/ThemeSwitcher.js";
+import { useDensity } from "../../theme/useDensity.js";
+import { ALERT_STYLES, useAlertStyle } from "../../theme/useAlertStyle.js";
+import { useLogsPref } from "../../store/useLogsPref.js";
+import { Alert } from "../../ui/Alert.js";
+import { Segmented } from "../../ui/Segmented.js";
+import { Select } from "../../ui/Select.js";
+import { Switch } from "../../ui/Switch.js";
 
 const ALERT_STYLE_OPTIONS = [
   { value: "sereno", label: "Sereno" },

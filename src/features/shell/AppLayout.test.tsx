@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { useSwitchStore } from "../store/switchStore.js";
-import { useWelcomeStore } from "../store/welcomeStore.js";
+import { useSwitchStore } from "../../store/switchStore.js";
+import { useWelcomeStore } from "../../store/welcomeStore.js";
 import { AppLayout } from "./AppLayout.js";
 import { TitleBar } from "./TitleBar.js";
-import { ToastProvider } from "../ui/Toast.js";
+import { ToastProvider } from "../../ui/Toast.js";
 
 beforeEach(() => {
   useSwitchStore.setState({ pendingSwitch: null });

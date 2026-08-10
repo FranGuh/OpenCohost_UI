@@ -17,7 +17,7 @@ vi.mock("./lib/backendBootstrap.js", () => ({
   getBackendBootstrapError: () => bootstrapMocks.getBackendBootstrapError()
 }));
 
-vi.mock("./components/AppLayout.js", () => ({
+vi.mock("./features/shell/AppLayout.js", () => ({
   AppLayout: () => React.createElement("main", null, "application shell")
 }));
 

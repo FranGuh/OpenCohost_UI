@@ -3,9 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
-import { useWelcomeStore } from "../store/welcomeStore.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultStatus } from "../../test/handlers.js";
+import { useWelcomeStore } from "../../store/welcomeStore.js";
 import { MainStage } from "./MainStage.js";
 
 beforeEach(() => {

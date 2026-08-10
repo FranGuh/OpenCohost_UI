@@ -4,13 +4,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
+import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
   defaultStatus,
   llmProviderProbeArmedFalseHandler,
   llmProviderProbeUnavailableHandler
-} from "../test/handlers.js";
+} from "../../test/handlers.js";
 import { StatusRail } from "./StatusRail.js";
 
 function renderRail() {

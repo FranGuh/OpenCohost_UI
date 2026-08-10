@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../test/handlers.js";
-import { useLogsPrefStore } from "../store/useLogsPref.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../../test/handlers.js";
+import { useLogsPrefStore } from "../../store/useLogsPref.js";
 import {
   SettingsPopover as SettingsPopoverComponent,
   type SettingsPopoverProps

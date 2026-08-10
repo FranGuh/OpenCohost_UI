@@ -1,11 +1,11 @@
-import { KiraCover } from "../features/experiencia/KiraCover.js";
-import { ControlsPanel } from "../features/controles/ControlsPanel.js";
-import { AgendaPanel } from "../features/agenda/AgendaPanel.js";
-import { StreamPanel } from "../features/stream/StreamPanel.js";
-import { MusicPanel } from "../features/musica/MusicPanel.js";
+import { KiraCover } from "../experiencia/KiraCover.js";
+import { ControlsPanel } from "../controles/ControlsPanel.js";
+import { AgendaPanel } from "../agenda/AgendaPanel.js";
+import { StreamPanel } from "../stream/StreamPanel.js";
+import { MusicPanel } from "../musica/MusicPanel.js";
 import type { Section } from "./Sidebar.js";
-import { useWelcomeStore } from "../store/welcomeStore.js";
-import { WelcomeCard } from "../features/experiencia/WelcomeCard.js";
+import { useWelcomeStore } from "../../store/welcomeStore.js";
+import { WelcomeCard } from "../experiencia/WelcomeCard.js";
 
 const PANEL_CLASS = "flex min-h-0 flex-col gap-3.5 overflow-auto p-4";
 const PANEL_GRADIENT = "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)";

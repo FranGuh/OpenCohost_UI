@@ -107,7 +107,7 @@ describe("bootstrapBackend", () => {
       )
     );
     await loadBootstrap();
-    const { BackendGate } = await import("../components/BackendGate.js");
+    const { BackendGate } = await import("../features/shell/BackendGate.js");
     vi.useRealTimers();
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,

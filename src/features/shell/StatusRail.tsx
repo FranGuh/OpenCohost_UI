@@ -2,13 +2,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Activity, AudioLines, CloudOff, Cpu, VenetianMask } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useStatusQuery } from "../api/status.js";
-import type { StatusResponse } from "../api/client.js";
-import { useTriggerCloudProbe } from "../api/llmProvider.js";
-import type { BadgeTone } from "../ui/Badge.js";
-import { Alert } from "../ui/Alert.js";
-import { Button } from "../ui/Button.js";
-import { cn } from "../lib/cn.js";
+import { useStatusQuery } from "../../api/status.js";
+import type { StatusResponse } from "../../api/client.js";
+import { useTriggerCloudProbe } from "../../api/llmProvider.js";
+import type { BadgeTone } from "../../ui/Badge.js";
+import { Alert } from "../../ui/Alert.js";
+import { Button } from "../../ui/Button.js";
+import { cn } from "../../lib/cn.js";
 
 // health.overall_status/*_status are untyped strings on the backend (no
 // enum in openapi.snapshot.json). Real health_monitor.py emits

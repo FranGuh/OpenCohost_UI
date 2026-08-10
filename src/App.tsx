@@ -1,7 +1,7 @@
-import { AppLayout } from "./components/AppLayout.js";
-import { BackendGate } from "./components/BackendGate.js";
-import { EventBridge } from "./components/EventBridge.js";
-import { TitleBar } from "./components/TitleBar.js";
+import { AppLayout } from "./features/shell/AppLayout.js";
+import { BackendGate } from "./features/shell/BackendGate.js";
+import { EventBridge } from "./features/shell/EventBridge.js";
+import { TitleBar } from "./features/shell/TitleBar.js";
 import { ToastProvider } from "./ui/Toast.js";
 
 export function App() {

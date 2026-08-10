@@ -4,8 +4,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL } from "../test/handlers.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL } from "../../test/handlers.js";
 import { BackendGate, type BackendGateProps } from "./BackendGate.js";
 
 const bootstrapMocks = vi.hoisted(() => ({
@@ -13,7 +13,7 @@ const bootstrapMocks = vi.hoisted(() => ({
   getBackendBootstrapError: vi.fn()
 }));
 
-vi.mock("../lib/backendBootstrap.js", () => ({
+vi.mock("../../lib/backendBootstrap.js", () => ({
   bootstrapBackend: () => bootstrapMocks.bootstrapBackend(),
   getBackendBootstrapError: () => bootstrapMocks.getBackendBootstrapError()
 }));

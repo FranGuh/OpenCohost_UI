@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { server } from "../test/server.js";
-import { defaultPttState, pttStateHandler } from "../test/handlers.js";
-import { useAvatarLiveState } from "../store/avatarLiveStore.js";
+import { server } from "../../test/server.js";
+import { defaultPttState, pttStateHandler } from "../../test/handlers.js";
+import { useAvatarLiveState } from "../../store/avatarLiveStore.js";
 import { EventBridge } from "./EventBridge.js";
-import { ToastProvider } from "../ui/Toast.js";
+import { ToastProvider } from "../../ui/Toast.js";
 
 /**
  * EventBridge is where the app-wide live signals are mounted. It renders

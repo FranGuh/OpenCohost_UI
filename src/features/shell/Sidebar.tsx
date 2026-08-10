@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Info, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { ProfilePlaylist } from "../features/perfiles/ProfilePlaylist.js";
-import { usePerfilDetailQuery } from "../api/profiles.js";
-import { useProfileSwitchContext } from "../api/useProfileSwitch.js";
-import { cn } from "../lib/cn.js";
+import { ProfilePlaylist } from "../perfiles/ProfilePlaylist.js";
+import { usePerfilDetailQuery } from "../../api/profiles.js";
+import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
+import { cn } from "../../lib/cn.js";
 
 export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica";
 

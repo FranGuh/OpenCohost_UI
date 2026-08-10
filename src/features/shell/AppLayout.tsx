@@ -3,15 +3,15 @@ import { createPortal } from "react-dom";
 import { Sidebar } from "./Sidebar.js";
 import type { Section } from "./Sidebar.js";
 import { MainStage } from "./MainStage.js";
-import { ConversationPanel } from "../features/experiencia/ConversationPanel.js";
+import { ConversationPanel } from "../experiencia/ConversationPanel.js";
 import { StatusRail } from "./StatusRail.js";
 import { SettingsPopover } from "./SettingsPopover.js";
 import { TITLEBAR_APP_CONTROLS_SLOT_ID } from "./TitleBar.js";
-// import { PlayerBar } from "../features/experiencia/PlayerBar.js";
-import { ProfileSwitchProvider } from "../api/useProfileSwitch.js";
-import { PlaybackProvider } from "../state/PlaybackProvider.js";
-import { MusicDuckingWatcher } from "../state/MusicDuckingWatcher.js";
-import { useWelcomeStore } from "../store/welcomeStore.js";
+// import { PlayerBar } from "../experiencia/PlayerBar.js";
+import { ProfileSwitchProvider } from "../../api/useProfileSwitch.js";
+import { PlaybackProvider } from "../../state/PlaybackProvider.js";
+import { MusicDuckingWatcher } from "../../state/MusicDuckingWatcher.js";
+import { useWelcomeStore } from "../../store/welcomeStore.js";
 
 // Chat/queue column width — single source for both grid definitions (the base
 // GRID_STYLE and the sidebar-aware runtime variant below), widened from 372px

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getApiBaseUrl } from "../api/client.js";
-import { cn } from "../lib/cn.js";
-import { bootstrapBackend, type BootstrapResult } from "../lib/backendBootstrap.js";
-import { BootLoader } from "../ui/BootLoader.js";
+import { getApiBaseUrl } from "../../api/client.js";
+import { cn } from "../../lib/cn.js";
+import { bootstrapBackend, type BootstrapResult } from "../../lib/backendBootstrap.js";
+import { BootLoader } from "../../ui/BootLoader.js";
 
 const HEALTH_QUERY_KEY = ["backend-gate-health"] as const;
 const DEFAULT_POLL_INTERVAL_MS = 1000;

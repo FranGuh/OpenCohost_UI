@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useToast } from "../ui/Toast.js";
-import { setToastSink, subscribeMutationEvents } from "../lib/appEvents.js";
-import { useServerEventLog } from "../api/events.js";
-import { usePttServerSignal } from "../api/ptt.js";
+import { useToast } from "../../ui/Toast.js";
+import { setToastSink, subscribeMutationEvents } from "../../lib/appEvents.js";
+import { useServerEventLog } from "../../api/events.js";
+import { usePttServerSignal } from "../../api/ptt.js";
 
 /** Renders nothing, holds no state — exists only to hand the EXISTING toast
  * system to appEvents.ts and install the single MutationCache subscriber

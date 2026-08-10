@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Minus, Square, X } from "lucide-react";
-import { BrandMark } from "../ui/BrandMark.js";
+import { BrandMark } from "../../ui/BrandMark.js";
 
 type WindowAction = "minimize" | "toggleMaximize" | "close";
 
