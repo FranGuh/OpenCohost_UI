@@ -22,6 +22,7 @@ import { usePttHold, type PttUiState } from "../../api/ptt.js";
 import { useStatusQuery } from "../../api/status.js";
 import { ERROR_COPY } from "../../api/pttCopy.js";
 import { cn } from "../../lib/cn.js";
+import { t, useT } from "../../i18n/t.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
 
 /** Owner layout correction (2026-07-18): ONE unified strip
@@ -171,21 +172,23 @@ function TurnTime({ ts, className = "" }: TurnTimeProps) {
 }
 
 function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
+  const t = useT();
   return (
     <span className="mono inline-flex w-fit items-center gap-[6px] text-[11px] font-semibold tracking-[0.06em] text-[var(--kira-cyan)]">
       <KiraFace size={22} aria-hidden />
-      {fromAgenda ? "KIRA · AGENDA" : "KIRA"}
+      {fromAgenda ? t("experiencia.conversationPanel.turn.agendaBadge") : "KIRA"}
     </span>
   );
 }
 
 function ConversationTurnImpl({ turn }: { turn: Turn }) {
+  const t = useT();
   if (turn.role === "kira" && turn.text === undefined) {
     return (
       <div className="flex flex-col gap-1.5">
         <KiraBadgeLabel />
         <p className="w-full animate-pulse rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-sm italic text-dim">
-          {turn.pendingNote ?? "Kira está pensando…"}
+          {turn.pendingNote ?? t("experiencia.conversationPanel.turn.pending")}
         </p>
       </div>
     );
@@ -213,10 +216,13 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
         </div>
         {(hasWaitNote || hasProviderNote) && (
           <p className="mono text-[10px] text-dim">
-            {hasWaitNote && `esperó ${formatQueueWaitLabel(turn.queueWaitMs as number)} en cola`}
+            {hasWaitNote &&
+              t("experiencia.conversationPanel.turn.queueWait", {
+                duration: formatQueueWaitLabel(turn.queueWaitMs as number)
+              })}
             {hasWaitNote && hasProviderNote && " · "}
             {hasProviderNote && providerLabel(turn.answeredByProvider as string)}
-            {turn.providerChanged ? " (cambió de proveedor en cola)" : ""}
+            {turn.providerChanged ? t("experiencia.conversationPanel.turn.providerChanged") : ""}
           </p>
         )}
       </div>
@@ -230,10 +236,10 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
           {turn.source === "voice" ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-dim">
               <Mic size={11} aria-hidden="true" />
-              Vos · voz
+              {t("experiencia.conversationPanel.turn.operatorVoice")}
             </span>
           ) : (
-            <span className="text-[11px] font-semibold text-dim">Vos</span>
+            <span className="text-[11px] font-semibold text-dim">{t("experiencia.conversationPanel.turn.operator")}</span>
           )}
           <TurnTime ts={turn.ts} />
         </span>
@@ -285,6 +291,7 @@ const ConversationTurn = memo(ConversationTurnImpl);
  * The operator's own message is appended locally as an ephemeral turn so it's
  * visible immediately; there's no server echo to reconcile against. */
 export function ConversationPanel() {
+  const t = useT();
   // ONE unified tab strip (owner layout correction 2026-07-18): todo/chat/alertas
   // are feed filters; comandos and logs swap the panel. Default: the Todo feed.
   const [activeTab, setActiveTab] = useState<TabValue>("todo");
@@ -630,7 +637,7 @@ export function ConversationPanel() {
           // D3b: direct chat never interrupts — Kira finishes the current
           // block and answers on the NEXT turn (D3). Honest receipt for that
           // wait instead of implying she's generating THIS answer right now.
-          pendingNote: kiraBusy ? "Kira te escuchó — responderá después del bloque actual" : undefined
+          pendingNote: kiraBusy ? t("experiencia.conversationPanel.turn.pendingBusy") : undefined
         }
       : null;
     const orderedTurns = [...interleaved, ...(kiraThinkingTurn ? [kiraThinkingTurn] : [])];
@@ -684,12 +691,12 @@ export function ConversationPanel() {
 
   const micLabel =
     pttState === "connecting"
-      ? "Conectando…"
+      ? t("experiencia.conversationPanel.mic.state.connecting")
       : pttState === "listening"
-        ? "Escuchando… soltá para enviar"
+        ? t("experiencia.conversationPanel.mic.state.listening")
         : pttState === "flushing"
-          ? "Procesando…"
-          : "Mantené para hablar con Kira";
+          ? t("experiencia.conversationPanel.mic.state.flushing")
+          : t("experiencia.conversationPanel.mic.state.idle");
   const showMicOff = micDegraded && pttState === "idle";
   const MicGlyph = showMicOff ? MicOff : Mic;
 
@@ -712,14 +719,14 @@ export function ConversationPanel() {
         {/* ONE unified strip (owner layout correction 2026-07-18): Todo/Chat/
             Alertas filter the timeline (they share the single "conversation-panel"
             via a fixed id/aria-controls); Comandos and Logs swap the panel. */}
-        <TabList ariaLabel="Conversación" className="flex gap-1 border-b border-border-soft px-3 py-2">
-          <Tab value="todo" id={FEED_TAB_ID.todo} controls="conversation-panel" className={tabClass(activeTab === "todo")}>Todo</Tab>
-          <Tab value="chat" id={FEED_TAB_ID.chat} controls="conversation-panel" className={tabClass(activeTab === "chat")}>Chat</Tab>
-          <Tab value="comandos" className={tabClass(activeTab === "comandos")}>Comandos</Tab>
-          <Tab value="alertas" id={FEED_TAB_ID.alertas} controls="conversation-panel" className={tabClass(activeTab === "alertas")}>Alertas</Tab>
+        <TabList ariaLabel={t("experiencia.conversationPanel.tabs.aria")} className="flex gap-1 border-b border-border-soft px-3 py-2">
+          <Tab value="todo" id={FEED_TAB_ID.todo} controls="conversation-panel" className={tabClass(activeTab === "todo")}>{t("experiencia.conversationPanel.tabs.todo")}</Tab>
+          <Tab value="chat" id={FEED_TAB_ID.chat} controls="conversation-panel" className={tabClass(activeTab === "chat")}>{t("experiencia.conversationPanel.tabs.chat")}</Tab>
+          <Tab value="comandos" className={tabClass(activeTab === "comandos")}>{t("experiencia.conversationPanel.tabs.comandos")}</Tab>
+          <Tab value="alertas" id={FEED_TAB_ID.alertas} controls="conversation-panel" className={tabClass(activeTab === "alertas")}>{t("experiencia.conversationPanel.tabs.alertas")}</Tab>
           {showLogs && (
             <Tab value="logs" className={cn(tabClass(activeTab === "logs"), "relative")}>
-              Logs
+              {t("experiencia.conversationPanel.tabs.logs")}
               {unreadLogs && (
                 <span
                   aria-hidden="true"
@@ -742,7 +749,7 @@ export function ConversationPanel() {
           className={cn("flex min-h-0 flex-1 flex-col", !feedActive && "pointer-events-none")}
         >
           <div className="flex items-center justify-between px-3 py-2">
-            <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">Conversación</span>
+            <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t("experiencia.conversationPanel.feed.eyebrow")}</span>
             <span className="inline-flex items-center gap-1.5 text-xs text-ok">
               <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
                 {/* <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" /> */}
@@ -768,14 +775,14 @@ export function ConversationPanel() {
               {showEmptyState && (
                 <div className="m-auto flex flex-col items-center gap-2 py-8 text-center animate-rise-in">
                   <KiraFace size={40} aria-hidden />
-                  <p className="text-sm font-semibold text-foreground">Empezá a chatear con Kira</p>
+                  <p className="text-sm font-semibold text-foreground">{t("experiencia.conversationPanel.empty.title")}</p>
                   <p className="max-w-[220px] text-xs text-muted-foreground">
-                    Escribí un mensaje abajo, o mantené el micrófono para hablarle.
+                    {t("experiencia.conversationPanel.empty.hint")}
                   </p>
                 </div>
               )}
               {activeTab === "alertas" && visibleTurns.length === 0 && (
-                <p className="text-xs text-dim">Sin turnos en este filtro.</p>
+                <p className="text-xs text-dim">{t("experiencia.conversationPanel.alertas.empty")}</p>
               )}
             </div>
             {showJump && (
@@ -785,7 +792,7 @@ export function ConversationPanel() {
                 className="absolute bottom-2 right-4 z-10 inline-flex -translate-x-1/2 items-center gap-3.5 rounded-full border border-border-soft bg-card px-3 py-2.5 text-xs font-semibold text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <ChevronDown size={14} aria-hidden="true" />
-                Ver lo más reciente
+                {t("experiencia.conversationPanel.jump.action")}
               </button>
             )}
           </div>
@@ -814,16 +821,16 @@ export function ConversationPanel() {
               )}
               <div
                 className="mono flex h-7 items-center gap-2 text-[11px] text-dim"
-                title="Kira no está leyendo el chat de viewers en esta sesión."
+                title={t("experiencia.conversationPanel.composer.muted.title")}
               >
                 <MessageSquareOff size={12} aria-hidden="true" />
-                Chat de viewers silenciado
+                {t("experiencia.conversationPanel.composer.muted.label")}
               </div>
 
               {voiceSent && (
                 <p role="status" className="mono mt-1 flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
                   <Mic size={12} aria-hidden="true" />
-                  Turno de voz enviado
+                  {t("experiencia.conversationPanel.composer.voiceSent")}
                 </p>
               )}
               {/* role="alert" (assertive) + icon + rise-in: a live PTT failure must
@@ -840,8 +847,8 @@ export function ConversationPanel() {
                   type="text"
                   value={message}
                   onChange={handleMessageChange}
-                  placeholder="Escribí un mensaje para Kira…"
-                  aria-label="Mensaje para Kira"
+                  placeholder={t("experiencia.conversationPanel.composer.input.placeholder")}
+                  aria-label={t("experiencia.conversationPanel.composer.input.aria")}
                   // F3: combobox pattern — the launcher popover is this input's
                   // listbox; aria-activedescendant follows its keyboard highlight.
                   role="combobox"
@@ -854,7 +861,7 @@ export function ConversationPanel() {
                         type="button"
                         aria-label={micLabel}
                         aria-pressed={pttState === "listening"}
-                        title={showMicOff ? "PTT no disponible — WhisperLive no está corriendo." : undefined}
+                        title={showMicOff ? t("experiencia.conversationPanel.mic.unavailable.hint") : undefined}
                         onPointerDown={handleMicPointerDown}
                         onPointerUp={pttStop}
                         onPointerCancel={pttStop}
@@ -886,7 +893,7 @@ export function ConversationPanel() {
                         disabled={pending}
                         className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                       >
-                        Enviar
+                        {t("experiencia.conversationPanel.composer.send.action")}
                       </button>
                     </div>
                   }
@@ -897,7 +904,7 @@ export function ConversationPanel() {
 
           {isError && feedActive && (
             <div className="px-3 pb-3">
-              <Alert tone="danger">{error?.message ?? "No se pudo enviar el mensaje."}</Alert>
+              <Alert tone="danger">{error?.message ?? t("experiencia.conversationPanel.send.error")}</Alert>
             </div>
           )}
         </div>

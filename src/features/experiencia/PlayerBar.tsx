@@ -3,24 +3,26 @@ import { useStatusQuery } from "../../api/status.js";
 import { useLastReply } from "../../api/chat.js";
 import { Badge } from "../../ui/Badge.js";
 import { Switch } from "../../ui/Switch.js";
+import { useT, type TKey } from "../../i18n/t.js";
 import { AVATAR_LABEL, deriveAvatarState } from "./kiraState.js";
 import { cn } from "../../lib/cn.js";
 
 // Neutral idle label (spec S3): shown when no reply has landed yet — no
 // canned transcript, R8 only ever renders server-provided Kira text.
-const NOW_PLAYING_IDLE_LABEL = "Sin reproducción en curso";
+const NOW_PLAYING_IDLE_LABEL_KEY: TKey = "experiencia.playerBar.nowPlaying.idle";
 
-const TRANSPORT_BUTTONS = [
-  { id: "ptt", icon: "🎙", label: "Push-to-talk" },
-  { id: "prev", icon: "⏮", label: "Anterior" },
-  { id: "next", icon: "⏭", label: "Siguiente" },
-  { id: "stop", icon: "◼", label: "Detener" }
-] as const;
+const TRANSPORT_BUTTONS: ReadonlyArray<{ id: string; icon: string; labelKey: TKey }> = [
+  { id: "ptt", icon: "🎙", labelKey: "experiencia.playerBar.transport.ptt.aria" },
+  { id: "prev", icon: "⏮", labelKey: "experiencia.playerBar.transport.prev.aria" },
+  { id: "next", icon: "⏭", labelKey: "experiencia.playerBar.transport.next.aria" },
+  { id: "stop", icon: "◼", labelKey: "experiencia.playerBar.transport.stop.aria" }
+];
 
 /** SIGNATURE #2 — <footer> now-playing Kira transport bar. No real audio
  * playback in P1: seek/transport are visual-only, transport clicks reuse
  * the app-wide P2 not-wired-yet note pattern. */
 export function PlayerBar() {
+  const t = useT();
   const { data } = useStatusQuery();
   const lastReply = useLastReply();
   const [liveVoice, setLiveVoice] = useState(false);
@@ -28,7 +30,7 @@ export function PlayerBar() {
 
   const avatarState = deriveAvatarState(data);
   const isSpeaking = Boolean(data?.is_speaking);
-  const nowPlayingLabel = lastReply.data?.text ?? NOW_PLAYING_IDLE_LABEL;
+  const nowPlayingLabel = lastReply.data?.text ?? t(NOW_PLAYING_IDLE_LABEL_KEY);
 
   return (
     <footer
@@ -44,7 +46,7 @@ export function PlayerBar() {
           ◈
         </span>
         <div className="flex min-w-0 flex-col gap-[2px]">
-          <span className="truncate text-sm font-semibold text-foreground">Kira · {AVATAR_LABEL[avatarState]}</span>
+          <span className="truncate text-sm font-semibold text-foreground">Kira · {t(AVATAR_LABEL[avatarState])}</span>
           <span className="mono truncate text-xs text-dim">{nowPlayingLabel}</span>
           <Badge tone="ok" className="w-fit">
             TTS Piper
@@ -58,8 +60,8 @@ export function PlayerBar() {
             <button
               key={button.id}
               type="button"
-              aria-label={button.label}
-              onClick={() => setLastAction(button.label)}
+              aria-label={t(button.labelKey)}
+              onClick={() => setLastAction(t(button.labelKey))}
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {button.icon}
@@ -68,8 +70,8 @@ export function PlayerBar() {
 
           <button
             type="button"
-            aria-label="Reproducir"
-            onClick={() => setLastAction("Hablar")}
+            aria-label={t("experiencia.playerBar.transport.play.aria")}
+            onClick={() => setLastAction(t("experiencia.playerBar.transport.play.action"))}
             className={cn(
               "flex h-11 w-11 items-center justify-center rounded-full text-lg transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
               isSpeaking
@@ -84,8 +86,8 @@ export function PlayerBar() {
             <button
               key={button.id}
               type="button"
-              aria-label={button.label}
-              onClick={() => setLastAction(button.label)}
+              aria-label={t(button.labelKey)}
+              onClick={() => setLastAction(t(button.labelKey))}
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {button.icon}
@@ -114,7 +116,7 @@ export function PlayerBar() {
 
       {lastAction && (
         <p role="status" className="sr-only">
-          {lastAction}: se habilitará cuando el backend lo soporte.
+          {t("experiencia.playerBar.action.notice", { action: lastAction })}
         </p>
       )}
     </footer>

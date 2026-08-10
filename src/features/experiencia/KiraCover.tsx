@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
 import { useStatusQuery } from "../../api/status.js";
 import { useAvatarLiveState } from "../../store/avatarLiveStore.js";
+import { t, useT } from "../../i18n/t.js";
 import { AVATAR_IMAGE, FALLBACK_AVATAR, deriveAvatarState, resolveAvatar } from "./kiraState.js";
 
 function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
@@ -17,9 +18,9 @@ function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
  * yet) degrade to the historical "co-host local" text.
  */
 function coHostLabel(data: { transport?: string; fallback_active?: boolean } | undefined): string {
-  if (data?.transport === "cloud") return "co-host cloud";
-  if (data?.fallback_active) return "co-host local · fallback";
-  return "co-host local";
+  if (data?.transport === "cloud") return t("experiencia.kiraCover.identity.coHost.cloud");
+  if (data?.fallback_active) return t("experiencia.kiraCover.identity.coHost.localFallback");
+  return t("experiencia.kiraCover.identity.coHost.local");
 }
 
 /**
@@ -29,9 +30,9 @@ function coHostLabel(data: { transport?: string; fallback_active?: boolean } | u
  * same degrade-quietly convention as the rest of this identity row.
  */
 function sessionModeLabel(mode: string | undefined): string | null {
-  if (mode === "agenda") return "Agenda activa";
-  if (mode === "post-agenda") return "Post-agenda";
-  if (mode === "inactiva") return "Inactiva";
+  if (mode === "agenda") return t("experiencia.kiraCover.identity.sessionMode.agenda");
+  if (mode === "post-agenda") return t("experiencia.kiraCover.identity.sessionMode.postAgenda");
+  if (mode === "inactiva") return t("experiencia.kiraCover.identity.sessionMode.inactiva");
   return null;
 }
 
@@ -107,6 +108,7 @@ function useSpeakingAlt(speaking: boolean): boolean {
  * a breathing pulse (guarded behind prefers-reduced-motion).
  */
 export function KiraCover() {
+  const t = useT();
   const { data } = useStatusQuery();
   const liveSpeaking = useAvatarLiveState((s) => s.speaking);
   const liveEventTs = useAvatarLiveState((s) => s.lastEventTs);
@@ -170,7 +172,7 @@ export function KiraCover() {
         <img
           src={avatarSrc}
           onError={handleAvatarError}
-          alt={`Avatar de Kira — estado ${avatarLabel}`}
+          alt={t("experiencia.kiraCover.avatar.alt", { state: t(avatarLabel) })}
           className="h-full w-full object-contain"
         />
         {/* Bottom gradient fade — clipped to circle, blends the lower body away */}
@@ -187,7 +189,7 @@ export function KiraCover() {
       <div className="relative z-10 mt-6 flex flex-col items-center gap-1 text-center">
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Kira</h1>
         <p className="mono text-xs text-muted-foreground">
-          Akira · {coHostLabel(data)} · {data?.current_model ?? "cargando…"}
+          Akira · {coHostLabel(data)} · {data?.current_model ?? t("experiencia.kiraCover.identity.model.loading")}
           {sessionModeLabel(data?.session_mode) && ` · ${sessionModeLabel(data?.session_mode)}`}
         </p>
       </div>

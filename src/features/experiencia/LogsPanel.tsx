@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { cn } from "../../lib/cn.js";
+import { useT } from "../../i18n/t.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
 
 /**
@@ -44,6 +45,7 @@ function formatTs(ts: number): string {
 }
 
 export function LogsPanel() {
+  const t = useT();
   const events = useEventStore(selectEvents);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(0);
@@ -61,14 +63,14 @@ export function LogsPanel() {
   }, [events.length]);
 
   if (events.length === 0) {
-    return <p className="text-[13px] text-dim">Todavía no hay eventos del motor.</p>;
+    return <p className="text-[13px] text-dim">{t("experiencia.logsPanel.empty")}</p>;
   }
 
   // Chronological ascending — oldest at the top, newest at the bottom, so the
   // feed grows downward and the autoscroll follows the newest row.
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-      <ul aria-label="Eventos del motor" className="flex flex-col gap-0.5">
+      <ul aria-label={t("experiencia.logsPanel.list.aria")} className="flex flex-col gap-0.5">
         {events.map((event) => (
           <li key={event.id} className="mono text-[11px] leading-relaxed text-muted-foreground">
             <span className="text-dim">{formatTs(event.ts)}</span>

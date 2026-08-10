@@ -1,5 +1,6 @@
 import type { StatusResponse } from "../../api/client.js";
 import type { BadgeTone } from "../../ui/Badge.js";
+import type { TKey } from "../../i18n/t.js";
 
 export type AvatarState =
   | "idle"
@@ -22,15 +23,19 @@ export const AVATAR_IMAGE: Record<AvatarState, string> = {
   error: "/avatar/error.png"
 };
 
-export const AVATAR_LABEL: Record<AvatarState, string> = {
-  idle: "en vivo",
-  listening: "escuchando",
-  thinking: "pensando",
-  speaking: "hablando",
-  speaking_alt: "hablando",
-  sleeping: "en espera",
-  angry: "molesta",
-  error: "error"
+// Holds i18n KEYS, not translated text (§4.6 boot-locale exception isn't
+// needed here — kiraState.test.ts asserts self-referentially against
+// LOCAL_SLEEP_LABEL's own identity, never a literal string — so this can be
+// fully hot-swappable). Consumers (KiraCover, PlayerBar) call t(label).
+export const AVATAR_LABEL: Record<AvatarState, TKey> = {
+  idle: "experiencia.avatar.state.idle",
+  listening: "experiencia.avatar.state.listening",
+  thinking: "experiencia.avatar.state.thinking",
+  speaking: "experiencia.avatar.state.speaking",
+  speaking_alt: "experiencia.avatar.state.speakingAlt",
+  sleeping: "experiencia.avatar.state.sleeping",
+  angry: "experiencia.avatar.state.angry",
+  error: "experiencia.avatar.state.error"
 };
 
 export const AVATAR_TONE: Record<AvatarState, BadgeTone> = {
@@ -54,7 +59,7 @@ export const FALLBACK_AVATAR = "/kira-error.png";
  * backend's `sleeping`, which means "the engine has not warmed up yet"
  * (AVATAR_LABEL.sleeping = "en espera"). Two different facts, one image.
  */
-export const LOCAL_SLEEP_LABEL = "dormida";
+export const LOCAL_SLEEP_LABEL: TKey = "experiencia.avatar.state.sleepingLocal";
 
 const KNOWN_AVATAR_STATES = new Set<AvatarState>([
   "idle",
@@ -120,7 +125,7 @@ function labelled(state: AvatarState) {
 export function resolveAvatar(
   data: Parameters<typeof deriveAvatarState>[0],
   { livePtt = false, liveSpeaking = false, asleep = false, alt = false }: AvatarOverrides = {}
-): { state: AvatarState; label: string } {
+): { state: AvatarState; label: TKey } {
   if (livePtt) return labelled("listening");
   const base = liveSpeaking ? "speaking" : deriveAvatarState(data);
   if (base === "speaking" || base === "speaking_alt") return labelled(alt ? "speaking_alt" : "speaking");
