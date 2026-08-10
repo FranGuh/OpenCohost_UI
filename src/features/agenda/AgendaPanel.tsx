@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import type { BadgeTone } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Input } from "../ui/Input.js";
-import { Select } from "../ui/Select.js";
-import { Segmented } from "../ui/Segmented.js";
-import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../ui/Collapsible.js";
-import { useToast } from "../ui/Toast.js";
-import { Alert } from "../ui/Alert.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import type { BadgeTone } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Input } from "../../ui/Input.js";
+import { Select } from "../../ui/Select.js";
+import { Segmented } from "../../ui/Segmented.js";
+import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../../ui/Collapsible.js";
+import { useToast } from "../../ui/Toast.js";
+import { Alert } from "../../ui/Alert.js";
 import {
   AGENDA_TURN_OPTIONS,
   useAddAgendaTopicMutation,
@@ -23,7 +23,7 @@ import {
   type AgendaSessionAction,
   type AgendaTopicOut,
   type AgendaTopicRequest
-} from "../api/agenda.js";
+} from "../../api/agenda.js";
 
 // S10/WU-B: wired to live GET/POST/PUT /api/agenda* (opencohost/api/main.py
 // ~1069-1204) — Now/Queue/Sugerencias hydrate from GET (drafted_topics is

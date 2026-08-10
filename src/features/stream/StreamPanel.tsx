@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Card } from "../ui/Card.js";
-import { Alert } from "../ui/Alert.js";
-import { Badge } from "../ui/Badge.js";
-import type { BadgeTone } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Input } from "../ui/Input.js";
-import { Select } from "../ui/Select.js";
-import { Segmented } from "../ui/Segmented.js";
-import { Switch } from "../ui/Switch.js";
-import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../ui/Collapsible.js";
-import { STREAM_FIXTURE, type StreamPresetLevel } from "../api/mock/fixtures.js";
+import { Card } from "../../ui/Card.js";
+import { Alert } from "../../ui/Alert.js";
+import { Badge } from "../../ui/Badge.js";
+import type { BadgeTone } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Input } from "../../ui/Input.js";
+import { Select } from "../../ui/Select.js";
+import { Segmented } from "../../ui/Segmented.js";
+import { Switch } from "../../ui/Switch.js";
+import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../../ui/Collapsible.js";
+import { STREAM_FIXTURE, type StreamPresetLevel } from "../../api/mock/fixtures.js";
 import {
   useStreamChatLiveQuery,
   useStreamConnectMutation,
   useStreamDisconnectMutation,
   useStreamLimitsMutation
-} from "../api/stream.js";
+} from "../../api/stream.js";
 
 // Wired to GET /api/stream/chat-live, POST .../connect, POST .../disconnect,
 // PUT .../limits (opencohost/api/main.py ~549-624) — CTK parity:

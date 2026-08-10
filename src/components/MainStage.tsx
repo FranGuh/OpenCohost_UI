@@ -1,8 +1,8 @@
 import { KiraCover } from "./KiraCover.js";
 import { ControlsPanel } from "./ControlsPanel.js";
-import { AgendaPanel } from "./AgendaPanel.js";
-import { StreamPanel } from "./StreamPanel.js";
-import { MusicPanel } from "./MusicPanel.js";
+import { AgendaPanel } from "../features/agenda/AgendaPanel.js";
+import { StreamPanel } from "../features/stream/StreamPanel.js";
+import { MusicPanel } from "../features/musica/MusicPanel.js";
 import type { Section } from "./Sidebar.js";
 import { useWelcomeStore } from "../store/welcomeStore.js";
 import { WelcomeCard } from "./WelcomeCard.js";

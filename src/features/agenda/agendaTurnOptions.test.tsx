@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { AGENDA_TURN_OPTIONS } from "../api/agenda.js";
+import { AGENDA_TURN_OPTIONS } from "../../api/agenda.js";
 import { AgendaPanel } from "./AgendaPanel.js";
-import { COMMANDS } from "./commands/registry.js";
-import type { StepDef } from "./commands/primitives.js";
-import { ToastProvider } from "../ui/Toast.js";
+import { COMMANDS } from "../../components/commands/registry.js";
+import type { StepDef } from "../../components/commands/primitives.js";
+import { ToastProvider } from "../../ui/Toast.js";
 
 /**
  * Drift guard for the verified "Intentos por tema" defect: the Tauri front used

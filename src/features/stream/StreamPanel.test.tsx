@@ -3,10 +3,10 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import React from "react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStreamChatLive, streamConnectInvalidUrlHandler } from "../test/handlers.js";
+import { server } from "../../test/server.js";
+import { API_BASE_URL, defaultStreamChatLive, streamConnectInvalidUrlHandler } from "../../test/handlers.js";
 import { StreamPanel } from "./StreamPanel.js";
-import { STREAM_FIXTURE } from "../api/mock/fixtures.js";
+import { STREAM_FIXTURE } from "../../api/mock/fixtures.js";
 
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

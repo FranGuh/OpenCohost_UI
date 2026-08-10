@@ -18,7 +18,7 @@ import {
 import { queryClient } from "../../api/queryClient.js";
 import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
-import { pickRotationTrack } from "../MusicPanel.js";
+import { pickRotationTrack } from "../../features/musica/MusicPanel.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";

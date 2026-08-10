@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
+import { server } from "../../test/server.js";
 import {
   musicLibraryDeleteFlowHandlers,
   musicLibraryGetErrorHandler,
@@ -11,8 +11,8 @@ import {
   musicMoodHandler,
   musicMoodValidationHandler,
   musicTrackDeleteErrorHandler
-} from "../test/handlers.js";
-import { PlaybackProvider, usePlaybackContext } from "../state/PlaybackProvider.js";
+} from "../../test/handlers.js";
+import { PlaybackProvider, usePlaybackContext } from "../../state/PlaybackProvider.js";
 import { MusicPanel } from "./MusicPanel.js";
 
 function renderPanel() {

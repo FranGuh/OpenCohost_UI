@@ -1,19 +1,19 @@
 import { useState } from "react";
-import { Card } from "../ui/Card.js";
-import { Badge } from "../ui/Badge.js";
-import type { BadgeTone } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
-import { Slider } from "../ui/Slider.js";
-import { useMockCommand } from "../api/mock/useMockCommand.js";
+import { Card } from "../../ui/Card.js";
+import { Badge } from "../../ui/Badge.js";
+import type { BadgeTone } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
+import { Slider } from "../../ui/Slider.js";
+import { useMockCommand } from "../../api/mock/useMockCommand.js";
 import {
   useDeleteMusicTrackMutation,
   useMusicLibraryQuery,
   useMusicMoodMutation,
   type MusicMoodResponse,
   type MusicTrackOut
-} from "../api/music.js";
-import { MUSIC_FIXTURE } from "../api/mock/fixtures.js";
-import { usePlaybackContext } from "../state/PlaybackProvider.js";
+} from "../../api/music.js";
+import { MUSIC_FIXTURE } from "../../api/mock/fixtures.js";
+import { usePlaybackContext } from "../../state/PlaybackProvider.js";
 
 // WU-C: MoodCard is wired to the real POST /api/music/mood
 // (opencohost/api/main.py ~921) — the mood grid is enabled. LibraryCard's

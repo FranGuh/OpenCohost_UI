@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { http, HttpResponse } from "msw";
 import React from "react";
 import { describe, expect, it } from "vitest";
-import { server } from "../test/server.js";
+import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
   agendaGetErrorHandler,
@@ -21,9 +21,9 @@ import {
   cohostProfileSelectNotFoundHandler,
   defaultAgenda,
   defaultCohostProfiles
-} from "../test/handlers.js";
+} from "../../test/handlers.js";
 import { AgendaPanel } from "./AgendaPanel.js";
-import { ToastProvider } from "../ui/Toast.js";
+import { ToastProvider } from "../../ui/Toast.js";
 
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
