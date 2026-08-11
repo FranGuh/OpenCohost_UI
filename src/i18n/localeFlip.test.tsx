@@ -150,6 +150,9 @@ describe("locale flip — one tripwire per domain", () => {
         </ToastProvider>
       </QueryClientProvider>
     );
+    // QueueCard lives in the "Temas" pane (PaneSwitcher) — "Perfil co-host" is
+    // the default.
+    fireEvent.click(screen.getByRole("button", { name: "Temas" }));
     await waitFor(() => expect(screen.getByText("No hay temas en cola todavía.")).toBeInTheDocument());
 
     act(() => useUiLocaleStore.getState().setLocale("en"));

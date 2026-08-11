@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
@@ -25,6 +25,19 @@ import {
 import { AgendaPanel } from "./AgendaPanel.js";
 import { ToastProvider } from "../../ui/Toast.js";
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
+// AgendaPanel now splits into two panes (PaneSwitcher): "Perfil co-host"
+// (default — ProfileSessionCard, including the Sesión group most tests below
+// use as their post-GET readiness signal) and "Temas" (Ahora/Cola/Agregar
+// tema/Sugerencias). SessionControlCard is not a pane — it renders in both,
+// so session-action tests need no pane switch at all.
+function goToTopics() {
+  fireEvent.click(screen.getByRole("button", { name: "Temas" }));
+}
+
 function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -44,6 +57,7 @@ function selectCustomOption(comboboxName: string | RegExp, optionName: string | 
 describe("AgendaPanel hydrates Now/Queue from GET /api/agenda", () => {
   it("shows the active topic from GET, highlighted as live", async () => {
     renderPanel();
+    goToTopics();
     const now = screen.getByTestId("agenda-now");
     await waitFor(() => expect(within(now).getByText("Mods como cultura popular en gaming")).toBeInTheDocument());
     expect(within(now).getByText("en vivo")).toBeInTheDocument();
@@ -51,6 +65,7 @@ describe("AgendaPanel hydrates Now/Queue from GET /api/agenda", () => {
 
   it("lists queued topics from GET in order with a priority badge each", async () => {
     renderPanel();
+    goToTopics();
     await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^tema en cola/i })).toHaveLength(2));
     const items = screen.getAllByRole("listitem", { name: /^tema en cola/i });
     expect(within(items[0]).getByText("La nostalgia noventera en internet")).toBeInTheDocument();
@@ -67,6 +82,8 @@ describe("AgendaPanel hydrates Now/Queue from GET /api/agenda", () => {
   it("surfaces a GET error honestly instead of a stale/hardcoded agenda", async () => {
     server.use(agendaGetErrorHandler());
     renderPanel();
+    // No pane switch — the load-error alert is pane-independent (JD-1) and
+    // must be visible on the default Perfil co-host pane, not just Temas.
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.queryByTestId("agenda-now")).not.toBeInTheDocument();
   });
@@ -74,6 +91,7 @@ describe("AgendaPanel hydrates Now/Queue from GET /api/agenda", () => {
   it("shows an empty-queue message when GET returns no queued topics", async () => {
     server.use(agendaGetHandler({ ...defaultAgenda, queued_topics: [] }));
     renderPanel();
+    goToTopics();
     await waitFor(() => expect(screen.getByText("No hay temas en cola todavía.")).toBeInTheDocument());
   });
 });
@@ -83,6 +101,7 @@ describe("AgendaPanel queue actions fire POST /api/agenda/topic/action", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaTopicActionCaptureHandler(capture));
     renderPanel();
+    goToTopics();
 
     await screen.findByText("Streamers y burnout");
     fireEvent.click(screen.getByRole("button", { name: /Subir "Streamers y burnout"/ }));
@@ -96,6 +115,7 @@ describe("AgendaPanel queue actions fire POST /api/agenda/topic/action", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaTopicActionCaptureHandler(capture));
     renderPanel();
+    goToTopics();
 
     await screen.findByText("Streamers y burnout");
     fireEvent.click(screen.getByRole("button", { name: /Quitar "Streamers y burnout"/ }));
@@ -108,6 +128,7 @@ describe("AgendaPanel add-topic form fires POST /api/agenda/topic", () => {
   it("rejects an empty title client-side without hitting the network", async () => {
     renderPanel();
     await screen.findByLabelText("Intentos por tema");
+    goToTopics();
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
     expect(screen.getByRole("alert")).toHaveTextContent("El título no puede estar vacío.");
   });
@@ -115,6 +136,7 @@ describe("AgendaPanel add-topic form fires POST /api/agenda/topic", () => {
   it("adds a valid topic and it appears in the hydrated queue", async () => {
     renderPanel();
     await screen.findByLabelText("Intentos por tema");
+    goToTopics();
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Un tema nuevo" } });
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
@@ -127,6 +149,7 @@ describe("AgendaPanel add-topic form fires POST /api/agenda/topic", () => {
     server.use(agendaTopicValidationHandler("El título parece código"));
     renderPanel();
     await screen.findByLabelText("Intentos por tema");
+    goToTopics();
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "function() {}" } });
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
@@ -190,6 +213,7 @@ describe("AgendaPanel session badge reflects live data, not the mock fixture", (
 describe("AgendaPanel suggestions hydrate from GET /api/agenda's drafted_topics", () => {
   it("lists drafted topics as suggestions with a confidence badge each", async () => {
     renderPanel();
+    goToTopics();
     await waitFor(() =>
       expect(screen.getByText("IA generativa en overlays de stream")).toBeInTheDocument()
     );
@@ -202,6 +226,7 @@ describe("AgendaPanel suggestions hydrate from GET /api/agenda's drafted_topics"
   it("shows an empty-suggestions message when GET returns no drafted topics", async () => {
     server.use(agendaGetHandler({ ...defaultAgenda, drafted_topics: [] }));
     renderPanel();
+    goToTopics();
     await waitFor(() => expect(screen.getByText("Sin sugerencias pendientes.")).toBeInTheDocument());
   });
 });
@@ -211,6 +236,7 @@ describe("AgendaPanel suggestion actions fire POST /api/agenda/topic/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaTopicActionCaptureHandler(capture));
     renderPanel();
+    goToTopics();
 
     await screen.findByText("IA generativa en overlays de stream");
     fireEvent.click(screen.getByRole("button", { name: /Aprobar "IA generativa en overlays de stream"/ }));
@@ -222,6 +248,7 @@ describe("AgendaPanel suggestion actions fire POST /api/agenda/topic/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaTopicActionCaptureHandler(capture));
     renderPanel();
+    goToTopics();
 
     await screen.findByText("Por qué el chat repite memes viejos");
     fireEvent.click(screen.getByRole("button", { name: /Rechazar "Por qué el chat repite memes viejos"/ }));
@@ -232,6 +259,7 @@ describe("AgendaPanel suggestion actions fire POST /api/agenda/topic/action", ()
   it("surfaces an error when a suggestion action is rejected by the backend", async () => {
     server.use(agendaTopicActionErrorHandler());
     renderPanel();
+    goToTopics();
 
     await screen.findByText("IA generativa en overlays de stream");
     fireEvent.click(screen.getByRole("button", { name: /Aprobar "IA generativa en overlays de stream"/ }));
@@ -472,6 +500,9 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     // The operator adds a topic; the POST returns a full AgendaResponse with a
     // non-empty queue, which useAddAgendaTopicMutation writes into the agenda
     // cache. The alert must clear now that the live queue is non-empty.
+    // AddTopicCard lives in the Temas pane — SessionControlCard (asserted
+    // above/below) stays mounted through the switch, it's not a pane.
+    goToTopics();
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Un tema nuevo" } });
     fireEvent.click(screen.getByRole("button", { name: "Agregar a cola" }));
 
@@ -498,6 +529,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
     server.use(topicCaptureHandler(capture));
     renderPanel();
     await screen.findByRole("combobox", { name: "Intentos por tema" });
+    goToTopics();
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Un tema nuevo" } });
     fireEvent.change(screen.getByLabelText("Ángulo (opcional)"), { target: { value: "Un ángulo" } });
@@ -525,6 +557,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
     server.use(topicCaptureHandler(capture));
     renderPanel();
     await screen.findByRole("combobox", { name: "Intentos por tema" });
+    goToTopics();
 
     fireEvent.change(screen.getByLabelText("Temas en lote"), {
       target: {
@@ -564,10 +597,61 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
   it("prefills the form when a template is clicked", async () => {
     renderPanel();
     await screen.findByRole("combobox", { name: "Intentos por tema" });
+    goToTopics();
 
     fireEvent.click(screen.getByRole("button", { name: /Nostalgia de los 2000 en gaming/ }));
 
     expect(screen.getByLabelText("Título del tema")).toHaveValue("Nostalgia de los 2000 en gaming");
     expect(screen.getByRole("combobox", { name: "Prioridad" })).toHaveTextContent("Normal");
+  });
+});
+
+describe("AgendaPanel pane switcher (Perfil co-host / Temas)", () => {
+  it("defaults to Perfil co-host — its pane is visible, Temas is hidden (both stay mounted)", async () => {
+    renderPanel();
+    await screen.findByLabelText("Intentos por tema");
+
+    expect(screen.getByLabelText("Estilo del perfil co-host")).toBeInTheDocument();
+    expect(screen.getByTestId("agenda-pane-profile")).not.toHaveAttribute("hidden");
+    expect(screen.getByTestId("agenda-pane-topics")).toHaveAttribute("hidden");
+
+    // Mounted, not absent — Temas content is a real DOM node behind `hidden`.
+    expect(screen.getByTestId("agenda-now")).toBeInTheDocument();
+  });
+
+  it("switching to Temas flips which pane is hidden, without unmounting Perfil co-host", async () => {
+    renderPanel();
+    await screen.findByLabelText("Intentos por tema");
+
+    goToTopics();
+
+    expect(screen.getByTestId("agenda-pane-topics")).not.toHaveAttribute("hidden");
+    expect(screen.getByTestId("agenda-pane-profile")).toHaveAttribute("hidden");
+    expect(screen.getByTestId("agenda-now")).toBeInTheDocument();
+    expect(screen.getByLabelText("Título del tema")).toBeInTheDocument();
+    expect(screen.getByLabelText("Estilo del perfil co-host")).toBeInTheDocument();
+  });
+
+  it("keeps SessionControlCard mounted in both panes — it is not a pane", async () => {
+    renderPanel();
+    await screen.findByLabelText("Intentos por tema");
+    expect(screen.getByRole("button", { name: "Activar" })).toBeInTheDocument();
+
+    goToTopics();
+    expect(screen.getByRole("button", { name: "Activar" })).toBeInTheDocument();
+  });
+
+  it("a typed AddTopicCard title draft survives a pane round trip (Temas → Perfil → Temas) — the regression this change guards", async () => {
+    renderPanel();
+    await screen.findByLabelText("Intentos por tema");
+
+    goToTopics();
+    fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Borrador sin guardar" } });
+    expect(screen.getByLabelText("Título del tema")).toHaveValue("Borrador sin guardar");
+
+    fireEvent.click(screen.getByRole("button", { name: "Perfil co-host" }));
+    goToTopics();
+
+    expect(screen.getByLabelText("Título del tema")).toHaveValue("Borrador sin guardar");
   });
 });

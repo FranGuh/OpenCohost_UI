@@ -572,6 +572,31 @@ export function MemoryCard() {
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
+        {/* Dashboard reads first — moved above the danger zone/import sections
+            (it used to sit between them, a strange place for a summary). No
+            inner scroll box: this tile grid wraps in normal flow like every
+            other card content. */}
+        <section aria-labelledby="memory-counts-label" className="space-y-2">
+          <span id="memory-counts-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            {t("controles.memory.counts.eyebrow")}
+          </span>
+          {statsError && (
+            <p role="alert" className="text-xs leading-relaxed text-danger">
+              {t("controles.memory.counts.error")}
+            </p>
+          )}
+          {data && (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2">
+              {countRows(data).map(([label, count]) => (
+                <div key={label} className="flex flex-col gap-0.5 rounded-md border border-border-soft bg-surface-2 px-3 py-2">
+                  <span className="mono text-xl font-bold tabular-nums text-foreground">{count}</span>
+                  <span className="text-[11px] leading-snug text-dim">{label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {clearCommand.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
             {clearCommand.error?.message ?? t("controles.memory.clear.error")}
@@ -604,29 +629,6 @@ export function MemoryCard() {
             </div>
           )}
         </SubCollapsibleSection>
-
-        <section aria-labelledby="memory-counts-label" className="space-y-2">
-          <span id="memory-counts-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            {t("controles.memory.counts.eyebrow")}
-          </span>
-          {statsError && (
-            <p role="alert" className="text-xs leading-relaxed text-danger">
-              {t("controles.memory.counts.error")}
-            </p>
-          )}
-          {data && (
-            <div className="flex flex-col gap-2">
-              {countRows(data).map(([label, count]) => (
-                <div key={label} className="grid grid-cols-[1fr_auto] items-center gap-3">
-                  <span className="text-[13px] text-foreground">{label}</span>
-                  <Badge tone="neutral" mono>
-                    {count}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
 
         <MemoriaImportSection profileId={profileId} />
 

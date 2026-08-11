@@ -152,8 +152,9 @@ export function useCollapsible(defaultOpen = true, persistKey?: string): [boolea
 
 export interface SubCollapsibleSectionProps {
   /** Sub-section label — rendered in the card sub-label type ramp, so it reads
-   *  one level below the card's bold h2 (ControlsPanel.ControlGroup is the
-   *  card-level sibling of this). */
+   *  one level below the card's bold h2 (each caller's own card-level
+   *  `<h2 className="text-sm font-bold text-foreground">` — e.g. MemoryCard,
+   *  PersonalizationCard, EditorialCardsCard — is the sibling of this). */
   title: ReactNode;
   /** Persists open/collapsed under localStorage["oc-collapse-<persistKey>"]. */
   persistKey: string;

@@ -4,12 +4,10 @@ import { AgendaPanel } from "../agenda/AgendaPanel.js";
 import { StreamPanel } from "../stream/StreamPanel.js";
 import { MusicPanel } from "../musica/MusicPanel.js";
 import { MemoriaPanel } from "../memoria/MemoriaPanel.js";
+import { SettingsSection } from "./SettingsSection.js";
 import type { Section } from "./Sidebar.js";
 import { useWelcomeStore } from "../../store/welcomeStore.js";
 import { WelcomeCard } from "../experiencia/WelcomeCard.js";
-
-const PANEL_CLASS = "flex min-h-0 flex-col gap-3.5 overflow-auto p-4";
-const PANEL_GRADIENT = "radial-gradient(60% 40% at 50% 0%, var(--accent-soft), transparent 70%)";
 
 export interface MainStageProps {
   activeSection: Section;
@@ -20,44 +18,39 @@ export function MainStage({ activeSection }: MainStageProps) {
   const welcomeDismissed = useWelcomeStore((state) => state.dismissed);
   const dismissWelcome = useWelcomeStore((state) => state.dismiss);
 
+  // Controles/Agenda/Memoria own their full <main> (via SettingsSection) so
+  // each can pin a pane switcher outside the scroll region — see
+  // SettingsSection.tsx. Stream/Música have no switcher, so they render the
+  // no-header branch — the exact single <main className={PANEL_CLASS}> this
+  // file used to hand-roll, now routed through the same shared component
+  // instead of a second copy of it (JD-9: SettingsSection's `if (!header)`
+  // branch was otherwise unreachable — every other caller passes a header).
   if (activeSection === "controles") {
-    return (
-      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
-        <ControlsPanel />
-      </main>
-    );
+    return <ControlsPanel />;
   }
 
   if (activeSection === "agenda") {
-    return (
-      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
-        <AgendaPanel />
-      </main>
-    );
+    return <AgendaPanel />;
   }
 
   if (activeSection === "stream") {
     return (
-      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
+      <SettingsSection>
         <StreamPanel />
-      </main>
+      </SettingsSection>
     );
   }
 
   if (activeSection === "musica") {
     return (
-      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
+      <SettingsSection>
         <MusicPanel />
-      </main>
+      </SettingsSection>
     );
   }
 
   if (activeSection === "memoria") {
-    return (
-      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
-        <MemoriaPanel />
-      </main>
-    );
+    return <MemoriaPanel />;
   }
 
   // Default: Experiencia — Kira's full-bleed presence stage.

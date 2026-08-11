@@ -59,6 +59,7 @@ export const controlesEs = {
   "controles.editorialCards.triggers": "Disparadores (uno por línea)",
   "controles.groups.avatar.title": "Avatar y OBS",
   "controles.groups.identity.title": "Perfil y modelo",
+  "controles.groups.segment.aria": "Elegir vista de Controles",
   "controles.groups.voice.title": "Voz y micrófono",
   "controles.memoria.segment.aria": "Elegir vista de Memoria",
   "controles.memoria.segment.editorialCards": "Tarjetas editoriales",

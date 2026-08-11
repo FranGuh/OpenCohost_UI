@@ -61,6 +61,7 @@ export const controlesEn: Record<keyof typeof controlesEs, string> = {
   "controles.editorialCards.triggers": "Triggers (one per line)",
   "controles.groups.avatar.title": "Avatar and OBS",
   "controles.groups.identity.title": "Profile and model",
+  "controles.groups.segment.aria": "Choose Controles view",
   "controles.groups.voice.title": "Voice and microphone",
   "controles.memoria.segment.aria": "Choose Memoria view",
   "controles.memoria.segment.editorialCards": "Editorial cards",

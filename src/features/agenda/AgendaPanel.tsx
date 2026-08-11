@@ -10,6 +10,8 @@ import { Segmented } from "../../ui/Segmented.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../../ui/Collapsible.js";
 import { useToast } from "../../ui/Toast.js";
 import { Alert } from "../../ui/Alert.js";
+import { usePaneSwitcher } from "../../ui/PaneSwitcher.js";
+import { SettingsSection } from "../shell/SettingsSection.js";
 import { t, useT, type TKey } from "../../i18n/t.js";
 import {
   AGENDA_TURN_OPTIONS,
@@ -926,12 +928,35 @@ function TestToastsCard() {
   );
 }
 
+type AgendaPane = "profile" | "topics";
+
+const AGENDA_PANE_KEY = "oc-agenda-pane";
+
 /**
  * Agenda panel — CTK parity (opencohost/ui/cohost_agenda_panel.py): profile
  * + session settings, Ahora (active topic), Cola (reorder/remove),
  * Sugerencias de Kira (approve/reject from drafted_topics), Agregar tema,
  * and Control de sesión (Activar/Pausa suave/Emergencia). See the
  * module-level note above for the exact backend routes each section uses.
+ *
+ * Two panes (PaneSwitcher, same pattern Memoria/Controles use): "Cohost
+ * profile" (ProfileSessionCard — identity + the instant-apply session
+ * settings) and "Topics" (Ahora/Cola/Agregar tema, plus Sugerencias).
+ * SessionControlCard is deliberately NOT a pane — it's the live start/stop
+ * control, so it renders unconditionally below the header, above whichever
+ * pane is active (same principle as ConversationPanel in AppLayout.tsx: an
+ * operational control the operator needs while streaming is never hidden
+ * behind navigation). The GET-error alert is ALSO pane-independent, for the
+ * same reason: a failed `GET /api/agenda` must be visible no matter which
+ * pane the operator lands on, not just the Topics one — see JD-1.
+ *
+ * Both panes stay MOUNTED (hidden attribute, not `pane === … &&`) so
+ * switching panes never destroys unsaved operator input — ProfileSessionCard's
+ * styleDraft/draftName and AddTopicCard's title/angle/bulk/etc. would
+ * otherwise be silently lost. This mirrors ControlsPanel.tsx, which restores
+ * the exact mounting behaviour the deleted accordion (ControlGroup) used to
+ * have; see that file for the general rationale, including why Memoria is the
+ * deliberate exception that still unmounts.
  */
 export function AgendaPanel() {
   const t = useT();
@@ -940,25 +965,51 @@ export function AgendaPanel() {
   const queue = data?.queued_topics ?? [];
   const suggestions = data?.drafted_topics ?? [];
 
+  const options = [
+    { value: "profile" as const, label: t("agenda.segment.cohostProfile") },
+    { value: "topics" as const, label: t("agenda.segment.topics") }
+  ];
+  const { value: pane, switcher } = usePaneSwitcher<AgendaPane>(options, AGENDA_PANE_KEY, t("agenda.segment.aria"));
+
   return (
-    <>
+    <SettingsSection header={switcher}>
       {/* <TestToastsCard /> */}
-      <ProfileSessionCard />
-      {getError ? (
+      <SessionControlCard state={data?.state ?? data?.metrics.current_state ?? "OFF"} queueLength={queue.length} />
+
+      {getError && (
         <Card className="flex flex-col p-4">
           <p role="alert" className="text-xs leading-relaxed text-danger">
             {t("agenda.load.error")}
           </p>
         </Card>
-      ) : (
-        <>
-          <NowCard now={data?.active_topic} />
-          <QueueCard queue={queue} />
-          <AddTopicCard />
-        </>
       )}
-      <SuggestionsCard suggestions={suggestions} />
-      <SessionControlCard state={data?.state ?? data?.metrics.current_state ?? "OFF"} queueLength={queue.length} />
-    </>
+
+      <div
+        data-testid="agenda-pane-profile"
+        hidden={pane !== "profile"}
+        style={pane !== "profile" ? { display: "none" } : undefined}
+        className="flex flex-col gap-3.5"
+      >
+        <h2 className="text-sm font-bold text-foreground">{t("agenda.segment.cohostProfile")}</h2>
+        <ProfileSessionCard />
+      </div>
+
+      <div
+        data-testid="agenda-pane-topics"
+        hidden={pane !== "topics"}
+        style={pane !== "topics" ? { display: "none" } : undefined}
+        className="flex flex-col gap-3.5"
+      >
+        <h2 className="text-sm font-bold text-foreground">{t("agenda.segment.topics")}</h2>
+        {!getError && (
+          <>
+            <NowCard now={data?.active_topic} />
+            <QueueCard queue={queue} />
+            <AddTopicCard />
+          </>
+        )}
+        <SuggestionsCard suggestions={suggestions} />
+      </div>
+    </SettingsSection>
   );
 }

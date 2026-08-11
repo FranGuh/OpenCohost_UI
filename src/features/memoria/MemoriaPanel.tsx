@@ -1,23 +1,13 @@
-import { useState } from "react";
 import { EditorialCardsCard } from "./EditorialCardsCard.js";
 import { MemoryCard } from "./MemoryCard.js";
 import { PersonalizationCard } from "./PersonalizationCard.js";
-import { Segmented } from "../../ui/Segmented.js";
+import { usePaneSwitcher } from "../../ui/PaneSwitcher.js";
+import { SettingsSection } from "../shell/SettingsSection.js";
 import { useT } from "../../i18n/t.js";
 
 type MemoriaPane = "memory" | "personalization" | "editorialCards";
 
 const MEMORIA_PANE_KEY = "oc-memoria-pane";
-
-function readMemoriaPane(): MemoriaPane {
-  try {
-    const stored = window.localStorage.getItem(MEMORIA_PANE_KEY);
-    if (stored === "memory" || stored === "personalization" || stored === "editorialCards") return stored;
-  } catch {
-    // best-effort read; falls through to the default below
-  }
-  return "memory";
-}
 
 /**
  * Memoria — top-level nav section for the three cards that used to live
@@ -26,10 +16,12 @@ function readMemoriaPane(): MemoriaPane {
  * them so exactly ONE pane is mounted at a time: with ~118 memories,
  * stacking all three in page flow forced the operator to scroll past the
  * whole memory list to reach Personalization or Editorial Cards — the
- * original complaint, made worse. The active pane still has no inner
- * scroll box of its own: MainStage's `<main overflow-auto>` is the single
- * scroll owner, the same reference pattern Agenda/Stream/Música already use
- * (docs/UI_CONSTRAINTS_LEARNED.md §6).
+ * original complaint, made worse. The switcher itself now lives in
+ * SettingsSection's non-scrolling header slot, so it stays on screen
+ * regardless of how far the active pane's body scrolls (a switcher that
+ * scrolled away with the content would just reintroduce the same complaint
+ * one level down); only the active pane's body scrolls, the same reference
+ * pattern Controles/Agenda already use (docs/UI_CONSTRAINTS_LEARNED.md §6).
  *
  * i18n keys on the cards keep their historical "controles.memory.*" /
  * "controles.personalization.*" / "controles.editorialCards.*" prefixes —
@@ -39,29 +31,18 @@ function readMemoriaPane(): MemoriaPane {
  */
 export function MemoriaPanel() {
   const t = useT();
-  const [pane, setPane] = useState<MemoriaPane>(readMemoriaPane);
-
-  function selectPane(next: MemoriaPane) {
-    setPane(next);
-    try {
-      window.localStorage.setItem(MEMORIA_PANE_KEY, next);
-    } catch {
-      // best-effort persistence; the in-memory selection still holds
-    }
-  }
-
   const options = [
     { value: "memory" as const, label: t("controles.memoria.segment.memory") },
     { value: "personalization" as const, label: t("controles.memoria.segment.personalization") },
     { value: "editorialCards" as const, label: t("controles.memoria.segment.editorialCards") }
   ];
+  const { value: pane, switcher } = usePaneSwitcher<MemoriaPane>(options, MEMORIA_PANE_KEY, t("controles.memoria.segment.aria"));
 
   return (
-    <>
-      <Segmented options={options} value={pane} onChange={selectPane} ariaLabel={t("controles.memoria.segment.aria")} />
+    <SettingsSection header={switcher}>
       {pane === "memory" && <MemoryCard />}
       {pane === "personalization" && <PersonalizationCard />}
       {pane === "editorialCards" && <EditorialCardsCard />}
-    </>
+    </SettingsSection>
   );
 }
