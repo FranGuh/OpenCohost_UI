@@ -697,13 +697,14 @@ export function MemoryCard() {
                       {filteredItems.length === 0 ? (
                         <p className="text-xs text-dim">{t("controles.memory.list.filter.empty")}</p>
                       ) : (
-                        // Reading a memory now opens a Dialog (WU-dialog) instead of
-                        // expanding the row inline, so the box no longer has to leave
-                        // headroom for one row's content ballooning past the rest — it
-                        // only ever holds the fixed-height row summaries. Raised from
-                        // max-h-64 (256px, ~2 rows) to fit more of a 111-memory list at
-                        // a glance without letting the box dominate the card.
-                        <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
+                        // No inner max-h/overflow box: this card now lives in its own
+                        // full-width Memoria section, where the panel scroll every
+                        // sibling section already relies on can hold the whole list
+                        // (docs/UI_CONSTRAINTS_LEARNED.md §6) instead of the card
+                        // boxing itself. The list still opens behind a collapse
+                        // (default closed), so a 111-memory catalog only lands in page
+                        // flow when the operator asks for it.
+                        <ul className="flex flex-col gap-2">
                           {filteredItems.map((item) => (
                             <MemoriaRow key={item.id} item={item} profileId={profileId} />
                           ))}

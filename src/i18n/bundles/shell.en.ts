@@ -33,6 +33,7 @@ export const shellEn: Record<keyof typeof shellEs, string> = {
   "shell.nav.agenda": "Agenda",
   "shell.nav.controles": "Controls",
   "shell.nav.experiencia": "Experience",
+  "shell.nav.memoria": "Memory",
   "shell.nav.musica": "Music",
   "shell.nav.stream": "Stream",
   "shell.profilePreview.empty": "no prompt configured",

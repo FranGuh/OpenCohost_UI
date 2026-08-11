@@ -7,14 +7,11 @@ import { ModelCard } from "./ModelCard.js";
 import { ProviderCard } from "./ProviderCard.js";
 import { VoiceCard } from "./VoiceCard.js";
 import { PTTCard } from "./PTTCard.js";
-import { MemoryCard } from "./MemoryCard.js";
-import { EditorialCardsCard } from "./EditorialCardsCard.js";
-import { PersonalizationCard } from "./PersonalizationCard.js";
 import { AvatarCard } from "./AvatarCard.js";
 import { ObsCard } from "./ObsCard.js";
 
 /**
- * Controles panel — the eight settings cards, grouped into collapsible sections
+ * Controles panel — the six settings cards, grouped into collapsible sections
  * so the panel reads as a short accordion instead of one long scroll. Each
  * group uses the SAME ui/Collapsible card idiom as Stream/Agenda (header +
  * chevron + persistKey, default open) and its open/collapsed state survives
@@ -56,11 +53,6 @@ export function ControlsPanel() {
       <ControlGroup title={t("controles.groups.voice.title")} persistKey="controles-voz-microfono">
         <VoiceCard />
         <PTTCard />
-      </ControlGroup>
-      <ControlGroup title={t("controles.groups.memory.title")} persistKey="controles-memoria-personalizacion">
-        <MemoryCard />
-        <PersonalizationCard />
-        <EditorialCardsCard />
       </ControlGroup>
       <ControlGroup title={t("controles.groups.avatar.title")} persistKey="controles-avatar-obs">
         <AvatarCard />

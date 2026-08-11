@@ -7,7 +7,7 @@ import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
 import { cn } from "../../lib/cn.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
-export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica";
+export type Section = "experiencia" | "controles" | "agenda" | "stream" | "musica" | "memoria";
 
 interface NavItem {
   id: Section;
@@ -22,6 +22,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { id: "agenda", icon: "▤", labelKey: "shell.nav.agenda" },
   { id: "stream", icon: "◉", labelKey: "shell.nav.stream" },
   { id: "musica", icon: "♪", labelKey: "shell.nav.musica" },
+  { id: "memoria", icon: "◆", labelKey: "shell.nav.memoria" },
   { id: "controles", icon: "⚙", labelKey: "shell.nav.controles" }
 ];
 

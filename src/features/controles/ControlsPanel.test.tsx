@@ -20,10 +20,10 @@ function renderPanel() {
   );
 }
 
-const GROUPS = ["Perfil y modelo", "Voz y micrófono", "Memoria y personalización", "Avatar y OBS"];
+const GROUPS = ["Perfil y modelo", "Voz y micrófono", "Avatar y OBS"];
 
 describe("ControlsPanel — collapsible group cards", () => {
-  it("renders the four group headers, all open by default", () => {
+  it("renders the three group headers, all open by default", () => {
     renderPanel();
     for (const group of GROUPS) {
       expect(screen.getByRole("button", { name: group })).toHaveAttribute("aria-expanded", "true");

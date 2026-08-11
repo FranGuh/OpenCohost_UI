@@ -31,6 +31,7 @@ export const shellEs = {
   "shell.nav.agenda": "Agenda",
   "shell.nav.controles": "Controles",
   "shell.nav.experiencia": "Experiencia",
+  "shell.nav.memoria": "Memoria",
   "shell.nav.musica": "Música",
   "shell.nav.stream": "Stream",
   "shell.profilePreview.empty": "sin prompt configurado",

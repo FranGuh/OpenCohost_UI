@@ -3,6 +3,7 @@ import { ControlsPanel } from "../controles/ControlsPanel.js";
 import { AgendaPanel } from "../agenda/AgendaPanel.js";
 import { StreamPanel } from "../stream/StreamPanel.js";
 import { MusicPanel } from "../musica/MusicPanel.js";
+import { MemoriaPanel } from "../memoria/MemoriaPanel.js";
 import type { Section } from "./Sidebar.js";
 import { useWelcomeStore } from "../../store/welcomeStore.js";
 import { WelcomeCard } from "../experiencia/WelcomeCard.js";
@@ -47,6 +48,14 @@ export function MainStage({ activeSection }: MainStageProps) {
     return (
       <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
         <MusicPanel />
+      </main>
+    );
+  }
+
+  if (activeSection === "memoria") {
+    return (
+      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
+        <MemoriaPanel />
       </main>
     );
   }

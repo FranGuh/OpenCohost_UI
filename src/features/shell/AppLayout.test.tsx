@@ -155,6 +155,39 @@ describe("AppLayout", () => {
     expect(screen.getByRole("heading", { name: "Biblioteca" })).toBeInTheDocument();
   });
 
+  it("switches to Memoria on nav click, marks aria-current, renders MemoriaPanel, and keeps the chat column at 465px", () => {
+    const { container } = renderApp();
+    const shell = container.querySelector(".w-full.min-w-0") as HTMLElement;
+    const memoriaBtn = screen.getByRole("button", { name: /Memoria/ });
+    expect(memoriaBtn).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(memoriaBtn);
+
+    expect(memoriaBtn).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByRole("heading", { name: "Kira" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Memoria" })).toBeInTheDocument();
+    // Memoria is not special-cased: same 465px chat/queue track as every
+    // other section, so ConversationPanel stays visible everywhere.
+    expect(shell.style.gridTemplateColumns).toBe("248px 1fr 465px");
+  });
+
+  it("keeps ConversationPanel's composer draft alive across a Memoria round trip (a per-section gate would reset it)", () => {
+    renderApp();
+    const composer = screen.getByRole("combobox", { name: "Mensaje para Kira" });
+
+    fireEvent.change(composer, { target: { value: "no perder este borrador" } });
+    expect(composer).toHaveValue("no perder este borrador");
+
+    fireEvent.click(screen.getByRole("button", { name: /Memoria/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Experiencia/ }));
+
+    // Same value on return: ConversationPanel must stay mounted for every
+    // section (AppLayout.tsx). If a future change gated the queue wrapper
+    // per-section again — unmount OR display:none — this useState would
+    // reset to "" on remount. This is the regression guard for that trap.
+    expect(screen.getByRole("combobox", { name: "Mensaje para Kira" })).toHaveValue("no perder este borrador");
+  });
+
   it("shares one ProfileSwitchProvider owner across ProfilePlaylist and ProfileSwitcher (no double-poll)", async () => {
     renderApp();
 

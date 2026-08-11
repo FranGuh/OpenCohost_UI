@@ -129,6 +129,15 @@ export function AppLayout() {
           <div className="grid min-h-0 min-w-0 [grid-area:main]">
             <MainStage activeSection={activeSection} />
           </div>
+          {/* ConversationPanel is deliberately mounted for EVERY section, same
+              trap as the MusicPanel/<audio> precedent documented above,
+              different panel: it owns the transcript, composer draft, active
+              tab and seenLogId as its own useState, so gating it per-section
+              (unmount OR display:none) would destroy the operator's
+              conversation on the next round trip. Do not add a per-section
+              condition here again — Memoria briefly did and was reverted
+              because it made the chat column disappear only in that one
+              section, an inconsistency the owner rejected. */}
           <div className="grid min-h-0 min-w-0 [grid-area:queue]">
             <ConversationPanel />
           </div>
