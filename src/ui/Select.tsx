@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ChangeEventHandler, SelectHTMLAttributes } from "react";
 import { cn } from "../lib/cn.js";
 
 export interface SelectOption {
@@ -9,7 +8,7 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
-// ─── Custom dropdown — rendered when `options` prop is provided ────────────
+// ─── The dropdown — the only rendering mode (see the Select docstring) ─────
 
 interface CustomProps {
   options: readonly SelectOption[];
@@ -22,22 +21,51 @@ interface CustomProps {
   className?: string;
 }
 
+// Ceiling on the list's height so a long catalog (e.g. Agenda's 20-entry
+// "attempts per topic" select) doesn't turn into a full-height wall — matches
+// the max-h-96 ceiling MemoryCard already uses for its own scrollable list.
+const LIST_MAX_HEIGHT_CEILING = 384;
+const GAP = 4; // replicates the inline version's `mt-1` gap
+
+interface ListPosition {
+  left: number;
+  width: number;
+  maxHeight: number;
+  /** Exactly one of top/bottom is set — bottom means "open upward". */
+  top?: number;
+  bottom?: number;
+}
+
 function CustomSelect({ options, value, onChange, disabled, className, ...ariaProps }: CustomProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [position, setPosition] = useState<ListPosition | null>(null);
   const selected = options.find((o) => o.value === value);
 
   // The list is portaled to <body> (see below) so its stacking never depends
   // on an ancestor Card's backdrop-filter stacking context. Compute its
-  // position from the trigger each time it opens; 4px replicates the inline
-  // version's `mt-1` gap.
+  // position from the trigger each time it opens, sizing it to the actual
+  // room available so a long list scrolls instead of running off-screen —
+  // and opening upward when there is more room above than below, so a
+  // trigger near the bottom of a panel doesn't get squeezed into a sliver.
   useLayoutEffect(() => {
     if (!open) return;
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
-    setPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    const spaceBelow = window.innerHeight - rect.bottom - GAP;
+    const spaceAbove = rect.top - GAP;
+    const { left, width } = rect;
+    if (spaceBelow >= spaceAbove) {
+      setPosition({ top: rect.bottom + GAP, left, width, maxHeight: Math.min(LIST_MAX_HEIGHT_CEILING, Math.max(spaceBelow, 0)) });
+    } else {
+      setPosition({
+        bottom: window.innerHeight - rect.top + GAP,
+        left,
+        width,
+        maxHeight: Math.min(LIST_MAX_HEIGHT_CEILING, Math.max(spaceAbove, 0))
+      });
+    }
   }, [open]);
 
   // Close when pointer lands outside the trigger AND outside the portaled list
@@ -112,8 +140,15 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
           <ul
             ref={listRef}
             role="listbox"
-            style={{ position: "fixed", top: position.top, left: position.left, width: position.width }}
-            className="z-50 overflow-hidden rounded-md border border-border bg-surface-2 py-1 shadow-panel"
+            style={{
+              position: "fixed",
+              top: position.top,
+              bottom: position.bottom,
+              left: position.left,
+              width: position.width,
+              maxHeight: position.maxHeight
+            }}
+            className="z-50 overflow-y-auto rounded-md border border-border bg-surface-2 py-1 shadow-panel"
           >
             {options.map((opt) => {
               const isSel = opt.value === value;
@@ -149,59 +184,33 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
   );
 }
 
-// ─── Native <select> — backward compat for dynamic catalog call sites ──────
-
-type NativeProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "onChange"> & {
-  /** Discriminant: absent on native variant. */
-  options?: never;
-  onChange?: ChangeEventHandler<HTMLSelectElement>;
-};
-
-function NativeSelect({ className, children, ...props }: NativeProps) {
-  return (
-    <div className="relative">
-      <select
-        className={cn(
-          "h-11 w-full appearance-none rounded-md border border-border bg-surface-2 px-3 pr-9 text-sm font-semibold text-foreground",
-          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-          "disabled:cursor-not-allowed disabled:opacity-60",
-          className
-        )}
-        {...props}
-      >
-        {children}
-      </select>
-      <span aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-dim">
-        ▾
-      </span>
-    </div>
-  );
-}
-
 // ─── Public API ────────────────────────────────────────────────────────────
 
-export type SelectProps = CustomProps | NativeProps;
+export type SelectProps = CustomProps;
 
 /**
- * Token-styled select control. Two rendering modes:
- * - `options` prop → custom accessible dropdown (theme-aware; D9 upgrade for
- *   fixed option sets where native OS styling would look out-of-place).
- * - `children` → native <select> wrapper (backward compat for dynamic
- *   catalogs built from server data where the option set is not known ahead).
+ * Token-styled select control. Always renders the custom accessible dropdown
+ * (theme-aware; D9 upgrade for fixed option sets where native OS styling
+ * would look out-of-place).
+ *
+ * There used to be a second mode — pass `children` of `<option>` and get a
+ * bare native `<select>` — kept as a "backward compat" escape hatch for call
+ * sites with a dynamic catalog. In practice it was silent: nothing forced a
+ * caller choosing that branch to notice it skipped the design system, and
+ * three call sites did exactly that, shipping unstyled OS chrome by accident.
+ * A union that lets a caller silently opt out of theming is a footgun, not a
+ * feature, so the native branch was removed. Every call site now builds an
+ * `options` array instead.
  */
-export function Select(props: SelectProps) {
-  if ("options" in props && Array.isArray(props.options)) {
-    const { options, value, onChange, disabled, className, ...ariaProps } = props as CustomProps;
-    return (
-      <CustomSelect
-        options={options}
-        value={value}
-        onChange={onChange}
-        disabled={disabled}
-        className={className}
-        {...ariaProps}
-      />
-    );
-  }
-  return <NativeSelect {...(props as NativeProps)} />;
+export function Select({ options, value, onChange, disabled, className, ...ariaProps }: SelectProps) {
+  return (
+    <CustomSelect
+      options={options}
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      className={className}
+      {...ariaProps}
+    />
+  );
 }

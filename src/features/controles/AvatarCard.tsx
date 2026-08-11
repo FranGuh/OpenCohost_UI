@@ -52,6 +52,9 @@ export function AvatarCard() {
   const previewLabelKey = STATE_LABELS.find(([state]) => state === previewState)?.[1];
   const previewLabel = previewLabelKey ? t(previewLabelKey) : undefined;
 
+  const modeSelectOptions = MODE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
+  const stateSelectOptions = STATE_LABELS.map(([state, labelKey]) => ({ value: state, label: t(labelKey) }));
+
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
@@ -77,19 +80,13 @@ export function AvatarCard() {
               <span id="avatar-mode-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
                 {t("controles.avatar.modeSelect")}
               </span>
-              {/* El select no tiene diseño como los demás*/}
               <Select
                 aria-label={t("controles.avatar.modeSelect")}
                 value={data.mode}
                 disabled={updateConfig.isPending}
-                onChange={(event) => applyMode(event.target.value)}
-              >
-                {MODE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.labelKey)}
-                  </option>
-                ))}
-              </Select>
+                onChange={applyMode}
+                options={modeSelectOptions}
+              />
             </section>
 
             <section aria-labelledby="avatar-images-label" className="space-y-2">
@@ -135,18 +132,12 @@ export function AvatarCard() {
                 {t("controles.avatar.preview.eyebrow")}
               </span>
               <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                {/* El select no tiene diseño como los demás*/}
                 <Select
                   aria-label={t("controles.avatar.preview.stateSelect.aria")}
                   value={previewState}
-                  onChange={(event) => setPreviewState(event.target.value)}
-                >
-                  {STATE_LABELS.map(([state, labelKey]) => (
-                    <option key={state} value={state}>
-                      {t(labelKey)}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setPreviewState}
+                  options={stateSelectOptions}
+                />
                 <Button type="button" variant="outline" onClick={() => setPreviewShown(true)}>
                   {t("controles.avatar.preview.action")}
                 </Button>

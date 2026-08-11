@@ -17,11 +17,16 @@ function renderCard() {
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(AvatarCard)));
 }
 
+function selectCustomOption(comboboxName: string | RegExp, optionName: string | RegExp) {
+  fireEvent.click(screen.getByRole("combobox", { name: comboboxName }));
+  fireEvent.click(screen.getByRole("option", { name: optionName }));
+}
+
 describe("AvatarCard populates from GET /api/avatar/config", () => {
   it("renders the mode and one row per state with its configured image path", async () => {
     renderCard();
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Modo" })).toHaveValue(defaultAvatarConfig.mode)
+      expect(screen.getByRole("combobox", { name: "Modo" })).toHaveTextContent("Imágenes por estado")
     );
     expect(screen.getByText(defaultAvatarConfig.state_images.idle)).toBeInTheDocument();
     expect(screen.getByText(defaultAvatarConfig.state_images.speaking)).toBeInTheDocument();
@@ -46,8 +51,8 @@ describe("AvatarCard mode change PUTs the edited config", () => {
     );
     renderCard();
 
-    const select = (await screen.findByRole("combobox", { name: "Modo" })) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "static" } });
+    await screen.findByRole("combobox", { name: "Modo" });
+    selectCustomOption("Modo", "Estático");
 
     await waitFor(() => expect(capturedBody).toEqual({ mode: "static" }));
     await waitFor(() => expect(screen.queryByText("aplicando…")).not.toBeInTheDocument());
@@ -57,8 +62,8 @@ describe("AvatarCard mode change PUTs the edited config", () => {
     server.use(avatarConfigPutValidationHandler("unknown avatar state(s): bogus"));
     renderCard();
 
-    const select = (await screen.findByRole("combobox", { name: "Modo" })) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "static" } });
+    await screen.findByRole("combobox", { name: "Modo" });
+    selectCustomOption("Modo", "Estático");
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("unknown avatar state(s): bogus"));
   });
