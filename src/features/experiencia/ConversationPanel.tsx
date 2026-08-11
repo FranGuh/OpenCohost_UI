@@ -75,6 +75,12 @@ function capTurns(turns: Turn[]): Turn[] {
  * the bottom-row identity every arrival looks like "nothing new at the end". */
 const KIRA_THINKING_ID = "kira-thinking";
 
+/** Fixed id for the composer's text field, so focus restore can name it instead
+ * of grabbing the first `input` under `composerRef` — the command surfaces
+ * mount in there too, and they have inputs of their own. Same convention as the
+ * timeline's `conversation-panel` id. */
+const COMPOSER_INPUT_ID = "composer-input";
+
 /** Unit 4.2 (runtime_findings_batch_20260731, D3b): "esperó Xs en cola" /
  * "esperó 1 min 12 s en cola" — ms -> a short honest label. Only called for
  * a real (>0) wait; a 0ms/instant reply skips the note entirely (see the
@@ -307,13 +313,24 @@ export function ConversationPanel() {
   // Composer command palette (mockup): a live, prefix-based detection — the
   // panel shows whenever the trimmed composer value starts with "/" or "!".
   const composerRef = useRef<HTMLDivElement>(null);
+  // The command the launcher opened IN PLACE, above the composer (owner
+  // correction 2026-08-11: "me gusta más tenerlo integrado con el input y chat
+  // flotante, o sea se invoca ahí, no llevar a otra sección"). Distinct from
+  // `comandoId`, which is the Comandos tab's own browsable selection — picking
+  // a command from the launcher must not move the operator off the chat, and
+  // must not disturb whatever that tab was showing.
+  const [launcherCommandId, setLauncherCommandId] = useState<string | null>(null);
   const showCommandPanel = /^[/!]/.test(message.trim());
   // F1: the popover only renders an actual `role="listbox"` when at least one
   // command matches (zero matches shows the "comando desconocido" status hint
   // instead, no listbox) — the input's combobox expanded/controls state must
   // follow that reality, not just the raw "/"|"!" prefix. Derived straight from
   // the same registry the popover itself filters through — no extra plumbing.
-  const commandListboxOpen = showCommandPanel && matchCommands(message).length > 0;
+  // An open in-place command owns the space above the composer (both surfaces
+  // render at `absolute inset-x-0 bottom-full`, so they would stack). The open
+  // one wins: typing "/" again must not silently discard a half-filled Stepper.
+  const launcherOpen = showCommandPanel && launcherCommandId === null;
+  const commandListboxOpen = launcherOpen && matchCommands(message).length > 0;
   // F3: the composer input's aria-activedescendant follows the popover's
   // keyboard-highlighted option (combobox pattern).
   const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
@@ -547,6 +564,25 @@ export function ConversationPanel() {
       // pendingTurnIdRef stays set so that retry reuses (and updates) the
       // same bubble instead of appending a duplicate.
     }
+  }
+
+  /**
+   * Hand focus back to the composer's OWN text field.
+   *
+   * Not `querySelector("input")`: both command surfaces mount inside
+   * `composerRef`, and a Stepper's first step is very often a text field — so
+   * the bare selector matched the STEPPER's input, focused it, and then watched
+   * it get unmounted along with the panel, dropping focus to <body>. Caught by
+   * the Cancelar test. The id is the same fixed-id convention the timeline
+   * (`conversation-panel`) and the launcher listbox already use here.
+   */
+  function focusComposerInput() {
+    composerRef.current?.querySelector<HTMLInputElement>(`#${COMPOSER_INPUT_ID}`)?.focus();
+  }
+
+  function closeLauncherCommand() {
+    setLauncherCommandId(null);
+    focusComposerInput();
   }
 
   function handleMicPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -804,22 +840,42 @@ export function ConversationPanel() {
             <div ref={composerRef} className="relative border-t border-border-soft bg-surface-2 p-3">
               {/* Emergent command launcher (owner layout correction 2026-07-18):
                   appears above the composer only while the input starts with
-                  "/"|"!"; selecting a command routes it to the Comandos tab. */}
-              {showCommandPanel && (
+                  "/"|"!". Selecting a command opens it RIGHT HERE, in the
+                  floating panel below — it used to jump to the Comandos tab,
+                  which threw the operator out of the conversation mid-stream
+                  (owner correction 2026-08-11). */}
+              {launcherOpen && (
                 <CommandPalettePopover
                   query={message}
                   composerRef={composerRef}
                   onActiveDescendantChange={setActiveDescendant}
                   onSelect={(id) => {
-                    setComandoId(id);
-                    setActiveTab("comandos");
+                    setLauncherCommandId(id);
                     setMessage("");
                   }}
                   onClose={() => {
                     setMessage("");
                     // Restore focus to the composer input the operator was typing in.
-                    composerRef.current?.querySelector("input")?.focus();
+                    focusComposerInput();
                   }}
+                />
+              )}
+              {/* The floating host has existed since the mockup and was never
+                  mounted — `ComposerCommandPanel` without `inline` is exactly
+                  this: a role="dialog" above the composer hosting the picked
+                  command's Stepper. Cancel/Escape/discard all resolve to
+                  activeId=null, which unmounts it and returns the operator to a
+                  conversation that never went anywhere. */}
+              {launcherCommandId !== null && (
+                <ComposerCommandPanel
+                  query=""
+                  activeId={launcherCommandId}
+                  // Every exit funnels through here: Escape and Stepper-discard
+                  // both go out as activeId=null, Cancelar comes in on onClose.
+                  // Focus has to come back to the input either way — the panel
+                  // is unmounting out from under whatever held it.
+                  onActiveIdChange={(id) => (id === null ? closeLauncherCommand() : setLauncherCommandId(id))}
+                  onClose={closeLauncherCommand}
                 />
               )}
               <div
@@ -847,6 +903,7 @@ export function ConversationPanel() {
 
               <form onSubmit={handleSubmit} className="mt-2">
                 <Input
+                  id={COMPOSER_INPUT_ID}
                   type="text"
                   value={message}
                   onChange={handleMessageChange}

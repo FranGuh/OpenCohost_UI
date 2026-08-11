@@ -75,6 +75,83 @@ describe("Sidebar — collapsible icon rail", () => {
   });
 });
 
+// Owner request: once collapsed, the label is gone from the button, so hovering
+// an icon should float the section name beside it — reusing the PERFILES card
+// treatment, and staying inside the viewport.
+describe("Sidebar — collapsed nav name-on-hover", () => {
+  /** The floating card, if mounted. It is aria-hidden (the name is already the
+   * button's aria-label), so it is reachable by text but never by role. */
+  const nameCard = (label: string) =>
+    screen.queryAllByText(label).find((el) => el.getAttribute("aria-hidden") === "true") ?? null;
+
+  it("shows the section name only after the 700ms dwell, and only while collapsed", () => {
+    vi.useFakeTimers();
+    renderSidebar({ collapsed: true });
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Agenda" }));
+    // Mid-dwell: nothing yet — this is hover INTENT, not hover.
+    act(() => void vi.advanceTimersByTime(HOVER_INTENT_MS - 1));
+    expect(nameCard("Agenda")).toBeNull();
+
+    act(() => void vi.advanceTimersByTime(1));
+    expect(nameCard("Agenda")).not.toBeNull();
+  });
+
+  it("shows nothing on hover when the rail is expanded — the label is already on the button", () => {
+    vi.useFakeTimers();
+    renderSidebar({ collapsed: false });
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Agenda" }));
+    act(() => void vi.advanceTimersByTime(HOVER_INTENT_MS));
+
+    // Only the button's own visible label — no floating duplicate beside it.
+    expect(nameCard("Agenda")).toBeNull();
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveTextContent("Agenda");
+  });
+
+  it("opens immediately on keyboard focus (no dwell) and fades out on blur", () => {
+    vi.useFakeTimers();
+    renderSidebar({ collapsed: true });
+
+    const btn = screen.getByRole("button", { name: "Memoria" });
+    fireEvent.focus(btn);
+    expect(nameCard("Memoria")).not.toBeNull();
+
+    fireEvent.blur(btn);
+    // Still mounted through the exit fade, then gone — the card must not
+    // vanish mid-transition.
+    expect(nameCard("Memoria")).not.toBeNull();
+    act(() => void vi.advanceTimersByTime(CLOSE_FADE_MS));
+    expect(nameCard("Memoria")).toBeNull();
+  });
+
+  it("clamps the card inside the viewport instead of letting a low nav item push it off the bottom", () => {
+    vi.useFakeTimers();
+    renderSidebar({ collapsed: true });
+    const btn = screen.getByRole("button", { name: "Controles" }); // last nav item
+
+    // jsdom reports offsetHeight 0, so stub the measured card height and put
+    // the button low in a short viewport. Clamp: min(btnTop, innerHeight - h - 8).
+    const originalOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    const originalInnerHeight = window.innerHeight;
+    try {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 400 });
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 40 });
+      btn.getBoundingClientRect = () =>
+        ({ top: 380, right: 60, bottom: 416, left: 0, width: 60, height: 36, x: 0, y: 380, toJSON: () => ({}) }) as DOMRect;
+
+      fireEvent.focus(btn);
+      const card = nameCard("Controles");
+      expect(card).not.toBeNull();
+      // 380 would run off a 400px-tall window; 400 - 40 - 8 = 352 does not.
+      expect(card).toHaveStyle({ position: "fixed", left: "68px", top: "352px" });
+    } finally {
+      if (originalOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffset);
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    }
+  });
+});
+
 describe("Sidebar — scroll scoping + footer toggle", () => {
   it("scopes scrolling to the profiles region — the nav rail itself does not scroll", () => {
     renderSidebar();

@@ -946,6 +946,35 @@ describe("ConversationPanel — unified tab strip (owner layout correction 2026-
     expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("listbox", { name: "Comandos disponibles" })).not.toBeInTheDocument();
   });
+
+  // Owner: "cuando estoy en comandos section y doy cancelar debería mandarme al
+  // chat". It used to be wired to `returnToList`, which at the list level sets
+  // activeId to the null it already is — a button that visibly did nothing.
+  it("Cancelar at the Comandos list level returns to the chat, instead of doing nothing", () => {
+    renderPanel();
+    fireEvent.click(tab("Comandos"));
+    expect(tab("Comandos")).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: "Cancelar" }));
+
+    expect(tab("Todo")).toHaveAttribute("aria-selected", "true");
+    expect(timeline()).toBeInTheDocument();
+  });
+
+  // The other half of the same `dismiss` split: inside an OPEN command, cancel
+  // still steps back to the list (R9) rather than leaving the tab entirely.
+  it("Cancelar inside an open command steps back to the Comandos list, staying on the tab", () => {
+    renderPanel();
+    fireEvent.click(tab("Comandos"));
+    const panel = () => screen.getByRole("tabpanel");
+    fireEvent.click(within(panel()).getByText(/^\/perfil/));
+    expect(within(panel()).getByText("¿Cómo se llama el perfil?")).toBeInTheDocument();
+
+    fireEvent.click(within(panel()).getByRole("button", { name: "Cancelar" }));
+
+    expect(tab("Comandos")).toHaveAttribute("aria-selected", "true");
+    expect(within(panel()).getByText("/agenda")).toBeInTheDocument();
+  });
 });
 
 describe("ConversationPanel — emergent command launcher (owner layout correction 2026-07-18)", () => {
@@ -969,19 +998,58 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
     expect(within(launcher() as HTMLElement).getByText("/sesion")).toBeInTheDocument();
   });
 
-  it("ArrowDown + Enter selects a command, opens it in the Comandos tab, and closes the launcher (R8/R9)", () => {
+  // Owner correction 2026-08-11: this used to route to the Comandos tab, which
+  // threw the operator out of a live conversation to run a command. The command
+  // now opens in place, above the composer.
+  it("ArrowDown + Enter opens the command in the floating panel WITHOUT leaving the chat (R8/R9)", () => {
     renderPanel();
     typeComposer("/"); // all 7, highlight on /agenda
     const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
     fireEvent.keyDown(input, { key: "ArrowDown" }); // → /perfil
     fireEvent.keyDown(input, { key: "Enter" });
 
-    // Routed to the Comandos tab, with /perfil opened (its first step renders).
-    expect(tab("Comandos")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("¿Cómo se llama el perfil?")).toBeInTheDocument();
-    // Launcher and composer are both gone (composer hidden outside feed tabs).
+    // /perfil is open (its first step renders) — inside the floating dialog.
+    const floating = screen.getByRole("dialog", { name: "Comandos del chat" });
+    expect(within(floating).getByText("¿Cómo se llama el perfil?")).toBeInTheDocument();
+    // Still in the chat: the tab never moved and the composer is still there.
+    // This is the whole point of the correction — assert BOTH, because the tab
+    // staying put is worthless if the conversation went away with it.
+    expect(tab("Comandos")).toHaveAttribute("aria-selected", "false");
+    expect(tab("Todo")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByPlaceholderText("Escribí un mensaje para Kira…")).toBeInTheDocument();
+    expect(timeline()).toBeInTheDocument();
+    // The launcher itself closed, and it took the "/" with it.
     expect(launcher()).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Escribí un mensaje para Kira…")).not.toBeInTheDocument();
+    expect(input).toHaveValue("");
+  });
+
+  it("Cancelar inside the floating command closes it and hands focus back to the composer", () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    typeComposer("/perfil");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: "Comandos del chat" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    expect(screen.queryByRole("dialog", { name: "Comandos del chat" })).not.toBeInTheDocument();
+    expect(input).toHaveFocus();
+  });
+
+  it("typing '/' again while a command is open does NOT relaunch over it", () => {
+    renderPanel();
+    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    typeComposer("/perfil");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    typeComposer("/ag");
+
+    // Both surfaces render at `bottom-full`; the open one wins, so a stray "/"
+    // cannot stack a launcher on top of a half-filled Stepper — or worse,
+    // replace it. The combobox contract has to agree with what is on screen.
+    expect(launcher()).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Comandos del chat" })).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-expanded", "false");
   });
 
   it("closes on Escape, clears the composer, and restores focus to the input", () => {

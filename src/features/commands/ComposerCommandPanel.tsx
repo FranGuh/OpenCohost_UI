@@ -9,14 +9,18 @@ import { Stepper } from "./Stepper.js";
 /**
  * Chat command surfaces — MOCKUP-era wiring, two presentations of ONE registry:
  *
- *  - `ComposerCommandPanel` (this file's default export path): the browsable
- *    home. Rendered inline in the Comandos tab; lists every command and hosts
- *    its Stepper/screen when picked. Escape/Cancelar returns to the list (R9).
+ *  - `ComposerCommandPanel` (this file's default export path): hosts a command's
+ *    Stepper/screen. Two mounts, one component. `inline` is the browsable home
+ *    in the Comandos tab — it lists every command, and cancelling an open one
+ *    steps back to that list (R9). WITHOUT `inline` it is a floating
+ *    `role="dialog"` above the composer, which is what the launcher opens into.
  *  - `CommandPalettePopover`: the emergent launcher above the composer (owner
  *    layout correction 2026-07-18). Appears only while the composer input starts
  *    with "/" or "!", filters as the operator types, is keyboard-navigable
- *    (ArrowUp/Down + Enter), and SELECTS a command — routing it to the Comandos
- *    tab — rather than hosting the stepper itself.
+ *    (ArrowUp/Down + Enter), and SELECTS a command. Selecting used to navigate
+ *    to the Comandos tab; since 2026-08-11 the parent opens the floating panel
+ *    in place instead, because being thrown out of the conversation mid-stream
+ *    was the owner's complaint.
  *
  * Both read the same `COMMANDS`/`matchCommands` registry — no second command
  * list data. `CommandList` renders both the browsable button list and the
@@ -247,8 +251,10 @@ export function ComposerCommandPanel({
   const ActiveScreen = active?.screen;
 
   const returnToList = () => setActiveId(null);
-  // Inline (Comandos tab) has no floating palette to dismiss, so cancel/close
-  // returns to the command list (R9). Floating keeps the parent's onClose.
+  // Cancel INSIDE an open command: inline (Comandos tab) steps back to the
+  // browsable list (R9); floating has no list behind it, so it hands back to
+  // the parent. Cancel at the LIST level is a different intent and always
+  // calls `onClose` directly — see the CommandList call site below.
   const dismiss = inline ? returnToList : onClose;
 
   // Escape returns to the command list first, then closes the whole panel.
@@ -281,7 +287,11 @@ export function ComposerCommandPanel({
             <Stepper key={active.id} command={active} onDiscard={returnToList} onCancel={dismiss} />
           )
         ) : (
-          <CommandList matches={matches} onPick={setActiveId} onClose={dismiss} />
+          // NOT `dismiss`: at the list level there is no active command, so the
+          // inline branch of `dismiss` would set activeId to the null it
+          // already is — a Cancelar that did visibly nothing. The list's cancel
+          // means "leave commands", which only the parent can honour.
+          <CommandList matches={matches} onPick={setActiveId} onClose={onClose} />
         )}
       </div>
     </>

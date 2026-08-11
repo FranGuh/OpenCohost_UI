@@ -185,3 +185,33 @@ not work around it. It also means key removal and last-use removal must land in 
 
 One hole worth knowing: excess-property checking does **not** fire for keys arriving via a spread,
 so every EN bundle must stay a direct object literal — not `satisfies`, not a spread build.
+
+---
+
+## 10. Floating hover cards: use `useAnchoredCard`, do not re-roll the timers
+
+`src/features/shell/Sidebar.tsx` owns `useAnchoredCard<T>` — the state machine behind both hover
+surfaces in the rail (the PERFILES prompt preview, and the nav name label that appears once the rail
+is collapsed). It handles the four parts that are easy to get subtly wrong:
+
+1. **hover intent** — 700ms dwell on pointer, immediate on focus;
+2. **an exit fade that outlives the state flip** — the card stays mounted for `CLOSE_FADE_MS` (220ms,
+   matching `--dur-base`) instead of vanishing, and re-hovering a *closing* card cancels the unmount;
+3. **`position: fixed` anchored to the trigger's rect** — an `absolute` card at `left-full` gets
+   clipped by the region's `overflow-auto`;
+4. **a bottom-of-viewport clamp** — `top = min(triggerTop, innerHeight - cardHeight - 8)`.
+
+Presentation stays with the caller (the two cards hold different content). The clamp's
+`useLayoutEffect` deliberately has **no dep array**: a card's height can change after it opens
+(the preview swaps "cargando…" for the fetched prompt), and re-measuring every commit covers that
+without each caller hand-maintaining a dep list that rots the next time its content grows a branch.
+`setClampedTop` bails on an unchanged value, so a stable height settles in one pass.
+
+`onHidden` runs after the fade, not on the state flip — that is where the preview releases its
+runtime `aria-describedby`, so the description does not drop while the card is still on screen.
+
+**Two rules for a new one.** Its accessible story must be decided, not defaulted: the nav card is
+`aria-hidden` because the name is *already* the button's `aria-label` and describing it again would
+announce twice, while the preview wires `aria-describedby` because it carries information the
+trigger does not. And do not reach for a native `title` — the unstyled browser tooltip it produces
+was owner-rejected.

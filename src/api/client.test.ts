@@ -328,6 +328,52 @@ describe("client/postChatTurn", () => {
     await expect(postChatTurn("hola", "key-network")).rejects.toThrow();
   });
 
+  // Observed live 2026-08-10: the turn reached the engine while the UI sat with
+  // the text still in the input and Send permanently greyed, because the POST
+  // never settled and `handleSubmit` opens with `if (pending) return`. A hang
+  // has to become a normal, retryable rejection.
+  //
+  // Real time cannot be advanced here — `AbortSignal.timeout` runs on Node's
+  // internal timers, which vitest's fake clock does not patch — so the deadline
+  // and the mapping are asserted separately: that the request actually CARRIES
+  // an armed signal, and that the resulting TimeoutError comes back as a 408.
+  it("arms a 15s deadline on the chat turn and reports a timeout as a 408 ApiError", async () => {
+    const timeoutArgs: number[] = [];
+    const signalsSent: unknown[] = [];
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeoutArgs.push(ms);
+      return new AbortController().signal; // never fires; the fetch stub below decides
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      signalsSent.push((init as RequestInit | undefined)?.signal);
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    });
+
+    try {
+      await expect(postChatTurn("hola", "key-timeout")).rejects.toMatchObject({
+        name: "ApiError",
+        status: 408
+      });
+      expect(timeoutArgs).toEqual([15_000]);
+      // Without this the deadline is armed and then thrown away — the hang comes back.
+      expect(signalsSent[0]).toBeInstanceOf(AbortSignal);
+    } finally {
+      fetchSpy.mockRestore();
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("lets a non-timeout fetch failure keep its own error, rather than reporting a phantom timeout", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    try {
+      await expect(postChatTurn("hola", "key-offline")).rejects.toBeInstanceOf(TypeError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("treats a 200 with accepted:false as an error, not a successful turn", async () => {
     server.use(
       http.post(`${API_BASE_URL}/api/chat/turn`, () =>

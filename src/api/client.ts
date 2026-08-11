@@ -564,19 +564,51 @@ export async function getLastReply(): Promise<LastReplyResponse> {
 }
 
 /**
+ * How long a chat turn may stay in flight before the composer gives up.
+ * `/api/chat/turn` is an ENQUEUE endpoint — it returns as soon as the command
+ * is accepted, without waiting for Kira to think or speak — so a request still
+ * open after this long is a hang, not slow work.
+ *
+ * Armed here and nowhere else on purpose. Observed 2026-08-10: a turn reached
+ * the engine (`[TURN_LATENCY] source=direct queue_wait_ms=31`) while the UI sat
+ * with the text still in the input and the Send button permanently greyed,
+ * because `handleSubmit` clears only after the POST resolves and opens with
+ * `if (pending) return`. Other endpoints have no such logged incident, and some
+ * of them (model pulls, TTS synthesis) are legitimately slow — a blanket
+ * timeout in `fetch` would break those to defend a path they never broke on.
+ */
+const CHAT_TURN_TIMEOUT_MS = 15_000;
+
+/**
  * POST /api/chat/turn (R8): accepted-only — the response never carries
  * Kira's reply (that's audio-only, observed via is_speaking on the status
- * poll). Same error-mapping shape as postCommand.
+ * poll). Same error-mapping shape as postCommand, plus a hard timeout so a
+ * hung socket surfaces as a visible, retryable error instead of a dead button.
  */
 export async function postChatTurn(text: string, idempotencyKey: string): Promise<ChatTurnAccepted> {
-  const res = await authFetch(`${getApiBaseUrl()}/api/chat/turn`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": idempotencyKey
-    },
-    body: JSON.stringify({ text })
-  });
+  let res: Response;
+  try {
+    res = await authFetch(`${getApiBaseUrl()}/api/chat/turn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey
+      },
+      body: JSON.stringify({ text }),
+      // AbortSignal.timeout budgets from creation, so a 401 retry inside
+      // authFetch shares the same deadline instead of doubling it.
+      signal: AbortSignal.timeout(CHAT_TURN_TIMEOUT_MS)
+    });
+  } catch (error) {
+    // A timeout arrives as DOMException("TimeoutError"); its native message
+    // ("signal timed out") says nothing about which call died. 408 so callers
+    // can tell a hang apart from a refusal. Anything else (offline, DNS) keeps
+    // its own message.
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError(`POST /api/chat/turn timed out after ${CHAT_TURN_TIMEOUT_MS / 1000}s`, 408);
+    }
+    throw error;
+  }
 
   if (res.status === 409) {
     throw new ConflictError("chat turn conflict");

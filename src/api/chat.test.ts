@@ -47,6 +47,57 @@ describe("useSendChatTurn", () => {
     expect(result.current.isError).toBe(false);
   });
 
+  // The composer-lockout bug: dispatch.py rejects a reused key carrying a
+  // DIFFERENT payload with a 409 that sticks for the full 600s TTL, so one
+  // failure followed by "let me reword that" bricked the composer for ten
+  // minutes. These two tests pin BOTH halves — the retry must still dedupe.
+  it("keeps the SAME key when the operator retries the identical text after a failure", async () => {
+    const headersSeen: string[] = [];
+    let fail = true;
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
+        headersSeen.push(request.headers.get("Idempotency-Key") ?? "");
+        if (fail) return new HttpResponse(null, { status: 500 });
+        return HttpResponse.json({ accepted: true, command_id: "cmd-1", status: "queued", state_version: 2 });
+      })
+    );
+
+    const { result } = renderHook(() => useSendChatTurn(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      await result.current.send("hola").catch(() => undefined);
+    });
+    fail = false;
+    await act(async () => {
+      await result.current.send("hola");
+    });
+
+    expect(headersSeen).toHaveLength(2);
+    expect(headersSeen[0]).toBe(headersSeen[1]);
+  });
+
+  it("rotates the key when the operator EDITS the text after a failure", async () => {
+    const headersSeen: string[] = [];
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
+        headersSeen.push(request.headers.get("Idempotency-Key") ?? "");
+        return new HttpResponse(null, { status: 500 });
+      })
+    );
+
+    const { result } = renderHook(() => useSendChatTurn(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      await result.current.send("hola").catch(() => undefined);
+    });
+    await act(async () => {
+      await result.current.send("hola, ¿me escuchás?").catch(() => undefined);
+    });
+
+    expect(headersSeen).toHaveLength(2);
+    expect(headersSeen[0]).not.toBe(headersSeen[1]);
+  });
+
   it("is pending while the request is in flight", async () => {
     let resolveRequest!: () => void;
     server.use(
