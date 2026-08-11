@@ -256,7 +256,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 onChange={(event) => setSystemPrompt(event.target.value)}
                 rows={5}
                 placeholder={t("perfiles.editor.prompt.placeholder")}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 max-h-[350px] min-h-[50px] text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               />
               {mode === "edit" && profileDetail.isError && (
                 <p role="alert" className="text-xs text-danger">

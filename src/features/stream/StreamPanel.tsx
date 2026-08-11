@@ -104,10 +104,10 @@ function ChatLiveCard() {
   }
 
   return (
-    <Card className="flex flex-col p-4">
+    <Card className="flex flex-col p-4 gap-0 mb-2">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">{t("stream.chatLive.title")}</h2>
-        <Badge tone={badge.tone}>{t(badge.labelKey)}</Badge>
+        <Badge className="ml-auto" tone={badge.tone}>{t(badge.labelKey)}</Badge>
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
