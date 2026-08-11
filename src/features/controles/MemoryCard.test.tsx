@@ -325,18 +325,40 @@ describe("MemoryCard per-row content — on-demand load (WU-H, operator viewing 
     expect(counter.calls).toBe(0);
   });
 
-  it('clicking "Ver memoria" fetches and shows the row content, then "Ocultar" collapses it', async () => {
+  it('clicking "Ver memoria" opens a dialog that fetches and shows the row content, then closing it dismisses that content', async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
+
+    // Not fetched (no dialog) until the explicit "Ver memoria" click.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    const [firstRowButton] = screen.getAllByRole("button", { name: "Ver memoria" });
+    fireEvent.click(firstRowButton);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(defaultMemoriaRows.mem_a.content)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar memoria" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(defaultMemoriaRows.mem_a.content)).not.toBeInTheDocument();
+  });
+
+  it("the memory dialog is modal: role=dialog, Escape closes it, and focus returns to the trigger", async () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
     await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
 
     const [firstRowButton] = screen.getAllByRole("button", { name: "Ver memoria" });
+    firstRowButton.focus();
     fireEvent.click(firstRowButton);
 
-    await waitFor(() => expect(screen.getByText(defaultMemoriaRows.mem_a.content)).toBeInTheDocument());
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Ocultar memoria" }));
-    expect(screen.queryByText(defaultMemoriaRows.mem_a.content)).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(firstRowButton).toHaveFocus();
   });
 
   it("surfaces a 404 from GET /api/memoria/row honestly instead of silently showing nothing", async () => {

@@ -3,6 +3,7 @@ import { cn } from "../../lib/cn.js";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
+import { Dialog } from "../../ui/Dialog.js";
 import { Input } from "../../ui/Input.js";
 import { Select } from "../../ui/Select.js";
 import { Alert } from "../../ui/Alert.js";
@@ -55,7 +56,8 @@ function countRows(stats: {
  * + manual `refetch()`, NEVER preloaded alongside the list (R8: memoria
  * content is Kira's curated/derived memory, still never raw viewer chat). The
  * only two paths that trigger the fetch are explicit operator clicks: "Ver
- * memoria" (read) and "Editar" (prefill the edit form).
+ * memoria" (read, in a Dialog — refetched fresh on every open, never just
+ * served from cache) and "Editar" (prefill the edit form).
  *
  * Actions are wired straight to the memoria mutations — flags (pin/private/
  * inactive) invalidate the list+stats, delete is two-step confirmed, and edit
@@ -63,7 +65,7 @@ function countRows(stats: {
  */
 function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: string }) {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editTitle, setEditTitle] = useState(item.title);
@@ -81,12 +83,8 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
     if (editing && rowQuery.data) setEditContent(rowQuery.data.content);
   }, [editing, rowQuery.data]);
 
-  function toggle() {
-    if (expanded) {
-      setExpanded(false);
-      return;
-    }
-    setExpanded(true);
+  function openView() {
+    setViewing(true);
     void rowQuery.refetch();
   }
 
@@ -117,10 +115,39 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
             operator confirmation — display-only, mirrors EditorialCardsCard's
             existing neutral "borrador" badge (same word, same tone). */}
         {item.draft && <Badge tone="neutral">{t("controles.memory.row.badge.draft")}</Badge>}
-        <Button type="button" variant="ghost" onClick={toggle}>
-          {expanded ? t("controles.memory.row.hide.action") : t("controles.memory.row.view.action")}
+        <Button type="button" variant="ghost" onClick={openView}>
+          {t("controles.memory.row.view.action")}
         </Button>
       </div>
+
+      <Dialog open={viewing} onClose={() => setViewing(false)} ariaLabelledBy={`memoria-row-title-${item.id}`}>
+        <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
+          <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
+            <h2 id={`memoria-row-title-${item.id}`} className="text-sm font-bold text-foreground">
+              {item.title}
+            </h2>
+            <button
+              type="button"
+              aria-label={t("controles.memory.row.hide.action")}
+              onClick={() => setViewing(false)}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="pt-3.5">
+            {rowQuery.isPending && <p className="text-xs text-dim">{t("controles.memory.row.view.loading")}</p>}
+            {rowQuery.isError && (
+              <p role="alert" className="text-xs leading-relaxed text-danger">
+                {rowQuery.error?.message ?? t("controles.memory.row.load.error")}
+              </p>
+            )}
+            {rowQuery.data && (
+              <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">{rowQuery.data.content}</p>
+            )}
+          </div>
+        </Card>
+      </Dialog>
 
       {(flagsMutation.isError || deleteMutation.isError || updateMutation.isError) && (
         <p role="alert" className="text-xs leading-relaxed text-danger">
@@ -176,20 +203,6 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
         </div>
       ) : (
         <>
-          {expanded && (
-            <div className="border-t border-border-soft pt-2">
-              {rowQuery.isPending && <p className="text-xs text-dim">{t("controles.memory.row.view.loading")}</p>}
-              {rowQuery.isError && (
-                <p role="alert" className="text-xs leading-relaxed text-danger">
-                  {rowQuery.error?.message ?? t("controles.memory.row.load.error")}
-                </p>
-              )}
-              {rowQuery.data && (
-                <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">{rowQuery.data.content}</p>
-              )}
-            </div>
-          )}
-
           {confirmingDelete ? (
             // Single-row delete — Alert-style danger message + mutating footer
             // (no ack gate: one row is low blast-radius; the ack ladder is
@@ -684,7 +697,13 @@ export function MemoryCard() {
                       {filteredItems.length === 0 ? (
                         <p className="text-xs text-dim">{t("controles.memory.list.filter.empty")}</p>
                       ) : (
-                        <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
+                        // Reading a memory now opens a Dialog (WU-dialog) instead of
+                        // expanding the row inline, so the box no longer has to leave
+                        // headroom for one row's content ballooning past the rest — it
+                        // only ever holds the fixed-height row summaries. Raised from
+                        // max-h-64 (256px, ~2 rows) to fit more of a 111-memory list at
+                        // a glance without letting the box dominate the card.
+                        <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
                           {filteredItems.map((item) => (
                             <MemoriaRow key={item.id} item={item} profileId={profileId} />
                           ))}

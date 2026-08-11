@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { FormEvent } from "react";
 import { Card } from "../../ui/Card.js";
 import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
 import { ConfirmFooter, ConfirmToggle } from "../../ui/ConfirmFooter.js";
+import { Dialog } from "../../ui/Dialog.js";
 import {
   type ProfileUpdateRequest,
   useCreateProfileMutation,
@@ -57,8 +58,6 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   // so retrying must re-attempt ONLY the purge, never the delete.
   const [purgeFailedAfterDelete, setPurgeFailedAfterDelete] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLElement | null>(null);
   const initialNameRef = useRef(initialName);
   initialNameRef.current = initialName;
 
@@ -74,13 +73,11 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   // never `initialName`.
   const purgeMutation = useMemoriaPurgeMutation(profileDetail.data?.id ?? "");
 
-  // On open: remember the trigger, reset from the open-time initialName (a
-  // later activeProfile reconcile must not clobber in-progress input), and
-  // move focus to the first field. On close: restore focus to the trigger
-  // (WCAG 2.4.3).
+  // On open: reset from the open-time initialName (a later activeProfile
+  // reconcile must not clobber in-progress input). Trigger capture, initial
+  // focus, and focus restoration on close are Dialog's job now.
   useEffect(() => {
     if (!open) return;
-    triggerRef.current = document.activeElement as HTMLElement | null;
     setName(initialNameRef.current);
     setSystemPrompt("");
     setNameTouched(false);
@@ -91,8 +88,6 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
     updateMutation.reset();
     deleteMutation.reset();
     purgeMutation.reset();
-    nameInputRef.current?.focus();
-    return () => triggerRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -106,36 +101,6 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
     setSystemPrompt(profileDetail.data.prompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, profileDetail.data]);
-
-  // Trap Tab within the dialog while open (aria-modal only hides the
-  // background from AT; it does not stop keyboard focus escaping).
-  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Tab") return;
-    const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(
-      'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
-    );
-    if (!focusables || focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
 
   const trimmedName = name.trim();
   const nameInvalid = nameTouched && trimmedName.length === 0;
@@ -186,176 +151,159 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="profile-editor-title"
-        onKeyDown={handleDialogKeyDown}
-        // Fixed comfortable width — no resize. max-h-[85vh] caps height and the
-        // Card scrolls internally when content overflows vertically; max-w-[92vw]
-        // keeps it inside the viewport on narrow windows.
-        className="relative flex max-h-[85vh] w-[44rem] max-w-[92vw] overflow-hidden rounded-xl"
-      >
-        <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
-          <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-            <h2 id="profile-editor-title" className="text-sm font-bold text-foreground">
-              {t(TITLE_KEYS[mode])}
-            </h2>
-            <button
-              type="button"
-              aria-label={t("perfiles.editor.close.aria")}
-              onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    <Dialog open={open} onClose={onClose} ariaLabelledBy="profile-editor-title" initialFocusRef={nameInputRef}>
+      <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
+        <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
+          <h2 id="profile-editor-title" className="text-sm font-bold text-foreground">
+            {t(TITLE_KEYS[mode])}
+          </h2>
+          <button
+            type="button"
+            aria-label={t("perfiles.editor.close.aria")}
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 pt-3.5">
+          <section className="space-y-2">
+            <label
+              htmlFor="profile-editor-name"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
             >
-              ✕
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 pt-3.5">
-            <section className="space-y-2">
-              <label
-                htmlFor="profile-editor-name"
-                className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-              >
-                {t("perfiles.editor.name.label")}
-              </label>
-              <input
-                id="profile-editor-name"
-                ref={nameInputRef}
-                type="text"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                onBlur={() => setNameTouched(true)}
-                placeholder={t("perfiles.editor.name.placeholder")}
-                className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              />
-              {nameInvalid && (
-                <p role="alert" className="text-xs text-danger">
-                  {t("perfiles.editor.name.error")}
-                </p>
-              )}
-            </section>
-
-            <section className="space-y-2">
-              <label
-                htmlFor="profile-editor-prompt"
-                className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-              >
-                {t("perfiles.editor.prompt.label")}
-              </label>
-              <textarea
-                id="profile-editor-prompt"
-                value={systemPrompt}
-                onChange={(event) => setSystemPrompt(event.target.value)}
-                rows={5}
-                placeholder={t("perfiles.editor.prompt.placeholder")}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 max-h-[350px] min-h-[50px] text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              />
-              {mode === "edit" && profileDetail.isError && (
-                <p role="alert" className="text-xs text-danger">
-                  {t("perfiles.editor.prompt.error")}
-                </p>
-              )}
-            </section>
-
-            {mode === "edit" && purgeFailedAfterDelete ? (
-              // The profile itself is already gone at this point — only the
-              // purge can be retried, never the delete again.
-              <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
-                <Alert tone="danger">
-                  {t("perfiles.editor.delete.purgeFailed.notice", { name: initialName })}
-                </Alert>
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={purgeMutation.isPending}
-                    onClick={handleRetryPurge}
-                  >
-                    {purgeMutation.isPending
-                      ? t("perfiles.editor.delete.retryPurge.action.pending")
-                      : t("perfiles.editor.delete.retryPurge.action")}
-                  </Button>
-                </div>
-              </section>
-            ) : mode === "edit" && !deleting ? (
-              <section
-                aria-labelledby="profile-editor-delete-label"
-                className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
-              >
-                <div className="space-y-1">
-                  <span
-                    id="profile-editor-delete-label"
-                    className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-                  >
-                    {t("perfiles.editor.delete.eyebrow")}
-                  </span>
-                  <span className="text-[13px] text-foreground">{t("perfiles.editor.delete.hint")}</span>
-                </div>
-                <Button type="button" variant="outline" onClick={() => setDeleting(true)}>
-                  {t("perfiles.editor.delete.action")}
-                </Button>
-              </section>
-            ) : null}
-
-            {saveError && (
-              <p role="alert" className="text-xs leading-relaxed text-danger">
-                {saveError.message ?? t("perfiles.editor.save.error")}
+              {t("perfiles.editor.name.label")}
+            </label>
+            <input
+              id="profile-editor-name"
+              ref={nameInputRef}
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => setNameTouched(true)}
+              placeholder={t("perfiles.editor.name.placeholder")}
+              className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            />
+            {nameInvalid && (
+              <p role="alert" className="text-xs text-danger">
+                {t("perfiles.editor.name.error")}
               </p>
             )}
+          </section>
 
-            {/* Footer buttons MUTATE while confirming a delete: Cancelar/Guardar
-                are replaced by ConfirmFooter's Cancelar/Eliminar perfil (no new
-                buttons appear). Leaving confirm mode restores Cancelar/Guardar. */}
-            {purgeFailedAfterDelete ? null : deleting ? (
-              <div className="flex flex-col gap-3 border-t border-border-soft pt-3.5">
-                {deleteMutation.isError && (
-                  <Alert tone="danger">
-                    {deleteMutation.error?.message ?? t("perfiles.editor.delete.error")}
-                  </Alert>
-                )}
-                <ConfirmFooter
-                  active
-                  stages={[
-                    {
-                      message: t("perfiles.editor.delete.confirm.message", { name: initialName }),
-                      acknowledgment: t("perfiles.editor.delete.confirm.acknowledgment"),
-                      advanceLabel: t("perfiles.editor.delete.confirm.advance.action")
-                    }
-                  ]}
-                  onConfirm={handleConfirmDelete}
-                  onCancel={() => setDeleting(false)}
-                  busy={deleteMutation.isPending}
-                >
-                  <ConfirmToggle
-                    tone="neutral"
-                    pressed={purgeMemory}
-                    onToggle={() => setPurgeMemory((value) => !value)}
-                  >
-                    {t("perfiles.editor.delete.purgeToggle.label")}
-                  </ConfirmToggle>
-                </ConfirmFooter>
-              </div>
-            ) : (
-              <div className="flex items-center justify-end gap-3 border-t border-border-soft pt-3.5">
-                <Button type="button" variant="ghost" onClick={onClose}>
-                  {t("perfiles.editor.cancel.action")}
-                </Button>
-                <button type="submit" className={SAVE_BUTTON_CLASS} disabled={savePending}>
-                  {savePending ? t("perfiles.editor.save.action.pending") : t("perfiles.editor.save.action")}
-                </button>
-              </div>
+          <section className="space-y-2">
+            <label
+              htmlFor="profile-editor-prompt"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("perfiles.editor.prompt.label")}
+            </label>
+            <textarea
+              id="profile-editor-prompt"
+              value={systemPrompt}
+              onChange={(event) => setSystemPrompt(event.target.value)}
+              rows={5}
+              placeholder={t("perfiles.editor.prompt.placeholder")}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 max-h-[350px] min-h-[50px] text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            />
+            {mode === "edit" && profileDetail.isError && (
+              <p role="alert" className="text-xs text-danger">
+                {t("perfiles.editor.prompt.error")}
+              </p>
             )}
-          </form>
-        </Card>
-      </div>
-    </div>
+          </section>
+
+          {mode === "edit" && purgeFailedAfterDelete ? (
+            // The profile itself is already gone at this point — only the
+            // purge can be retried, never the delete again.
+            <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
+              <Alert tone="danger">
+                {t("perfiles.editor.delete.purgeFailed.notice", { name: initialName })}
+              </Alert>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={purgeMutation.isPending}
+                  onClick={handleRetryPurge}
+                >
+                  {purgeMutation.isPending
+                    ? t("perfiles.editor.delete.retryPurge.action.pending")
+                    : t("perfiles.editor.delete.retryPurge.action")}
+                </Button>
+              </div>
+            </section>
+          ) : mode === "edit" && !deleting ? (
+            <section
+              aria-labelledby="profile-editor-delete-label"
+              className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
+            >
+              <div className="space-y-1">
+                <span
+                  id="profile-editor-delete-label"
+                  className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+                >
+                  {t("perfiles.editor.delete.eyebrow")}
+                </span>
+                <span className="text-[13px] text-foreground">{t("perfiles.editor.delete.hint")}</span>
+              </div>
+              <Button type="button" variant="outline" onClick={() => setDeleting(true)}>
+                {t("perfiles.editor.delete.action")}
+              </Button>
+            </section>
+          ) : null}
+
+          {saveError && (
+            <p role="alert" className="text-xs leading-relaxed text-danger">
+              {saveError.message ?? t("perfiles.editor.save.error")}
+            </p>
+          )}
+
+          {/* Footer buttons MUTATE while confirming a delete: Cancelar/Guardar
+              are replaced by ConfirmFooter's Cancelar/Eliminar perfil (no new
+              buttons appear). Leaving confirm mode restores Cancelar/Guardar. */}
+          {purgeFailedAfterDelete ? null : deleting ? (
+            <div className="flex flex-col gap-3 border-t border-border-soft pt-3.5">
+              {deleteMutation.isError && (
+                <Alert tone="danger">
+                  {deleteMutation.error?.message ?? t("perfiles.editor.delete.error")}
+                </Alert>
+              )}
+              <ConfirmFooter
+                active
+                stages={[
+                  {
+                    message: t("perfiles.editor.delete.confirm.message", { name: initialName }),
+                    acknowledgment: t("perfiles.editor.delete.confirm.acknowledgment"),
+                    advanceLabel: t("perfiles.editor.delete.confirm.advance.action")
+                  }
+                ]}
+                onConfirm={handleConfirmDelete}
+                onCancel={() => setDeleting(false)}
+                busy={deleteMutation.isPending}
+              >
+                <ConfirmToggle
+                  tone="neutral"
+                  pressed={purgeMemory}
+                  onToggle={() => setPurgeMemory((value) => !value)}
+                >
+                  {t("perfiles.editor.delete.purgeToggle.label")}
+                </ConfirmToggle>
+              </ConfirmFooter>
+            </div>
+          ) : (
+            <div className="flex items-center justify-end gap-3 border-t border-border-soft pt-3.5">
+              <Button type="button" variant="ghost" onClick={onClose}>
+                {t("perfiles.editor.cancel.action")}
+              </Button>
+              <button type="submit" className={SAVE_BUTTON_CLASS} disabled={savePending}>
+                {savePending ? t("perfiles.editor.save.action.pending") : t("perfiles.editor.save.action")}
+              </button>
+            </div>
+          )}
+        </form>
+      </Card>
+    </Dialog>
   );
 }
