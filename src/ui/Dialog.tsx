@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from "react";
 import { cn } from "../lib/cn.js";
 
@@ -29,9 +30,14 @@ const DEFAULT_DIALOG_CLASS = "relative flex max-h-[85vh] w-[44rem] max-w-[92vw] 
  * complete) of four hand-rolled `role="dialog"` implementations that had
  * accumulated in this codebase. Owns the backdrop, focus trap, Escape-to-
  * close, and focus in/out; callers own everything inside (title, close
- * button, body). No portal: ProfileEditor never rendered through one, so
- * neither does this — adding one here would be a behavior change nobody
- * asked for.
+ * button, body). Portals to `document.body`: `Card` makes itself a
+ * containing block for `position: fixed` descendants whenever
+ * `backdrop-filter` is non-`none` (aurora theme), and every mount here is
+ * inside a Card — without the portal, the `fixed inset-0` overlay
+ * positions against the card instead of the viewport. Same trap `Select`
+ * hit and fixed the same way (`40f7537`). The focus trap and focus restore
+ * below are ref- and document-listener based, so relocating the DOM node
+ * doesn't affect them.
  *
  * ComposerCommandPanel, WelcomeCard, and StatusRail still hand-roll their own
  * dialog and were deliberately left alone — not yet audited against this
@@ -89,7 +95,7 @@ export function Dialog({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onMouseDown={(event) => {
@@ -108,6 +114,7 @@ export function Dialog({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
