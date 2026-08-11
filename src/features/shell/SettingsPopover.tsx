@@ -220,8 +220,11 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
                   />
                 ) : (
                   // ponytail: dead branch until the backend ships a 4th locale.
-                  // The app's custom Select opens an absolute/z-50 menu that
-                  // escapes the popover with no nested scrollbar.
+                  // It used to carry a warning that Select's menu escaped this
+                  // popover with no nested scrollbar; both are fixed — the list
+                  // portals to <body> and positions itself off the trigger
+                  // (40f7537), and it scrolls inside a measured max-height
+                  // (6f7194b). The branch is dead on option count alone now.
                   <Select
                     aria-label={t("shell.settings.language.kiraVoice.aria")}
                     options={i18n.available.map((bundle) => ({ value: bundle.code, label: bundle.display }))}
