@@ -1,10 +1,27 @@
 # Handoff — the Saved Memories surface
 
-**Status:** design brief. Nothing implemented. Written 2026-08-10 at `fe02393` so this survives a
-context compaction.
+**Status: PARTLY EXECUTED, and this document's central verdict was overruled.** Written
+2026-08-10 as a design brief; annotated 2026-08-11 after the work shipped in `48016d3` +
+`ab96bae`. Read this box before trusting anything below it.
 
-**Read `docs/UI_CONSTRAINTS_LEARNED.md` first.** It carries the traps this repo has already paid
-for, including one that is still open and blocks the work below.
+**What shipped instead of §2's recommendation.** §2 concluded "take the `Dialog`" because a
+section could only claim ~727px against a dialog's ~1350px. The owner chose the section anyway,
+and was right for a reason §2 missed: the space comparison was self-refuting. §1 of this very
+document proves settings cards already render at 630–850px, so width was never the constraint —
+the constraint was one card carrying too much responsibility. A first attempt did collapse the
+queue column to buy the width back; that made Memoria the only section without the chat, and was
+reverted. **`ConversationPanel` is mounted for every section, unconditionally. Do not gate it.**
+
+**What still stands.** §3 (the `Dialog` portal blocker) — done. §4's core insight — that the
+detail record is thin and the justification is *deleting per-row machinery*, not adding surface —
+is **still true and still unimplemented**. §5's load-bearing details (R8 selection-as-activation,
+trigger placement, destructive flows, the no-silent-revert cache write, exact wire bodies, scroll
+ownership, i18n atomicity) all still apply to whoever builds that.
+
+**What is now obsolete.** §2's verdict, §6's ordering, and §7's open questions 1–3 (answered by
+what shipped). §7 Q4 (where Statistics lives) is still open.
+
+**Read `docs/UI_CONSTRAINTS_LEARNED.md` first**, and `docs/OPEN_WORK.md` for what is actually next.
 
 ---
 

@@ -24,10 +24,11 @@ viewport. This has produced two separate bugs:
   listbox to `document.body`. An earlier attempt (`de3de33`, 2026-07-10) added `z-20` to the
   wrapper and did nothing — raising the `.relative` wrapper only scopes the inner `z-50` into a
   new context rooted at 20; it never addresses a later sibling.
-- **`Dialog`'s `fixed inset-0` overlay mispositioned on aurora.** `src/ui/Dialog.tsx` deliberately
-  does not portal, and every current mount is inside a `Card` (`ControlsPanel.tsx`'s `ControlGroup`
-  wraps every Controles section in one). **Known, not yet fixed** at the time of writing. The fix
-  is the same as Select's: portal to `document.body`.
+- **`Dialog`'s `fixed inset-0` overlay mispositioned on aurora.** `src/ui/Dialog.tsx` did not
+  portal, and every mount is inside a `Card` (`ControlsPanel.tsx`'s `ControlGroup` wraps every
+  Controles section in one). **Fixed in `48016d3`** with the same move Select took: portal to
+  `document.body`. Still owed a look in a real aurora window — jsdom cannot render
+  `backdrop-filter` or compute a containing block, so no test proves the overlay now centres.
 
 **Rule:** if a surface uses `position: fixed` and can be mounted inside a `Card`, it must portal.
 Do not reason about z-index first — check the containing block.
@@ -127,9 +128,11 @@ and ConversationPanel's feed each have exactly one scroll owner, and it is the r
 - `Dialog` → the shell clips (`max-h-[85vh] overflow-hidden`) and the inner `Card` scrolls
   (`min-h-0 … overflow-y-auto`). Both current callers do this correctly.
 
-**The one deviation is `MemoryCard`'s list** — the only card in Controles that boxes itself
-(`max-h-96`) instead of trusting the panel scroll like every sibling. Do not add a second such box
-anywhere; the pattern to copy is "no inner box".
+**`MemoryCard`'s list used to be the one deviation** — the only card that boxed itself
+(`max-h-96`) instead of trusting the panel scroll like every sibling. Removed in `ab96bae` when the
+card moved into its own Memoria section, where the pane it lives in IS the content. The app now has
+zero inner scroll boxes outside the four owners listed above. Do not add one; the pattern to copy
+is "no inner box".
 
 ---
 
