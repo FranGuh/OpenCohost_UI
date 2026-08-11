@@ -161,8 +161,8 @@ describe("AppLayout", () => {
     // Controles mounts ProfileSwitcher alongside Sidebar's always-on
     // ProfilePlaylist, so both consumers of the lifted context are live.
     fireEvent.click(screen.getByRole("button", { name: /Controles/ }));
-    const select = (await screen.findByLabelText("Perfil activo")) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe("default"));
+    const trigger = await screen.findByRole("combobox", { name: "Perfil activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("default"));
 
     // Driving the switch from the OTHER consumer (ProfilePlaylist's row)...
     // Anchor the name so it matches the row button ("Akira perfil") only, not
@@ -171,6 +171,6 @@ describe("AppLayout", () => {
 
     // ...must be reflected by ProfileSwitcher reading the SAME shared
     // pending state — proof there is exactly one poll owner, not two.
-    await waitFor(() => expect(select).toBeDisabled());
+    await waitFor(() => expect(trigger).toBeDisabled());
   });
 });

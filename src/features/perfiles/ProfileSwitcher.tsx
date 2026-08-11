@@ -1,5 +1,4 @@
 import { useState } from "react";
-import type { ChangeEvent } from "react";
 import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
@@ -9,8 +8,9 @@ import { useT } from "../../i18n/t.js";
 import { ProfileEditor } from "./ProfileEditor.js";
 
 /**
- * Native <select> profile control (design D9 — no shadcn/radix combobox
- * needed for a flat list). Reads the shared ProfileSwitchProvider context
+ * Themed profile control (design D9 — no shadcn/radix combobox needed for a
+ * flat list; uses the shared CustomSelect dropdown). Reads the shared
+ * ProfileSwitchProvider context
  * for the list and the queued -> applying -> applied reconcile (accepted !=
  * applied, design D6) — same single poll owner as ProfilePlaylist.
  */
@@ -22,8 +22,8 @@ export function ProfileSwitcher() {
   const selectValue = pendingSwitch?.name ?? activeProfile ?? "";
   const isApplying = pendingSwitch?.status === "applying";
 
-  function handleChange(event: ChangeEvent<HTMLSelectElement>) {
-    switchTo(event.target.value);
+  function handleChange(value: string) {
+    switchTo(value);
   }
 
   return (
@@ -50,20 +50,17 @@ export function ProfileSwitcher() {
 
       <ProfileEditor open={editorOpen} mode="edit" initialName={activeProfile ?? ""} onClose={() => setEditorOpen(false)} />
 
-      {/* El select no tiene diseño como los demás*/}
       <Select
         aria-label={t("perfiles.switcher.select.aria")}
         value={selectValue}
         disabled={isApplying || profilesLoading}
         onChange={handleChange}
-      >
-        {profiles.length === 0 && <option value="">{t("perfiles.switcher.select.empty")}</option>}
-        {profiles.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </Select>
+        options={
+          profiles.length === 0
+            ? [{ value: "", label: t("perfiles.switcher.select.empty") }]
+            : profiles.map((name) => ({ value: name, label: name }))
+        }
+      />
 
       {switchError && (
         <p role="alert" className="text-xs text-danger">

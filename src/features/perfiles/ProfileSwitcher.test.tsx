@@ -20,6 +20,11 @@ function renderSwitcher() {
   );
 }
 
+function selectCustomOption(comboboxName: string | RegExp, optionName: string | RegExp) {
+  fireEvent.click(screen.getByRole("combobox", { name: comboboxName }));
+  fireEvent.click(screen.getByRole("option", { name: optionName }));
+}
+
 /**
  * Deterministically gates the SECOND `GET /api/status` response (the one the
  * mutation's onSuccess `invalidateQueries` triggers) behind a manually
@@ -59,16 +64,15 @@ describe("ProfileSwitcher (spec R4, R5)", () => {
 
     renderSwitcher();
 
-    const select = (await screen.findByLabelText("Perfil activo")) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe("default"));
-    expect(screen.getByRole("option", { name: "Akira" })).toBeInTheDocument();
+    const trigger = await screen.findByRole("combobox", { name: "Perfil activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("default"));
 
-    fireEvent.change(select, { target: { value: "Akira" } });
+    selectCustomOption("Perfil activo", "Akira");
 
     // call #2 (the invalidate-triggered refetch) is gated — "applying" is
     // guaranteed stable to observe here, not a race against convergence.
     await waitFor(() => expect(screen.getByText(/aplicando/)).toBeInTheDocument());
-    expect(select).toBeDisabled();
+    expect(trigger).toBeDisabled();
 
     await act(async () => {
       release();
@@ -76,7 +80,7 @@ describe("ProfileSwitcher (spec R4, R5)", () => {
     });
 
     await waitFor(() => expect(screen.queryByText(/aplicando/)).not.toBeInTheDocument());
-    expect(select.value).toBe("Akira");
+    expect(trigger).toHaveTextContent("Akira");
   });
 
   it("surfaces the timeout terminal state when a switch does not converge within ~15s", async () => {
@@ -86,11 +90,8 @@ describe("ProfileSwitcher (spec R4, R5)", () => {
     renderSwitcher();
     await act(() => vi.advanceTimersByTimeAsync(0));
 
-    const select = screen.getByLabelText("Perfil activo") as HTMLSelectElement;
-    await act(async () => {
-      fireEvent.change(select, { target: { value: "Akira" } });
-      await vi.advanceTimersByTimeAsync(0);
-    });
+    selectCustomOption("Perfil activo", "Akira");
+    await act(() => vi.advanceTimersByTimeAsync(0));
 
     await act(() => vi.advanceTimersByTimeAsync(15000));
 
