@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import { useModelsQuery } from "../../api/models.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
-import { useMockCommand } from "../../api/mock/useMockCommand.js";
 import type { StatusResponse } from "../../api/client.js";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Select } from "../../ui/Select.js";
-import { Button } from "../../ui/Button.js";
 import { cn } from "../../lib/cn.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
@@ -32,15 +30,22 @@ function matchesCurrentModel(status: StatusResponse, target: string): boolean {
  * `pending ?? serverValue` pattern as ProfileSwitcher's
  * `selectValue = pendingSwitch?.name ?? activeProfile`.
  *
- * Download stays mock (no backend download endpoint exists) — the last
- * useMockCommand user in this card.
+ * OpenCohost does not download models — Ollama does (owner decision). Local
+ * mode is discovery + selection only: `discovered` (the tags Ollama actually
+ * reports) marks catalog entries as not-installed, it never removes them
+ * from the list. An EMPTY `discovered` means "cannot verify" (Ollama
+ * discovery timed out/errored), never "nothing installed" — mirrors the
+ * backend's own fail-open rule (settings.py::resolve_startup_model, ~:799)
+ * — so nothing is marked missing in that case. Cloud mode
+ * (`active_tier === "cloud"`) has no catalog/tiers to pick from; the card
+ * becomes a read-only pointer to the ProviderCard.
  */
 export function ModelCard() {
   const t = useT();
   const { data, isError: modelsError } = useModelsQuery();
   const modelCommand = useEngineCommand<string>(matchesCurrentModel);
   const tierCommand = useEngineCommand<string>();
-  const downloadCommand = useMockCommand(600);
+  const isCloud = data?.active_tier === "cloud";
 
   const [optimisticModel, setOptimisticModel] = useState<string | null>(null);
   const [optimisticTier, setOptimisticTier] = useState<string | null>(null);
@@ -60,6 +65,26 @@ export function ModelCard() {
   const pending = modelCommand.pending || tierCommand.pending;
   const errorMessage = modelCommand.error?.message ?? tierCommand.error?.message;
 
+  const installed = new Set(data?.discovered ?? []);
+  // Empty discovery = "cannot verify", NOT "nothing installed" — mirrors
+  // settings.py's own rule (resolve_startup_model, ~:799).
+  const canVerify = installed.size > 0;
+  const modelOptions = [
+    ...catalogEntries.map(([id, entry]) => {
+      const missing = canVerify && !installed.has(id);
+      return {
+        value: id,
+        label: missing ? `${entry.display} — ${t("controles.model.select.notInstalled")}` : entry.display,
+        disabled: missing
+      };
+    }),
+    // Owner-pulled tags outside the curated catalog are selectable too; the
+    // backend already accepts them ("saved_runtime", settings.py:803).
+    ...(data?.discovered ?? [])
+      .filter((tag) => !(tag in (data?.catalog ?? {})))
+      .map((tag) => ({ value: tag, label: tag }))
+  ];
+
   function handleModelChange(id: string) {
     setOptimisticModel(id);
     void modelCommand.run("switch_model", id);
@@ -74,8 +99,12 @@ export function ModelCard() {
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">{t("controles.model.card.title")}</h2>
-        <Badge tone={pending ? "info" : "ok"}>
-          {pending ? t("controles.model.card.pending") : t("controles.model.card.installed")}
+        <Badge tone={pending || isCloud ? "info" : "ok"}>
+          {pending
+            ? t("controles.model.card.pending")
+            : isCloud
+              ? t("controles.model.card.cloudBadge")
+              : t("controles.model.card.installed")}
         </Badge>
       </div>
 
@@ -86,95 +115,75 @@ export function ModelCard() {
           </p>
         )}
 
-        <section aria-labelledby="model-select-label" className="space-y-2">
-          <p className="text-xs text-muted-foreground mb-2">
-            {t("controles.model.current.label")}
-            <span className="mono text-foreground">{data?.current_model ?? "—"}</span>
-          </p>
-          <span id="model-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            {t("controles.model.select.eyebrow")}
-          </span>
-          {/* Cuando el modelo es cloud no lo muestra,se ve vacio, el select no tiene diseño como los posteriores */}
-          <Select
-            aria-labelledby="model-select-label"
-            className="mono"
-            value={selectedModelId}
-            disabled={modelCommand.pending}
-            onChange={(event) => handleModelChange(event.target.value)}
-          >
-            {catalogEntries.map(([id, entry]) => (
-              <option key={id} value={id}>
-                {entry.display}
-              </option>
-            ))}
-          </Select>
-          {selectedEntry && (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {selectedEntry.desc} <span className="mono font-semibold text-foreground">{selectedEntry.size_gb} GB</span>
-            </p>
-          )}
-        </section>
+        <p className="text-xs text-muted-foreground mb-2">
+          {t("controles.model.current.label")}
+          <span className="mono text-foreground">{data?.current_model ?? "—"}</span>
+        </p>
 
-        <section aria-labelledby="tier-label" className="space-y-2">
-          <span id="tier-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            {t("controles.model.tier.eyebrow")}
-          </span>
-          <div role="group" aria-labelledby="tier-label" className="grid gap-[6px]">
-            {Object.entries(data?.tiers ?? {}).map(([tierId, modelId]) => {
-              const isActive = tierId === activeTierId;
-              const tierModelLabel = data?.catalog[modelId]?.display ?? modelId;
-              const tierLabelKey = TIER_LABELS[tierId];
-              return (
-                <button
-                  key={tierId}
-                  type="button"
-                  aria-pressed={isActive}
-                  disabled={tierCommand.pending}
-                  onClick={() => handleTierChange(tierId)}
-                  className={cn(
-                    "flex h-[42px] items-center justify-between gap-[10px] rounded-md border border-border-soft bg-card px-[14px] text-[13.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
-                    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                    "disabled:cursor-not-allowed disabled:opacity-60",
-                    isActive && "border-l-[3px] border-l-primary bg-[var(--accent-soft)] text-foreground"
-                  )}
-                >
-                  <span>
-                    {tierLabelKey ? t(tierLabelKey) : tierId} · {tierModelLabel}
-                  </span>
-                  {isActive && (
-                    <span className="text-[12px] font-semibold text-info">{t("controles.model.tier.activeBadge")}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.model.tier.hint")}</p>
-        </section>
+        {isCloud ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.model.cloud.hint")}</p>
+        ) : (
+          <>
+            <section aria-labelledby="model-select-label" className="space-y-2">
+              <span id="model-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                {t("controles.model.select.eyebrow")}
+              </span>
+              <Select
+                options={modelOptions}
+                aria-labelledby="model-select-label"
+                className="mono"
+                value={selectedModelId}
+                disabled={modelCommand.pending}
+                onChange={handleModelChange}
+              />
+              {selectedEntry && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {selectedEntry.desc} <span className="mono font-semibold text-foreground">{selectedEntry.size_gb} GB</span>
+                </p>
+              )}
+              <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.model.manage.hint")}</p>
+            </section>
 
-        <section aria-labelledby="download-label" className="space-y-2">
-          <span id="download-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            {t("controles.model.download.eyebrow")}
-          </span>
-          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">{selectedEntry?.display ?? selectedModelId ?? "—"}</span>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={downloadCommand.pending}
-              onClick={() => void downloadCommand.run()}
-            >
-              {t("controles.model.download.action")}
-            </Button>
-          </div>
-          {downloadCommand.pending && (
-            <>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-                <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+            <section aria-labelledby="tier-label" className="space-y-2">
+              <span id="tier-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                {t("controles.model.tier.eyebrow")}
+              </span>
+              {/* Deliberately NOT a Segmented: each row carries `{tier} · {model}`
+                  plus an active badge, not a one-word pill row — do not re-file
+                  this divergence as a missed D9 upgrade. */}
+              <div role="group" aria-labelledby="tier-label" className="grid gap-[6px]">
+                {Object.entries(data?.tiers ?? {}).map(([tierId, modelId]) => {
+                  const isActive = tierId === activeTierId;
+                  const tierModelLabel = data?.catalog[modelId]?.display ?? modelId;
+                  const tierLabelKey = TIER_LABELS[tierId];
+                  return (
+                    <button
+                      key={tierId}
+                      type="button"
+                      aria-pressed={isActive}
+                      disabled={tierCommand.pending}
+                      onClick={() => handleTierChange(tierId)}
+                      className={cn(
+                        "flex h-[42px] items-center justify-between gap-[10px] rounded-md border border-border-soft bg-card px-[14px] text-[13.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
+                        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                        "disabled:cursor-not-allowed disabled:opacity-60",
+                        isActive && "border-l-[3px] border-l-primary bg-[var(--accent-soft)] text-foreground"
+                      )}
+                    >
+                      <span>
+                        {tierLabelKey ? t(tierLabelKey) : tierId} · {tierModelLabel}
+                      </span>
+                      {isActive && (
+                        <span className="text-[12px] font-semibold text-info">{t("controles.model.tier.activeBadge")}</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-              <p role="status" className="text-xs text-muted-foreground">{t("controles.model.download.pending")}</p>
-            </>
-          )}
-        </section>
+              <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.model.tier.hint")}</p>
+            </section>
+          </>
+        )}
       </div>
     </Card>
   );

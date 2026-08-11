@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
+  cloudModels,
   commandConflictHandler,
   commandNetworkErrorHandler,
   commandValidationHandler,
@@ -20,15 +21,22 @@ function renderCard() {
   return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(ModelCard)));
 }
 
+/** Switch the model CustomSelect to `optionName`. Mirrors ProviderCard.test.tsx's pickActiveProvider. */
+function pickModel(optionName: string) {
+  fireEvent.click(screen.getByRole("combobox", { name: "Modelo Activo" }));
+  fireEvent.click(screen.getByRole("option", { name: optionName }));
+}
+
 describe("ModelCard populates from GET /api/models", () => {
   it("shows the live current_model, catalog options, and active tier", async () => {
     renderCard();
 
     await waitFor(() => expect(screen.getAllByText(defaultModels.current_model as string).length).toBeGreaterThan(0));
 
-    const select = screen.getByRole("combobox", { name: "Modelo Activo" }) as HTMLSelectElement;
-    expect(select.value).toBe(defaultModels.current_model);
-    expect(screen.getByText("Qwen 3 (1.7B) ⚡", { selector: "option" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Modelo Activo" })).toHaveTextContent("Qwen 3 (1.7B) ⚡");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Modelo Activo" }));
+    expect(screen.getByRole("option", { name: "Qwen 3 (1.7B) ⚡" })).toBeInTheDocument();
 
     const activeTierButton = screen.getByRole("button", { name: /Fast ⚡ · Qwen 3 \(1\.7B\)/ });
     expect(activeTierButton).toHaveAttribute("aria-pressed", "true");
@@ -52,19 +60,19 @@ describe("ModelCard switch_model — accepted -> poll -> applied", () => {
     );
     renderCard();
 
-    const select = screen.getByRole("combobox", { name: "Modelo Activo" }) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe("qwen3:1.7b"));
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
 
-    fireEvent.change(select, { target: { value: "llama3.2:3b" } });
+    pickModel("LLaMA 3.2 (3B)");
 
-    expect(select.value).toBe("llama3.2:3b");
-    expect(select).toBeDisabled();
+    expect(trigger).toHaveTextContent("LLaMA 3.2 (3B)");
+    expect(trigger).toBeDisabled();
     expect(screen.getByText("aplicando…")).toBeInTheDocument();
 
     // independence — tier buttons stay enabled while only the model select applies
     expect(screen.getByRole("button", { name: /Fast ⚡/ })).not.toBeDisabled();
 
-    await waitFor(() => expect(select).not.toBeDisabled());
+    await waitFor(() => expect(trigger).not.toBeDisabled());
     await waitFor(() => expect(screen.getByText("instalado")).toBeInTheDocument());
   });
 });
@@ -99,19 +107,21 @@ describe("ModelCard command errors surface honestly", () => {
     server.use(commandConflictHandler());
     renderCard();
 
-    const select = await screen.findByRole("combobox", { name: "Modelo Activo" });
-    fireEvent.change(select, { target: { value: "llama3.2:3b" } });
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    pickModel("LLaMA 3.2 (3B)");
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
-    expect(select).not.toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Modelo Activo" })).not.toBeDisabled();
   });
 
   it("shows a 422 validation alert with the backend detail", async () => {
     server.use(commandValidationHandler("switch_model requires a non-None string value"));
     renderCard();
 
-    const select = await screen.findByRole("combobox", { name: "Modelo Activo" });
-    fireEvent.change(select, { target: { value: "llama3.2:3b" } });
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    pickModel("LLaMA 3.2 (3B)");
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("switch_model requires a non-None string value")
@@ -122,23 +132,84 @@ describe("ModelCard command errors surface honestly", () => {
     server.use(commandNetworkErrorHandler());
     renderCard();
 
-    const select = await screen.findByRole("combobox", { name: "Modelo Activo" });
-    fireEvent.change(select, { target: { value: "llama3.2:3b" } });
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    pickModel("LLaMA 3.2 (3B)");
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 });
 
-describe("ModelCard download control (still mock — no backend download endpoint)", () => {
-  it("shows a simulated progress bar and not-wired status note while the mock download runs", async () => {
+describe("ModelCard never downloads models — Ollama does (owner decision)", () => {
+  it("shows the Ollama management hint and no download control", async () => {
     renderCard();
     await screen.findByRole("combobox", { name: "Modelo Activo" });
-    fireEvent.click(screen.getByRole("button", { name: "Descargar" }));
 
-    const downloadStatus = screen.getAllByRole("status").find((node) => node.textContent?.includes("Descargando"));
-    expect(downloadStatus).toBeDefined();
-    expect(downloadStatus).toHaveTextContent(/backend/);
+    expect(screen.getByText(/Ollama/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Descargar" })).not.toBeInTheDocument();
+  });
+});
 
-    await waitFor(() => expect(screen.queryByText(/Descargando/)).not.toBeInTheDocument());
+describe("ModelCard availability marking from `discovered` (fail-open per settings.py)", () => {
+  it("marks a not-installed catalog entry as disabled and refuses to select it", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: ["qwen3:1.7b"] }))
+    );
+    renderCard();
+
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    fireEvent.click(trigger);
+
+    const missingOption = screen.getByRole("option", { name: /LLaMA 3\.2 \(3B\) — no instalado/ });
+    expect(missingOption).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(missingOption);
+
+    // Disabled option click neither closes the list nor fires a command.
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    expect(screen.queryByText("aplicando…")).not.toBeInTheDocument();
+  });
+
+  it("marks NO option as unavailable when discovery is empty — cannot verify, not 'nothing installed'", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: [] })));
+    renderCard();
+
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    fireEvent.click(trigger);
+
+    const options = screen.getAllByRole("option");
+    expect(options.length).toBeGreaterThan(0);
+    options.forEach((option) => expect(option).not.toHaveAttribute("aria-disabled", "true"));
+  });
+
+  it("lists an owner-pulled tag outside the curated catalog as a plain selectable option", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () =>
+        HttpResponse.json({ ...defaultModels, discovered: [...defaultModels.discovered, "mistral:7b"] })
+      )
+    );
+    renderCard();
+
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("option", { name: "mistral:7b" })).not.toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+describe("ModelCard cloud mode — read-only pointer to Proveedor LLM (owner: Ollama-only discovery)", () => {
+  it("shows the active cloud model with no select, no tiers, and no Ollama hint", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json(cloudModels)));
+    renderCard();
+
+    await waitFor(() => expect(screen.getAllByText(cloudModels.current_model as string).length).toBeGreaterThan(0));
+    expect(screen.getByText(/Proveedor LLM/)).toBeInTheDocument();
+    expect(screen.getByText("en la nube")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Fast ⚡/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ollama/)).not.toBeInTheDocument();
   });
 });

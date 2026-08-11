@@ -148,10 +148,21 @@ export const defaultModels: ModelsResponse = {
     "llama3.2:3b": { display: "LLaMA 3.2 (3B)", desc: "Español nativo.", size_gb: 2.0, family: "llama" },
     "gemma4:e4b": { display: "Gemma 4 (E4B)", desc: "Más calidad.", size_gb: 2.5, family: "gemma" }
   },
-  discovered: ["qwen3:1.7b"],
+  discovered: ["qwen3:1.7b", "llama3.2:3b", "gemma4:e4b"],
   current_model: "qwen3:1.7b",
   tiers: { quality: "gemma4:e4b", balanced: "llama3.2:3b", fast: "qwen3:1.7b" },
   active_tier: "fast"
+};
+
+/** Cloud mode GET /api/models — mirrors opencohost/api/routers/status.py's
+ * get_models cloud branch (~:128-134): empty catalog/tiers, `discovered`
+ * degenerates to just the active model. */
+export const cloudModels: ModelsResponse = {
+  catalog: {},
+  discovered: ["gpt-4o-mini"],
+  current_model: "gpt-4o-mini",
+  tiers: {},
+  active_tier: "cloud"
 };
 
 export const defaultTtsConfig: TtsConfigResponse = {
