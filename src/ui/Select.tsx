@@ -27,6 +27,14 @@ interface CustomProps {
 const LIST_MAX_HEIGHT_CEILING = 384;
 const GAP = 4; // replicates the inline version's `mt-1` gap
 
+// Floor on the list's height — below this, "open toward the larger side"
+// still obeys the formula but produces something too short to use (e.g. a
+// trigger with 35px above and 30px below opens a 35px list: technically
+// correct, practically useless). Options are `py-2.5 text-sm`: 20px line
+// height (text-sm) + 20px padding (py-2.5, 10px top/bottom) = 40px/row, so
+// ~3 rows is enough to show the selected option plus real neighbors.
+const MIN_LIST_HEIGHT = 120;
+
 interface ListPosition {
   left: number;
   width: number;
@@ -56,17 +64,44 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
     const spaceBelow = window.innerHeight - rect.bottom - GAP;
     const spaceAbove = rect.top - GAP;
     const { left, width } = rect;
-    if (spaceBelow >= spaceAbove) {
-      setPosition({ top: rect.bottom + GAP, left, width, maxHeight: Math.min(LIST_MAX_HEIGHT_CEILING, Math.max(spaceBelow, 0)) });
-    } else {
-      setPosition({
-        bottom: window.innerHeight - rect.top + GAP,
-        left,
-        width,
-        maxHeight: Math.min(LIST_MAX_HEIGHT_CEILING, Math.max(spaceAbove, 0))
-      });
+
+    if (Math.max(spaceBelow, spaceAbove) >= MIN_LIST_HEIGHT) {
+      if (spaceBelow >= spaceAbove) {
+        setPosition({ top: rect.bottom + GAP, left, width, maxHeight: Math.min(LIST_MAX_HEIGHT_CEILING, spaceBelow) });
+      } else {
+        setPosition({
+          bottom: window.innerHeight - rect.top + GAP,
+          left,
+          width,
+          maxHeight: Math.min(LIST_MAX_HEIGHT_CEILING, spaceAbove)
+        });
+      }
+      return;
     }
+
+    // Neither side clears the floor — stop respecting "toward the larger
+    // side" and just give the list a usable height, pinned inside the
+    // viewport with `top` even if that overlaps the trigger.
+    const maxHeight = Math.max(1, Math.min(MIN_LIST_HEIGHT, window.innerHeight - 2 * GAP));
+    let top = spaceBelow >= spaceAbove ? rect.bottom + GAP : rect.top - GAP - maxHeight;
+    top = Math.min(top, window.innerHeight - GAP - maxHeight);
+    top = Math.max(top, GAP);
+    setPosition({ top, left, width, maxHeight });
   }, [open]);
+
+  // Scroll the selected option into view once the list has actually mounted
+  // with its real size — this depends on `position` (not just `open`) so it
+  // runs after the effect above sets it and the portal commits the <ul> with
+  // maxHeight applied; on `open` alone it would fire a render early, before
+  // there's a scroll container to scroll within. Centering (not "nearest")
+  // because a long catalog (Agenda's 20-entry list, ~9 rows visible at the
+  // 384px ceiling) leaves the match pinned at the very edge under "nearest" —
+  // centering shows real neighbors, and it's the browser's own algorithm that
+  // clamps at the ends, so it never overscrolls a selection near the top/bottom.
+  useLayoutEffect(() => {
+    if (!open || !position) return;
+    listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "center" });
+  }, [open, position]);
 
   // Close when pointer lands outside the trigger AND outside the portaled list
   // (the list is no longer a DOM descendant of `ref`, so it needs its own check).
@@ -84,9 +119,17 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
   // is simpler and cheaper than tracking position continuously — scroll fires
   // in the capture phase so it catches scrolling on any ancestor container,
   // not just the window.
+  //
+  // The list's OWN scrolling must be excluded, or the feature eats itself: the
+  // list scrolls internally (maxHeight + overflow-y-auto) and centres the
+  // selected option on open, and both of those emit scroll events that a bare
+  // capture listener on window happily catches. Without this guard, spinning
+  // the wheel inside the dropdown closes it, and a select whose value sits
+  // below the fold closes the instant it opens.
   useEffect(() => {
     if (!open) return;
-    function close() {
+    function close(event: Event) {
+      if (listRef.current?.contains(event.target as Node)) return;
       setOpen(false);
     }
     window.addEventListener("scroll", close, true);

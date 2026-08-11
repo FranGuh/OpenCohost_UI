@@ -928,7 +928,7 @@ export function ConversationPanel() {
         </TabPanel>
 
         {showLogs && (
-          <TabPanel value="logs" className="flex min-h-0 flex-1 flex-col overflow-auto p-3">
+          <TabPanel value="logs" className="flex min-h-0 flex-1 flex-col p-3">
             <LogsPanel />
           </TabPanel>
         )}

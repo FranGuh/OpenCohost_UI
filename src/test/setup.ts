@@ -14,3 +14,10 @@ if (typeof window !== "undefined" && window.HTMLMediaElement) {
   window.HTMLMediaElement.prototype.play = () => Promise.resolve();
   window.HTMLMediaElement.prototype.pause = () => {};
 }
+
+// jsdom doesn't implement Element#scrollIntoView at all (not even a no-op —
+// it's `undefined`). Select scrolls its selected option into view on open, so
+// every test that opens a dropdown needs this stubbed globally.
+if (typeof window !== "undefined" && window.Element && !window.Element.prototype.scrollIntoView) {
+  window.Element.prototype.scrollIntoView = () => {};
+}
