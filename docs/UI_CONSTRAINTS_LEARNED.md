@@ -25,8 +25,11 @@ viewport. This has produced two separate bugs:
   wrapper and did nothing — raising the `.relative` wrapper only scopes the inner `z-50` into a
   new context rooted at 20; it never addresses a later sibling.
 - **`Dialog`'s `fixed inset-0` overlay mispositioned on aurora.** `src/ui/Dialog.tsx` did not
-  portal, and every mount is inside a `Card` (`ControlsPanel.tsx`'s `ControlGroup` wraps every
-  Controles section in one). **Fixed in `48016d3`** with the same move Select took: portal to
+  portal, and every mount is inside a `Card`. That used to be because `ControlsPanel.tsx`'s
+  `ControlGroup` wrapped every Controles section in one — `ControlGroup` is deleted (replaced by
+  a `PaneSwitcher`, see `ControlsPanel.tsx`). It stays true today for a different, per-call-site
+  reason: `MemoryCard.tsx` and `ProfileSwitcher.tsx` (whose `Card` wraps `ProfileEditor`'s Dialog)
+  each own their own `Card`. **Fixed in `48016d3`** with the same move Select took: portal to
   `document.body`. Still owed a look in a real aurora window — jsdom cannot render
   `backdrop-filter` or compute a containing block, so no test proves the overlay now centres.
 
@@ -118,11 +121,25 @@ is used at 11 call sites. `SettingsPopover.tsx:210-231` deliberately branches be
 
 ## 6. Scroll ownership: the app is already disciplined
 
-An audit of every `max-h-*`/`overflow-*` in `src/` found that Agenda, Stream, Música, the Sidebar
-and ConversationPanel's feed each have exactly one scroll owner, and it is the right one:
+An audit of every `max-h-*`/`overflow-*` in `src/` found that Controles, Agenda, Stream, Música,
+Memoria, the Sidebar and ConversationPanel's feed each have exactly one scroll owner, and it is
+the right one:
 
-- Agenda / Stream / Música → `MainStage.tsx`'s single `<main className="… overflow-auto …">`.
-  Cards render straight into page flow with no inner box. **This is the reference pattern.**
+- Controles / Agenda / Stream / Música / Memoria → `SettingsSection.tsx`'s inner body `<div>`, the
+  element actually carrying `overflow-auto` (`PANEL_CLASS`). Cards render straight into page flow
+  with no inner box. **This is the reference pattern.** `MainStage.tsx` no longer owns this
+  `<main>` itself for any section — every one of the five routes through `SettingsSection` now
+  (JD-9: Stream/Música used to hand-roll a second copy of the same `<main>`; that branch is
+  `SettingsSection`'s own `if (!header)` case).
+- **Header-slot pattern** (Controles/Agenda/Memoria): `SettingsSection`'s `header` prop renders in
+  a `shrink-0` sibling ABOVE the scrolling body, both inside the same `<main>` — not `sticky`, not
+  `fixed`, just ordinary flex layout with the header outside the scroll container. This is how a
+  pane switcher stays on screen regardless of how far the active pane's body scrolls. Stream and
+  Música pass no `header`, so they get `SettingsSection`'s other branch: a single
+  `<main className={PANEL_CLASS}>`, no header slot, byte-identical to what `MainStage.tsx` used to
+  render inline. See `SettingsSection.tsx`'s own doc comment, and `docs/OPEN_WORK.md` §1 for what
+  jsdom still cannot prove about this split (DOM ancestry is verifiable — `SettingsSection.test.tsx`
+  does; whether the header visually stays put while the body scrolls is not).
 - Sidebar → nav buttons and footer are `shrink-0`; only `ProfilesRegion` scrolls.
 - ConversationPanel → the tabpanel, with content capped (`TRANSCRIPT_CAP = 200`).
 - `Dialog` → the shell clips (`max-h-[85vh] overflow-hidden`) and the inner `Card` scrolls
@@ -131,8 +148,8 @@ and ConversationPanel's feed each have exactly one scroll owner, and it is the r
 **`MemoryCard`'s list used to be the one deviation** — the only card that boxed itself
 (`max-h-96`) instead of trusting the panel scroll like every sibling. Removed in `ab96bae` when the
 card moved into its own Memoria section, where the pane it lives in IS the content. The app now has
-zero inner scroll boxes outside the four owners listed above. Do not add one; the pattern to copy
-is "no inner box".
+zero inner scroll boxes outside the owners listed above. Do not add one; the pattern to copy is
+"no inner box".
 
 ---
 

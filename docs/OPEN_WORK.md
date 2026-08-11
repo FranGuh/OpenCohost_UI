@@ -1,6 +1,7 @@
 # Open work — UI
 
-Last reconciled **2026-08-11** at `ab96bae`, branch `codex/ui-ux-audit-proposal-20260709`.
+Last reconciled **2026-08-11** after Judgment Day on the PaneSwitcher batch, branch
+`codex/ui-ux-audit-proposal-20260709`.
 Nothing here is pushed.
 
 This is the entry point for the next track. Read `docs/UI_CONSTRAINTS_LEARNED.md` before
@@ -25,6 +26,8 @@ Owed a look in a running aurora window:
 | `ModelCard` in cloud mode | the backend deliberately returns an empty catalog there |
 | The Memoria section at ~695px | asserted via a `grid-template-columns` string, not real geometry |
 | The memories list with ~118 real rows under the panel scroll | no inner box any more; needs a sanity check on page length |
+| The `SettingsSection.tsx` header/body split actually pinning the header while the body scrolls (Controles/Agenda/Memoria) | `SettingsSection.test.tsx` proves DOM ancestry only — the header sits outside the `overflow-auto` element; jsdom has no layout engine, so whether the header visually stays put while the body underneath it scrolls is unverifiable |
+| `MemoryCard`'s counts grid (`repeat(auto-fill,minmax(104px,1fr))`) reflowing its column count at ~695px, and again with the sidebar collapsed | the column count is derived from real container width; jsdom returns zero for every geometry read |
 
 **One cosmetic call.** "Memoria" now appears three times on that screen: the nav item, the
 segment label, and `MemoryCard`'s own heading (`controles.memory.card.title`). Not fixed —
@@ -92,6 +95,21 @@ urgent — but it is the fix if the list ever feels slow to open. `docs/MEMORY_S
 §4–§5 has the full brief, including the R8 privacy constraint that makes selection-as-activation
 mandatory. Judge any proposal by whether it *deletes* per-row machinery.
 
+**`Segmented` is not a tablist, and the pane switchers use it as one.** Two Judgment Day judges
+raised this. `Segmented` renders `role="group"` with independent `aria-pressed` buttons: no
+`aria-controls`, no `role="tabpanel"`, no roving tabindex, no focus move or live-region
+announcement when the whole body swaps. A screen-reader operator gets three separate tab stops and
+no signal the main region changed. Deliberately out of scope for the correction round — it is a
+shared primitive with 11 call sites and rewiring it there is its own change. The per-pane `<h2>`
+headings deleted with `ControlGroup` were restored, which recovers document structure but not the
+tab relationship.
+
+**Kira's suggestions are only reachable from Agenda's non-default pane.** `SuggestionsCard` lives
+in the Topics pane and the segment carries no count or badge, so an operator parked on Cohost
+profile gets no signal that new approve/reject suggestions arrived mid-session. Raised as a
+suggestion by one judge. The fix is a badge on the segment, which is new design rather than a
+correction.
+
 **A `Select` width API.** `ProviderCard.tsx:372` passes `className="w-44"` to size its trigger.
 Coherent (the panel measures that same wrapper), but it means "call sites pass only
 options/value/onChange/disabled" is not literally true yet.
@@ -112,9 +130,21 @@ Python repo). Units U1–U6, five open questions. Not started.
   owns the transcript, composer draft, active tab and `seenLogId` as local state. `AppLayout.tsx`
   carries the comment; `AppLayout.test.tsx` carries the guard, and that guard was verified
   load-bearing by hand.
-- **Assert absence, not invisibility.** `MemoriaPanel`'s tests use `not.toBeInTheDocument()`
-  precisely because `not.toBeVisible()` would pass with all three panes mounted and two hidden —
-  which is the thing the design forbids. All three tests were confirmed to go red under that
-  shortcut.
+- **Unmount only where you can name the cost you are avoiding.** `MemoriaPanel` unmounts its
+  inactive panes and its tests assert `not.toBeInTheDocument()`, because ~118 memory rows each own
+  three `useState`, a query and three mutations. Controles and Agenda keep every pane **mounted**
+  and hide them with the `hidden` attribute plus an inline `display: none` (the `[hidden]` UA rule
+  loses to an author `display` utility — see `Tabs.tsx:136-142`), because unmounting there
+  destroyed unsaved operator input, including `ObsCard`'s write-only password, which nothing can
+  recover. Judgment Day caught this: the rule had been over-generalised from Memoria's perf case
+  to two panels that never had it. Their tests assert the `hidden` attribute AND that a typed
+  draft survives a pane round trip — the second is the one that would have caught the defect.
+- **A test that names a guard must fail when the guard is deleted.** `PaneSwitcher`'s
+  localStorage-failure test passed for two different wrong reasons before it was real: first
+  because `window.localStorage.setItem = fn` does not replace the method in jsdom (Storage's proxy
+  turns it into a stored entry keyed `"setItem"`), then because React reports a throw from an
+  event handler asynchronously, so the synchronous assertions all still passed and only the run
+  exited non-zero. Both versions reported green while the `try/catch` was absent. Verify by
+  deleting the guard and watching that specific test go red — not the run, the test.
 - **Every geometry change ships with an explicit note about what a human still has to look at.**
   A vacuous test is worse than no test: it makes the next person believe the behaviour is guarded.
