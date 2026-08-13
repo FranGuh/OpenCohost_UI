@@ -33,7 +33,7 @@ export const experienciaEs = {
   "experiencia.conversationPanel.tabs.chat": "Chat",
   "experiencia.conversationPanel.tabs.comandos": "Comandos",
   "experiencia.conversationPanel.tabs.logs": "Logs",
-  "experiencia.conversationPanel.tabs.stream": "Stream",
+  "experiencia.conversationPanel.tabs.stream": "Stream chat",
   "experiencia.conversationPanel.tabs.todo": "Todo",
   "experiencia.conversationPanel.turn.agendaBadge": "KIRA · AGENDA",
   "experiencia.conversationPanel.turn.operator": "Vos",

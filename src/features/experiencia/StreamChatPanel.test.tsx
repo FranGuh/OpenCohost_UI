@@ -7,6 +7,7 @@ import { server } from "../../test/server.js";
 import { API_BASE_URL, defaultStreamChatLive, streamChatMessagesForbiddenHandler } from "../../test/handlers.js";
 import {
   STREAM_CHAT_CAP,
+  selectKiraStreamReplies,
   selectStreamChatMessages,
   useStreamChatStore
 } from "../../store/streamChatStore.js";
@@ -26,7 +27,7 @@ function connectedChatLiveHandler(overrides: Partial<typeof defaultStreamChatLiv
 }
 
 beforeEach(() => {
-  useStreamChatStore.setState({ messages: [], cursor: 0, boot: null, session: null, breaks: [] });
+  useStreamChatStore.setState({ messages: [], cursor: 0, boot: null, session: null, breaks: [], kiraReplies: [] });
 });
 
 describe("StreamChatPanel — four states + break dividers", () => {
@@ -205,6 +206,80 @@ describe("StreamChatPanel — four states + break dividers", () => {
     // Both rows stay — a gap is a note in the feed, not a wipe.
     expect(screen.getByText("antes del raid")).toBeInTheDocument();
     expect(screen.getByText("después del raid")).toBeInTheDocument();
+  });
+});
+
+// Kira's replies to stream chat (tauri_stream_chat_20260812 follow-up):
+// interleaved with viewer messages by `ts`, styled distinctly (KIRA badge +
+// markdown bubble) so nobody has to guess who's talking. Fed from a SEPARATE
+// store slice (kiraReplies) — never pushed into `messages`.
+describe("StreamChatPanel — Kira's replies interleaved from the separate kiraReplies slice", () => {
+  it("renders a Kira reply interleaved with viewer messages, styled distinctly from a viewer row", async () => {
+    server.use(connectedChatLiveHandler());
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(/Esperando mensajes/)).toBeInTheDocument());
+
+    act(() => {
+      useStreamChatStore.getState().ingest({
+        messages: [{ seq: 1, author: "viewer1", text: "hola kira", ts: 1 }],
+        cursor: 1,
+        boot: 1,
+        session: 0,
+        more_pending: false
+      });
+      useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "hola, ¿cómo va todo?", ts: 2000 });
+    });
+
+    expect(await screen.findByText("hola, ¿cómo va todo?")).toBeInTheDocument();
+    expect(screen.getByText("hola kira")).toBeInTheDocument();
+    // Distinct from a viewer row: the KIRA badge shows up, and it never
+    // pushed a synthetic row into the viewer message array.
+    expect(screen.getByText("KIRA")).toBeInTheDocument();
+    expect(selectKiraStreamReplies(useStreamChatStore.getState())).toEqual([
+      { turnId: 1, text: "hola, ¿cómo va todo?", ts: 2000 }
+    ]);
+    expect(selectStreamChatMessages(useStreamChatStore.getState())).toEqual([
+      { seq: 1, author: "viewer1", text: "hola kira", ts: 1 }
+    ]);
+  });
+
+  it("orders a Kira reply BEFORE a later viewer message by ts, not by arrival order", async () => {
+    server.use(connectedChatLiveHandler());
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(/Esperando mensajes/)).toBeInTheDocument());
+
+    act(() => {
+      // Kira's reply (ts=2000ms) arrives first but is chronologically BEFORE
+      // the viewer message that follows it (ts=5s -> 5000ms).
+      useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "respuesta rápida", ts: 2000 });
+      useStreamChatStore.getState().ingest({
+        messages: [{ seq: 1, author: "viewer1", text: "mensaje posterior", ts: 5 }],
+        cursor: 1,
+        boot: 1,
+        session: 0,
+        more_pending: false
+      });
+    });
+
+    await screen.findByText("mensaje posterior");
+    const rows = screen.getByLabelText("Chat en vivo de viewers").children;
+    const texts = Array.from(rows).map((row) => row.textContent);
+    const kiraIndex = texts.findIndex((text) => text?.includes("respuesta rápida"));
+    const viewerIndex = texts.findIndex((text) => text?.includes("mensaje posterior"));
+    expect(kiraIndex).toBeGreaterThanOrEqual(0);
+    expect(kiraIndex).toBeLessThan(viewerIndex);
+  });
+
+  it("keeps rendering rows null while inactive even once a Kira reply lands (render gate)", async () => {
+    server.use(connectedChatLiveHandler());
+    renderPanel(false);
+    await waitFor(() => expect(screen.getByText(/Conectado · kira/)).toBeInTheDocument());
+
+    act(() => {
+      useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "fila oculta de kira", ts: 1000 });
+    });
+
+    expect(screen.queryByText("fila oculta de kira")).not.toBeInTheDocument();
   });
 });
 

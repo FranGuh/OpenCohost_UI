@@ -39,6 +39,15 @@ import { useT, type TKey } from "../../i18n/t.js";
 // (opencohost/smart_aggregator/chat_input_contract.py), the same one the
 // legacy CTK Stream admin panel already toggles. Wired end to end below —
 // see AccionesCard.
+//
+// Orden / Vigencia (stream_over_agenda / stream_ttl_seconds): same
+// GET/PUT .../chat-live* contract, wired the same way as Input Contract
+// above. The two interact — agenda-first (stream_over_agenda: false) queues
+// viewer reactions longer, so the backend floors the TTL actually in force
+// (effective_stream_ttl_seconds, read-only) to 300s regardless of the
+// streamer's chosen stream_ttl_seconds. AccionesCard discloses the gap
+// whenever the two differ instead of silently honoring the floor — see the
+// Alert in the Vigencia section.
 
 type StreamConnectionState = "desconectado" | "conectando" | "conectado";
 
@@ -230,6 +239,19 @@ function buildSpamOptions(t: ReturnType<typeof useT>) {
   ] as const;
 }
 
+// stream_ttl_seconds has no CTK-derived preset, so this is Select-only —
+// same shape as buildSpamOptions above. 300s is the backend's own floor
+// (see effective_stream_ttl_seconds's docstring in api/stream.ts) so it's
+// included as a selectable value, not just an implicit minimum.
+function buildTtlOptions(t: ReturnType<typeof useT>) {
+  return [
+    { value: "60", label: t("stream.acciones.ttlOption.60") },
+    { value: "120", label: t("stream.acciones.ttlOption.120") },
+    { value: "300", label: t("stream.acciones.ttlOption.300") },
+    { value: "600", label: t("stream.acciones.ttlOption.600") }
+  ] as const;
+}
+
 // Preset labels are resolved locally by `level` — the fixture's own `label`
 // field is left untouched (it's mock data shaped like a future API
 // response), see the batch report for why.
@@ -262,12 +284,15 @@ function AccionesCard() {
   const reactionOptions = buildReactionOptions(t);
   const cooldownOptions = buildCooldownOptions(t);
   const spamOptions = buildSpamOptions(t);
+  const ttlOptions = buildTtlOptions(t);
   const presetOptions = buildPresetOptions(t);
 
   const [reactionThreshold, setReactionThreshold] = useState(STREAM_FIXTURE.reaction_threshold);
   const [cooldown, setCooldown] = useState(STREAM_FIXTURE.cooldown);
   const [spamLimit, setSpamLimit] = useState(STREAM_FIXTURE.spam_limit);
   const [inputContract, setInputContract] = useState(STREAM_FIXTURE.input_contract);
+  const [streamOverAgenda, setStreamOverAgenda] = useState(STREAM_FIXTURE.stream_over_agenda);
+  const [streamTtl, setStreamTtl] = useState(STREAM_FIXTURE.stream_ttl_seconds);
 
   useEffect(() => {
     if (!chatLiveQuery.data) return;
@@ -275,7 +300,16 @@ function AccionesCard() {
     setCooldown(String(chatLiveQuery.data.cooldown_seconds));
     setSpamLimit(String(chatLiveQuery.data.max_messages_per_user));
     setInputContract(chatLiveQuery.data.input_contract);
+    setStreamOverAgenda(chatLiveQuery.data.stream_over_agenda);
+    setStreamTtl(String(chatLiveQuery.data.stream_ttl_seconds));
   }, [chatLiveQuery.data]);
+
+  // Undefined until the GET resolves — the disclosure only has an honest
+  // answer once real chosen/effective values are in hand, so it stays quiet
+  // (not "wrongly quiet", genuinely unknown) during that first render.
+  const ttlDiverges =
+    chatLiveQuery.data !== undefined &&
+    chatLiveQuery.data.stream_ttl_seconds !== chatLiveQuery.data.effective_stream_ttl_seconds;
 
   const reactionPreset = presetForValue(reactionThreshold, REACTION_PRESET_VALUES);
   const cooldownPreset = presetForValue(cooldown, COOLDOWN_PRESET_VALUES);
@@ -393,6 +427,63 @@ function AccionesCard() {
                 }}
               />
             </div>
+          </section>
+
+          <section aria-labelledby="stream-order-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-order-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              {t("stream.acciones.order.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-order-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.order.helper")}
+              </span>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.order.label")}</span>
+                <Switch
+                  checked={streamOverAgenda}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => {
+                    setStreamOverAgenda(value);
+                    limitsMutation.mutate({ stream_over_agenda: value });
+                  }}
+                  aria-label={t("stream.acciones.order.aria")}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="stream-ttl-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-ttl-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              {t("stream.acciones.ttl.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-ttl-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.ttl.helper")}
+              </span>
+              <Select
+                aria-label={t("stream.acciones.ttl.select.aria")}
+                aria-describedby="stream-ttl-helper"
+                options={ttlOptions}
+                value={streamTtl}
+                disabled={limitsMutation.isPending}
+                onChange={(value) => {
+                  setStreamTtl(value);
+                  limitsMutation.mutate({ stream_ttl_seconds: Number(value) });
+                }}
+              />
+            </div>
+            {/* The trap: agenda-first floors the effective TTL to 300s so a
+                short chosen value can't silently starve every queued
+                reaction. tone="info" + role="status" (not "alert"/danger) —
+                this is the floor protecting the streamer, not a failure. */}
+            {ttlDiverges && chatLiveQuery.data && (
+              <Alert tone="info" role="status" title={t("stream.acciones.ttl.effectiveNotice.title")}>
+                {t("stream.acciones.ttl.effectiveNotice.body", {
+                  chosen: String(chatLiveQuery.data.stream_ttl_seconds),
+                  effective: String(chatLiveQuery.data.effective_stream_ttl_seconds)
+                })}
+              </Alert>
+            )}
           </section>
 
           <section aria-labelledby="stream-input-contract-label" className="space-y-2.5 border-t border-border-soft pt-3.5">

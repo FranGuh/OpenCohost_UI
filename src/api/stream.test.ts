@@ -64,7 +64,10 @@ describe("useStreamChatLiveQuery", () => {
       "cooldown_seconds",
       "max_messages_per_user",
       "filter_policy",
-      "input_contract"
+      "input_contract",
+      "stream_over_agenda",
+      "stream_ttl_seconds",
+      "effective_stream_ttl_seconds"
     ]);
   });
 });
@@ -271,7 +274,7 @@ describe("getStreamChatMessages — a 403 must be recoverable without an app res
 describe("useStreamChatMessages — cursor resync on a boot change", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    useStreamChatStore.setState({ messages: [], cursor: 0, boot: null, session: null, breaks: [] });
+    useStreamChatStore.setState({ messages: [], cursor: 0, boot: null, session: null, breaks: [], kiraReplies: [] });
   });
 
   afterEach(() => {

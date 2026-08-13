@@ -82,6 +82,7 @@ export interface LastReplyResponse {
   answered_by_transport?: string | null;
   submitted_under_provider?: string | null;
   provider_changed_while_queued?: boolean | null;
+  origin?: string | null;
 }
 
 export const defaultStatus: StatusResponse = {
@@ -182,7 +183,8 @@ export const defaultLastReply: LastReplyResponse = {
   answered_by_provider: null,
   answered_by_transport: null,
   submitted_under_provider: null,
-  provider_changed_while_queued: null
+  provider_changed_while_queued: null,
+  origin: null
 };
 
 export const defaultMemoriaStats: MemoriaStatsResponse = {
@@ -469,8 +471,15 @@ export interface StreamChatLiveResponse {
   max_messages_per_user: number;
   filter_policy: string;
   input_contract: boolean;
+  stream_over_agenda: boolean;
+  stream_ttl_seconds: number;
+  effective_stream_ttl_seconds: number;
 }
 
+// Default: agenda-first (stream_over_agenda: false) with a chosen TTL that
+// already sits at the 300s floor, so chosen === effective and the
+// AccionesCard disclosure stays quiet by default — per-test overrides below
+// diverge the two to exercise the disclosure itself.
 export const defaultStreamChatLive: StreamChatLiveResponse = {
   connected: false,
   platform: null,
@@ -479,7 +488,10 @@ export const defaultStreamChatLive: StreamChatLiveResponse = {
   cooldown_seconds: 45,
   max_messages_per_user: 10,
   filter_policy: "balanced",
-  input_contract: false
+  input_contract: false,
+  stream_over_agenda: false,
+  stream_ttl_seconds: 300,
+  effective_stream_ttl_seconds: 300
 };
 
 /** GET /api/stream/chat-live/messages (RF3) — mirrors

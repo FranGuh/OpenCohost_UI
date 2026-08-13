@@ -26,6 +26,24 @@ export interface StreamChatBreak {
   kind: StreamChatBreakKind;
 }
 
+/**
+ * A Kira reply that answered VIEWER chat (last-reply `origin === "chat"`),
+ * routed here instead of the Chat tab's transcript. Deliberately a SEPARATE
+ * slice from `messages`, never merged into it: `messages` entries all carry
+ * a real backend `seq` that four separate mechanisms depend on (dedup, gap
+ * detection, break pruning, the unread-dot selector) — a synthetic Kira row
+ * with no `seq` would corrupt every one of them. Consumers merge the two
+ * arrays by `ts` at RENDER time only (see StreamChatPanel.tsx).
+ */
+export interface KiraStreamReply {
+  turnId: number;
+  text: string;
+  /** ms (JS Date), same unit as ConversationPanel's Turn.ts — NOT the same
+   * unit as StreamChatMessage.ts (seconds); StreamChatPanel converts at the
+   * merge site, same as its own per-row conversion already does. */
+  ts: number;
+}
+
 export interface StreamChatState {
   messages: StreamChatMessage[];
   cursor: number;
@@ -36,22 +54,29 @@ export interface StreamChatState {
   /** A break that has nothing to anchor to YET, held until the next message
    * arrives. See the boot branch in ingest for the case that needs it. */
   pendingBreak: StreamChatBreakKind | null;
+  /** See KiraStreamReply. Resets alongside `messages` on the same boot/
+   * session-change branch in ingest() — a channel switch must not leave a
+   * previous channel's Kira replies stranded in the new channel's view. */
+  kiraReplies: KiraStreamReply[];
   ingest(response: StreamChatMessagesResponse): void;
+  addKiraReply(reply: KiraStreamReply): void;
 }
 
-function cap(messages: StreamChatMessage[]): StreamChatMessage[] {
-  return messages.length > STREAM_CHAT_CAP ? messages.slice(messages.length - STREAM_CHAT_CAP) : messages;
+function cap<T>(items: T[]): T[] {
+  return items.length > STREAM_CHAT_CAP ? items.slice(items.length - STREAM_CHAT_CAP) : items;
 }
 
 /**
  * LOCAL UI state ONLY (same "never holds server truth beyond this buffer"
  * contract as eventStore/switchStore) — but UNLIKE eventStore, this store
  * DOES hold real viewer message text. That's a deliberate, scoped exception:
- * this buffer is fed exclusively by GET /api/stream/chat-live/messages,
+ * `messages` is fed exclusively by GET /api/stream/chat-live/messages,
  * which is operator-token-gated and only ever returns text that already
  * passed the aggregator's filter/spam/safety screen (see
- * src/api/stream.ts's rewritten docstring for the full chain). It is an
- * in-memory ring buffer only — never persisted, never sent anywhere else,
+ * src/api/stream.ts's rewritten docstring for the full chain). `kiraReplies`
+ * is fed separately, by ConversationPanel's GET /api/chat/last-reply poll,
+ * whenever a reply's `origin` marks it as an answer to that same viewer
+ * chat. It is an in-memory ring buffer only — never persisted, never sent anywhere else,
  * and it dies with the tab.
  */
 export const useStreamChatStore = create<StreamChatState>((set) => ({
@@ -61,6 +86,7 @@ export const useStreamChatStore = create<StreamChatState>((set) => ({
   session: null,
   breaks: [],
   pendingBreak: null,
+  kiraReplies: [],
   ingest: (response) =>
     set((state) => {
       // Engine restart: the backend's `seq` counter resets to 1 on the new
@@ -93,6 +119,10 @@ export const useStreamChatStore = create<StreamChatState>((set) => ({
           boot: response.boot,
           session: response.session,
           breaks: droppedHistory && messages.length > 0 ? [{ seq: messages[0].seq, kind }] : [],
+          // Same reset as `messages` above, for the same reason: a boot/
+          // session change means a new process or a new channel — Kira's
+          // replies to the OLD one have no place in the new view.
+          kiraReplies: [],
           // A boot change almost always arrives EMPTY, so there is no row to
           // anchor to yet: the poll that reveals the restart was sent with the
           // pre-restart `since`, and the restarted process's seq counter starts
@@ -140,11 +170,21 @@ export const useStreamChatStore = create<StreamChatState>((set) => ({
         breaks,
         pendingBreak: anchored ? null : state.pendingBreak
       };
+    }),
+  addKiraReply: (reply) =>
+    set((state) => {
+      // Belt-and-braces guard: the caller (ConversationPanel's last-reply
+      // poll effect) already dedups by turn_id before calling this, but a
+      // second path producing the same turn_id must still be a no-op rather
+      // than a duplicate bubble.
+      if (state.kiraReplies.some((r) => r.turnId === reply.turnId)) return state;
+      return { kiraReplies: cap([...state.kiraReplies, reply]) };
     })
 }));
 
 export const selectStreamChatMessages = (state: StreamChatState) => state.messages;
 export const selectStreamChatBreaks = (state: StreamChatState) => state.breaks;
+export const selectKiraStreamReplies = (state: StreamChatState) => state.kiraReplies;
 /** PRIMITIVE (number | null), not the array. A consumer that only needs "is
  * there something newer than what I've seen" — ConversationPanel's unread dot,
  * mounted in EVERY section — must not subscribe to `messages`: that array's

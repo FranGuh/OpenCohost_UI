@@ -206,6 +206,12 @@ export interface ChatTurnAccepted {
  * four provider-disclosure fields are all null for a turn with no
  * submitted_under_provider tag (agenda, accumulated, or any reply recorded
  * before this unit) — never a fabricated value.
+ * `origin` (tauri_stream_chat_20260812 follow-up): the true generating
+ * source, currently only distinguishing `"chat"` (a reply to VIEWER chat —
+ * routed to the Stream chat tab, kept OUT of the Chat tab) from everything
+ * else. Missing/null is the safe default and means "not a stream reply" —
+ * preserves prior behavior (Chat tab) for any caller/backend that hasn't
+ * been updated yet.
  * ponytail: keep in sync manually.
  */
 export interface LastReplyResponse {
@@ -218,6 +224,7 @@ export interface LastReplyResponse {
   answered_by_transport?: string | null;
   submitted_under_provider?: string | null;
   provider_changed_while_queued?: boolean | null;
+  origin?: string | null;
 }
 
 /** Server-side whitelist mirrored from opencohost/api/main.py::_COMMAND_WHITELIST. */

@@ -49,6 +49,18 @@ export interface StreamChatLiveResponse {
    * `filter_policy` above (a separate 3-way preset). See StreamPanel.tsx's
    * AccionesCard for what this actually does operator-side. */
   input_contract: boolean;
+  /** true = viewer chat outranks Kira's agenda segments; false = the agenda
+   * goes first. See StreamPanel.tsx's AccionesCard "Orden" section. */
+  stream_over_agenda: boolean;
+  /** How long (seconds) a queued viewer reaction stays valid before it's
+   * discarded — the streamer's CHOSEN value. See effective_stream_ttl_seconds. */
+  stream_ttl_seconds: number;
+  /** Read-only, backend-computed: the TTL window ACTUALLY in force. With
+   * agenda-first (stream_over_agenda: false) the backend floors this to 300s
+   * so a short chosen TTL can't silently expire every queued reaction. Differs
+   * from stream_ttl_seconds exactly when that floor kicks in — the UI must
+   * disclose the difference to the streamer when it does (AccionesCard). */
+  effective_stream_ttl_seconds: number;
 }
 
 export interface StreamLimitsRequest {
@@ -57,6 +69,8 @@ export interface StreamLimitsRequest {
   max_messages_per_user?: number;
   filter_policy?: string;
   input_contract?: boolean;
+  stream_over_agenda?: boolean;
+  stream_ttl_seconds?: number;
 }
 
 export const STREAM_CHAT_LIVE_QUERY_KEY = ["stream-chat-live"] as const;

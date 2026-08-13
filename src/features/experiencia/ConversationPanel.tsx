@@ -479,11 +479,6 @@ export function ConversationPanel() {
       return;
     }
     lastRecordedTurnIdRef.current = data.turn_id;
-    const id = `kira-reply-${data.turn_id}`;
-    // R8/source (llm_engine.py): a reply whose source starts with
-    // "kira-agenda" is an autonomous agenda turn, not a reply to operator/
-    // viewer chat — tag it so ConversationTurn labels it distinctly.
-    const fromAgenda = data.source?.startsWith("kira-agenda") ?? false;
     // The backend ALREADY stamps this reply: ChatReplySink.record() stores
     // `ts: time.time()` (opencohost/api/engine_host.py), surfaced through
     // ChatLastReplyResponse (models.py) as LastReplyResponse.ts here. Arrival
@@ -493,6 +488,22 @@ export function ConversationPanel() {
     // it. Seconds -> ms; `null` (no reply yet / older backend) keeps arrival
     // time as the honest fallback.
     const ts = typeof data.ts === "number" ? data.ts * 1000 : Date.now();
+    // tauri_stream_chat_20260812 follow-up: `origin === "chat"` means this
+    // reply answered VIEWER chat, not operator/agenda — it belongs in the
+    // Stream chat tab (streamChatStore's kiraReplies slice, interleaved with
+    // the viewer messages it answers there), and must NOT also land in this
+    // Chat-tab transcript — that's the whole point of the distinction.
+    // Missing/null `origin` is the safe default and falls through to the
+    // unchanged path below (direct/PTT/agenda/accumulated/older backend).
+    if (data.origin === "chat") {
+      useStreamChatStore.getState().addKiraReply({ turnId: data.turn_id, text: data.text, ts });
+      return;
+    }
+    const id = `kira-reply-${data.turn_id}`;
+    // R8/source (llm_engine.py): a reply whose source starts with
+    // "kira-agenda" is an autonomous agenda turn, not a reply to operator/
+    // viewer chat — tag it so ConversationTurn labels it distinctly.
+    const fromAgenda = data.source?.startsWith("kira-agenda") ?? false;
     // Unit 4.2 (D3b/F12): carried straight from ChatLastReplyResponse — null
     // for any turn with no submitted_under_provider tag (agenda, accumulated,
     // or a reply recorded before this unit), never a fabricated value.

@@ -37,6 +37,12 @@ export interface StreamFixtureShape {
   cooldown: string;
   spam_limit: string;
   input_contract: boolean;
+  /** true = viewer chat outranks Kira's agenda; false = agenda first. */
+  stream_over_agenda: boolean;
+  /** Chosen TTL seconds (string, Select-bound) — mirrors reaction_threshold's
+   * shape. Seeded at the backend's 300s floor so it starts in sync with
+   * effective_stream_ttl_seconds. */
+  stream_ttl_seconds: string;
   presets: StreamPresetOption[];
 }
 
@@ -47,6 +53,8 @@ export const STREAM_FIXTURE: StreamFixtureShape = {
   cooldown: "45",
   spam_limit: "10",
   input_contract: false,
+  stream_over_agenda: false,
+  stream_ttl_seconds: "300",
   presets: [
     { level: "bajo", label: "Bajo" },
     { level: "medio", label: "Medio" },

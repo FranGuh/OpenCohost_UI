@@ -5,27 +5,34 @@ import type { StreamChatMessage } from "../../api/stream.js";
 import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
 import type { TKey } from "../../i18n/t.js";
+import { KiraFace } from "../../ui/KiraFace.js";
+import { Markdown } from "../../ui/Markdown.js";
 import {
+  selectKiraStreamReplies,
   selectStreamChatBreaks,
   selectStreamChatMessages,
   useStreamChatStore
 } from "../../store/streamChatStore.js";
-import type { StreamChatBreakKind } from "../../store/streamChatStore.js";
+import type { KiraStreamReply, StreamChatBreakKind } from "../../store/streamChatStore.js";
 
 /**
- * Stream tab (RF3, tauri_stream_chat_20260812) — a READ-ONLY view of live
- * viewer chat, mirrored here so the operator can read it from any section
- * without navigating to Stream. All controls (connect/disconnect/limits)
- * stay in src/features/stream/StreamPanel.tsx; this panel renders ONLY the
- * StreamChatMessage fields — seq/author/text/ts — nothing else. It does not
- * build moderation actions, a reply box, a "which message Kira picked"
- * marker, or a filtered-message counter: the backend can't feed the last two
- * today, and the first two are simply out of scope for a read-only mirror.
+ * Stream chat tab (RF3, tauri_stream_chat_20260812) — a READ-ONLY view of
+ * live viewer chat, mirrored here so the operator can read it from any
+ * section without navigating to Stream. All controls (connect/disconnect/
+ * limits) stay in src/features/stream/StreamPanel.tsx; this panel renders
+ * the StreamChatMessage fields (seq/author/text/ts) plus, interleaved by
+ * timestamp, Kira's own replies to that chat (kiraReplies — see
+ * streamChatStore.ts). It does not build moderation actions, a reply box, a
+ * "which viewer message Kira picked" marker, or a filtered-message counter:
+ * the backend can't feed the last two today, and the first two are simply
+ * out of scope for a read-only mirror.
  *
- * Design intent (do not flatten this into a bubble like ConversationTurn):
- * viewer chat must look visibly DIFFERENT from Kira/operator bubbles, or the
- * operator could misread who said what. Dense mono-timestamped rows, not
- * chat bubbles, is a correctness property here, not decoration.
+ * Design intent (do not flatten a VIEWER row into a bubble like
+ * ConversationTurn): viewer chat must look visibly DIFFERENT from Kira's own
+ * bubble, or the operator could misread who said what. Dense
+ * mono-timestamped rows for viewers, the same Kira bubble ConversationPanel
+ * uses for everything else — that contrast is a correctness property here,
+ * not decoration.
  */
 
 // Same reasoning + same hardcoded locale as LogsPanel.tsx's TS_FORMAT and
@@ -59,6 +66,16 @@ const BREAK_COPY: Record<StreamChatBreakKind, TKey> = {
   gap: "experiencia.streamChatPanel.state.gap"
 };
 
+/**
+ * `messages` and `kiraReplies` are separate store slices (see
+ * streamChatStore.ts's KiraStreamReply docstring for why) — this is the
+ * RENDER-time-only merge, sorted by `ts`. Never persisted, rebuilt every
+ * render from the two source arrays.
+ */
+type StreamFeedRow =
+  | { kind: "viewer"; key: string; ts: number; message: StreamChatMessage }
+  | { kind: "kira"; key: string; ts: number; reply: KiraStreamReply };
+
 interface StreamChatRowProps {
   message: StreamChatMessage;
 }
@@ -86,6 +103,36 @@ function StreamChatRowImpl({ message }: StreamChatRowProps) {
 // every row would otherwise re-render on every 1.5s poll tick even when its
 // own message content never changes.
 const StreamChatRow = memo(StreamChatRowImpl);
+
+interface KiraStreamReplyRowProps {
+  reply: KiraStreamReply;
+}
+
+/**
+ * Kira's reply to viewer chat, interleaved into the same list as
+ * StreamChatRow above — but styled like her bubble in ConversationTurn
+ * (ConversationPanel.tsx: KiraBadgeLabel + the same rounded/bordered
+ * markdown bubble classes), not like a dense viewer row. That contrast is
+ * the whole point: nobody should have to guess who's talking.
+ */
+function KiraStreamReplyRowImpl({ reply }: KiraStreamReplyRowProps) {
+  return (
+    <li className="flex flex-col gap-1 py-1">
+      <span className="mono inline-flex w-fit items-center gap-[6px] text-[11px] font-semibold tracking-[0.06em] text-[var(--kira-cyan)]">
+        <KiraFace size={16} aria-hidden />
+        KIRA
+        <time dateTime={new Date(reply.ts).toISOString()} className="tabular-nums text-dim">
+          {TS_FORMAT.format(reply.ts)}
+        </time>
+      </span>
+      <div className="w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-[13px] text-foreground">
+        <Markdown content={reply.text} />
+      </div>
+    </li>
+  );
+}
+
+const KiraStreamReplyRow = memo(KiraStreamReplyRowImpl);
 
 interface StreamChatHeaderProps {
   connected: boolean;
@@ -135,6 +182,7 @@ export function StreamChatPanel({ active }: StreamChatPanelProps) {
   const messagesQuery = useStreamChatMessages();
   const messages = useStreamChatStore(selectStreamChatMessages);
   const breaks = useStreamChatStore(selectStreamChatBreaks);
+  const kiraReplies = useStreamChatStore(selectKiraStreamReplies);
   // Read-only: the connect/disconnect/limits mutations stay in StreamPanel.
   const chatLive = useStreamChatLiveQuery();
   const connected = chatLive.data?.connected ?? false;
@@ -148,26 +196,47 @@ export function StreamChatPanel({ active }: StreamChatPanelProps) {
   // — a dead feed dressed as a live one. Rows stay visible: they were real.
   const stalled = messagesQuery.isError && !forbidden;
 
+  // The merge: viewer messages (ts in seconds — *1000, same convention as
+  // StreamChatRowImpl's own per-row conversion) interleaved with Kira's
+  // replies (ts already in ms), ordered ascending.
+  const feed = useMemo<StreamFeedRow[]>(() => {
+    const viewerRows: StreamFeedRow[] = messages.map((message) => ({
+      kind: "viewer",
+      key: `v-${message.seq}`,
+      ts: message.ts * 1000,
+      message
+    }));
+    const kiraRows: StreamFeedRow[] = kiraReplies.map((reply) => ({
+      kind: "kira",
+      key: `k-${reply.turnId}`,
+      ts: reply.ts,
+      reply
+    }));
+    return [...viewerRows, ...kiraRows].sort((a, b) => a.ts - b.ts);
+  }, [messages, kiraReplies]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastSeq = messages.length > 0 ? messages[messages.length - 1].seq : null;
-  const prevLastSeqRef = useRef<number | null>(null);
+  const lastRowKey = feed.length > 0 ? feed[feed.length - 1].key : null;
+  const prevLastRowKeyRef = useRef<string | null>(null);
 
   // Follow-the-bottom, keyed on the identity of the last row — NOT on the row
   // count. Same reasoning (and same trap) as ConversationPanel's lastTurnId:
   // the store caps at STREAM_CHAT_CAP with one-in-one-out eviction, so on a
   // real stream the count freezes at 200 within minutes and a count-based
   // "did it grow" test is false forever after that, silently killing
-  // auto-scroll exactly when the feed is busiest. Pure scrollTop math, same
-  // jsdom-testable approach as LogsPanel.tsx (no IntersectionObserver).
+  // auto-scroll exactly when the feed is busiest. Keyed on the merged feed
+  // (not just `messages`) so a Kira-only arrival — no new viewer message,
+  // just her reply landing — still triggers the follow. Pure scrollTop math,
+  // same jsdom-testable approach as LogsPanel.tsx (no IntersectionObserver).
   useEffect(() => {
     const el = scrollRef.current;
-    const appended = lastSeq !== null && lastSeq !== prevLastSeqRef.current;
-    prevLastSeqRef.current = lastSeq;
+    const appended = lastRowKey !== null && lastRowKey !== prevLastRowKeyRef.current;
+    prevLastRowKeyRef.current = lastRowKey;
     if (!el || !appended) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [lastSeq]);
+  }, [lastRowKey]);
 
   // Jump to newest on activation. While inactive the row list below renders
   // null (the render gate), so the follow-the-bottom effect above — keyed on
@@ -205,7 +274,7 @@ export function StreamChatPanel({ active }: StreamChatPanelProps) {
                 feed; and the backend deliberately RETAINS the last 200
                 messages after a disconnect, which the same gate threw away.
                 Connection state belongs in the header above. */}
-            {messages.length === 0 ? (
+            {feed.length === 0 ? (
               <p className="text-[13px] text-dim">
                 {connected
                   ? t("experiencia.streamChatPanel.state.empty")
@@ -215,15 +284,17 @@ export function StreamChatPanel({ active }: StreamChatPanelProps) {
               // ponytail: cap (STREAM_CHAT_CAP) + memoized rows, no
               // virtualization — same house recipe as LogsPanel/ConversationPanel.
               <ul aria-label={t("experiencia.streamChatPanel.list.aria")} className="flex flex-col gap-0.5">
-                {messages.map((message) => {
+                {feed.map((row) => {
+                  if (row.kind === "kira") return <KiraStreamReplyRow key={row.key} reply={row.reply} />;
                   // Anchored divider: sits above the first row that arrived
                   // after the break, and disappears on its own once eviction
-                  // pushes that row out of the buffer.
-                  const kind = breakBySeq.get(message.seq);
+                  // pushes that row out of the buffer. Kira rows above have no
+                  // `seq` and never carry a divider.
+                  const kind = breakBySeq.get(row.message.seq);
                   return (
-                    <Fragment key={message.seq}>
+                    <Fragment key={row.key}>
                       {kind && <li className="mono py-0.5 text-[10px] text-dim">{t(BREAK_COPY[kind])}</li>}
-                      <StreamChatRow message={message} />
+                      <StreamChatRow message={row.message} />
                     </Fragment>
                   );
                 })}

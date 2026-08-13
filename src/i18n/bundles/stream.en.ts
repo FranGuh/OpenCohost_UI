@@ -14,6 +14,11 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.acciones.inputContract.helper":
     "With this on, chat gets condensed into a structured packet (detected topics, one highlighted comment, activity counts) before Kira sees it, and Kira stays quiet when there's no real signal instead of reacting to noise.",
   "stream.acciones.inputContract.label": "Input Contract (real context)",
+  "stream.acciones.order.aria": "Chat before agenda",
+  "stream.acciones.order.eyebrow": "Order",
+  "stream.acciones.order.helper":
+    "With this on, viewer chat outranks Kira's agenda segments; off, the agenda goes first.",
+  "stream.acciones.order.label": "Chat before agenda",
   "stream.acciones.preset.alto": "High",
   "stream.acciones.preset.bajo": "Low",
   "stream.acciones.preset.medio": "Medium",
@@ -35,6 +40,16 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.acciones.status.applying": "applying…",
   "stream.acciones.status.error": "Could not apply the change.",
   "stream.acciones.title": "Actions",
+  "stream.acciones.ttl.effectiveNotice.body":
+    "Heads up: you chose {chosen}s, but while the agenda goes first a {effective}s floor is applied so reactions don't expire before their turn.",
+  "stream.acciones.ttl.effectiveNotice.title": "The window in force isn't the one you chose",
+  "stream.acciones.ttl.eyebrow": "TTL",
+  "stream.acciones.ttl.helper": "How long a queued chat reaction stays valid before it's discarded",
+  "stream.acciones.ttl.select.aria": "TTL for queued reactions",
+  "stream.acciones.ttlOption.120": "120 s",
+  "stream.acciones.ttlOption.300": "300 s",
+  "stream.acciones.ttlOption.60": "60 s",
+  "stream.acciones.ttlOption.600": "600 s",
   "stream.chatLive.connect.action": "Connect",
   "stream.chatLive.connect.error": "Could not connect to live chat.",
   "stream.chatLive.connection.eyebrow": "Connection",

@@ -283,6 +283,101 @@ describe("StreamPanel", () => {
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
   });
 
+  it("hydrates the Orden switch and Vigencia select from GET /api/stream/chat-live", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, stream_over_agenda: true, stream_ttl_seconds: 120, effective_stream_ttl_seconds: 120 })
+      )
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Chat antes que la agenda" })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByRole("combobox", { name: "Vigencia de reacciones en cola" })).toHaveTextContent("120 s");
+  });
+
+  it("flipping Orden fires PUT /api/stream/chat-live/limits with the new value", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, stream_over_agenda: true });
+      })
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Chat antes que la agenda" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(capturedBody).toEqual({ stream_over_agenda: true }));
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("surfaces a failure when flipping Orden fails, same as the other Acciones controls", async () => {
+    server.use(streamLimitsValidationHandler());
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Chat antes que la agenda" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(screen.getByText("No se pudo aplicar el cambio.")).toBeInTheDocument());
+  });
+
+  it("changing the Vigencia select fires PUT /api/stream/chat-live/limits", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, stream_ttl_seconds: 60, effective_stream_ttl_seconds: 300 });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Vigencia de reacciones en cola" })).not.toBeDisabled());
+
+    selectCustomOption("Vigencia de reacciones en cola", "60 s");
+
+    await waitFor(() => expect(capturedBody).toEqual({ stream_ttl_seconds: 60 }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Vigencia de reacciones en cola" })).toHaveTextContent("60 s"));
+  });
+
+  it("stays quiet about the effective TTL when the chosen and effective windows match", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Vigencia de reacciones en cola" })).not.toBeDisabled());
+    expect(screen.queryByText("La ventana real no es la que elegiste")).not.toBeInTheDocument();
+  });
+
+  it("discloses the effective TTL as an explanatory notice when the agenda-first floor diverges it from the chosen value", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, stream_over_agenda: false, stream_ttl_seconds: 60, effective_stream_ttl_seconds: 300 })
+      )
+    );
+    renderPanel();
+    const notice = await screen.findByText("La ventana real no es la que elegiste");
+    // role="status" (not "alert"/danger tone) — this reads as an explanation
+    // of the floor protecting the streamer, not an error condition.
+    expect(notice.closest('[role="status"]')).toBeInTheDocument();
+    expect(screen.getByText(/elegiste 60s/)).toBeInTheDocument();
+    expect(screen.getByText(/piso de 300s/)).toBeInTheDocument();
+  });
+
+  it("clears the effective-TTL disclosure again once a follow-up change brings chosen and effective back in sync", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, stream_ttl_seconds: 60, effective_stream_ttl_seconds: 300 })
+      ),
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, stream_ttl_seconds: 300, effective_stream_ttl_seconds: 300 })
+      )
+    );
+    renderPanel();
+    await screen.findByText("La ventana real no es la que elegiste");
+
+    selectCustomOption("Vigencia de reacciones en cola", "300 s");
+
+    await waitFor(() => expect(screen.queryByText("La ventana real no es la que elegiste")).not.toBeInTheDocument());
+  });
+
   it("associates each threshold Select with its visible helper text via aria-describedby", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());

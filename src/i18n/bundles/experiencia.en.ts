@@ -35,7 +35,7 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.conversationPanel.tabs.chat": "Chat",
   "experiencia.conversationPanel.tabs.comandos": "Commands",
   "experiencia.conversationPanel.tabs.logs": "Logs",
-  "experiencia.conversationPanel.tabs.stream": "Stream",
+  "experiencia.conversationPanel.tabs.stream": "Stream chat",
   "experiencia.conversationPanel.tabs.todo": "All",
   "experiencia.conversationPanel.turn.agendaBadge": "KIRA · AGENDA",
   "experiencia.conversationPanel.turn.operator": "You",

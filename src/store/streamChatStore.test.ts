@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   STREAM_CHAT_CAP,
+  selectKiraStreamReplies,
   selectStreamChatBreaks,
   selectStreamChatLatestSeq,
   selectStreamChatMessages,
@@ -26,7 +27,15 @@ function response(messages: Msg[], boot = 1, cursor?: number, session = 0): Stre
 
 describe("streamChatStore (bounded ring buffer)", () => {
   beforeEach(() => {
-    useStreamChatStore.setState({ messages: [], cursor: 0, boot: null, session: null, breaks: [], pendingBreak: null });
+    useStreamChatStore.setState({
+      messages: [],
+      cursor: 0,
+      boot: null,
+      session: null,
+      breaks: [],
+      pendingBreak: null,
+      kiraReplies: []
+    });
   });
 
   it("ingest adds messages retrievable via selectStreamChatMessages", () => {
@@ -179,7 +188,15 @@ describe("streamChatStore (bounded ring buffer)", () => {
 // drop counter — the seq jump IS the you-fell-behind signal.
 describe("streamChatStore (seq gap = dropped messages)", () => {
   beforeEach(() => {
-    useStreamChatStore.setState({ messages: [], cursor: 0, boot: null, session: null, breaks: [], pendingBreak: null });
+    useStreamChatStore.setState({
+      messages: [],
+      cursor: 0,
+      boot: null,
+      session: null,
+      breaks: [],
+      pendingBreak: null,
+      kiraReplies: []
+    });
   });
 
   it("anchors a gap break at the first message after a seq jump", () => {
@@ -217,5 +234,55 @@ describe("streamChatStore (seq gap = dropped messages)", () => {
     expect(selectStreamChatMessages(state)).toHaveLength(STREAM_CHAT_CAP);
     expect(selectStreamChatMessages(state)[0].seq).toBeGreaterThan(10);
     expect(selectStreamChatBreaks(state)).toEqual([]);
+  });
+});
+
+// Kira's replies to viewer chat (tauri_stream_chat_20260812 follow-up): a
+// SEPARATE slice from `messages` (see KiraStreamReply's docstring for why),
+// merged in only at render time by StreamChatPanel.
+describe("streamChatStore (Kira replies to stream chat)", () => {
+  beforeEach(() => {
+    useStreamChatStore.setState({
+      messages: [],
+      cursor: 0,
+      boot: null,
+      session: null,
+      breaks: [],
+      pendingBreak: null,
+      kiraReplies: []
+    });
+  });
+
+  it("addKiraReply adds a reply retrievable via selectKiraStreamReplies", () => {
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "hola chat", ts: 1000 });
+    expect(selectKiraStreamReplies(useStreamChatStore.getState())).toEqual([
+      { turnId: 1, text: "hola chat", ts: 1000 }
+    ]);
+  });
+
+  it("is a no-op for a turnId already stored (dedup)", () => {
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "primera", ts: 1000 });
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "duplicada", ts: 2000 });
+    expect(selectKiraStreamReplies(useStreamChatStore.getState())).toEqual([
+      { turnId: 1, text: "primera", ts: 1000 }
+    ]);
+  });
+
+  // The important one: `messages` resets on a channel switch or engine
+  // restart so an old channel's rows never leak into the new one — Kira's
+  // replies to that old channel must reset the same way, or a stale reply
+  // would sit stranded above a feed that moved on.
+  it("clears kiraReplies when a boot change resets the store (engine restart)", () => {
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "antes del reinicio", ts: 1000 });
+    useStreamChatStore.getState().ingest(response([msg(1), msg(2)], 1));
+    useStreamChatStore.getState().ingest(response([msg(3)], 2)); // boot change
+    expect(selectKiraStreamReplies(useStreamChatStore.getState())).toEqual([]);
+  });
+
+  it("clears kiraReplies when a session change resets the store (channel switch)", () => {
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "canal viejo", ts: 1000 });
+    useStreamChatStore.getState().ingest(response([msg(1), msg(2)], 1, undefined, 0));
+    useStreamChatStore.getState().ingest(response([msg(3), msg(4)], 1, undefined, 1)); // session change
+    expect(selectKiraStreamReplies(useStreamChatStore.getState())).toEqual([]);
   });
 });

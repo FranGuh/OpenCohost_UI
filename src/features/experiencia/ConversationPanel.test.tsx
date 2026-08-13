@@ -5,6 +5,7 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import { useEventStore } from "../../store/eventStore.js";
+import { useStreamChatStore } from "../../store/streamChatStore.js";
 import {
   API_BASE_URL,
   chatTurnConflictHandler,
@@ -939,13 +940,13 @@ describe("ConversationPanel — unified tab strip (owner layout correction 2026-
   // unmounts (R8), it does not become a feed filter.
   it("selecting the Stream tab swaps the panel: timeline hidden, composer unmounted", () => {
     renderPanel();
-    expect(tab("Stream")).toBeInTheDocument();
+    expect(tab("Stream chat")).toBeInTheDocument();
     const composer = () => screen.queryByPlaceholderText("Escribí un mensaje para Kira…");
     expect(composer()).toBeInTheDocument(); // Todo (default)
 
-    fireEvent.click(tab("Stream"));
+    fireEvent.click(tab("Stream chat"));
 
-    expect(tab("Stream")).toHaveAttribute("aria-selected", "true");
+    expect(tab("Stream chat")).toHaveAttribute("aria-selected", "true");
     expect(composer()).not.toBeInTheDocument();
     // The feed wrapper (ancestor of #conversation-panel) is aria-hidden once
     // a non-feed tab is active — same mechanism Comandos/Logs already rely on.
@@ -992,6 +993,43 @@ describe("ConversationPanel — unified tab strip (owner layout correction 2026-
 
     expect(tab("Comandos")).toHaveAttribute("aria-selected", "true");
     expect(within(panel()).getByText("/agenda")).toBeInTheDocument();
+  });
+});
+
+// origin routing (tauri_stream_chat_20260812 follow-up): GET /api/chat/last-reply
+// carries `origin`, and only `"chat"` (a reply that answered VIEWER chat) is
+// routed to the Stream chat tab instead of this panel's own Chat transcript —
+// that split is the entire point of the field.
+describe("ConversationPanel — origin routing keeps stream-chat replies out of the Chat tab", () => {
+  beforeEach(() => {
+    useStreamChatStore.setState({ kiraReplies: [] });
+  });
+
+  it("routes an origin:'chat' reply to the stream store, not the Chat/Todo transcript", async () => {
+    server.use(lastReplyHandler({ text: "respuesta al chat de viewers", turn_id: 1, origin: "chat" }));
+    renderPanel();
+
+    await waitFor(() =>
+      expect(useStreamChatStore.getState().kiraReplies).toEqual([
+        expect.objectContaining({ turnId: 1, text: "respuesta al chat de viewers" })
+      ])
+    );
+    // Never reaches the Chat-tab transcript — Todo is the default tab here.
+    expect(screen.queryByText("respuesta al chat de viewers")).not.toBeInTheDocument();
+
+    fireEvent.click(tab("Stream chat"));
+    expect(await screen.findByText("respuesta al chat de viewers")).toBeInTheDocument();
+
+    fireEvent.click(tab("Chat"));
+    expect(screen.queryByText("respuesta al chat de viewers")).not.toBeInTheDocument();
+  });
+
+  it("keeps a null-origin reply in the Chat transcript exactly as before (safe default)", async () => {
+    server.use(lastReplyHandler({ text: "respuesta directa", turn_id: 1, origin: null }));
+    renderPanel();
+
+    expect(await screen.findByText("respuesta directa")).toBeInTheDocument();
+    expect(useStreamChatStore.getState().kiraReplies).toEqual([]);
   });
 });
 
