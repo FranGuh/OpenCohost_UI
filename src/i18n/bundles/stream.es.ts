@@ -8,9 +8,8 @@ export const streamEs = {
   "stream.acciones.emision.title": "Emisión (OAuth/metadata/moderación)",
   "stream.acciones.inputContract.aria": "Input Contract",
   "stream.acciones.inputContract.eyebrow": "Contrato de entrada",
+  "stream.acciones.inputContract.helper": "Con esto activado, el chat se condensa en un paquete estructurado (temas detectados, un comentario destacado, conteos de actividad) antes de que Kira lo vea, y Kira se queda callada cuando no hay una señal real en vez de reaccionar al ruido.",
   "stream.acciones.inputContract.label": "Input Contract (contexto real)",
-  "stream.acciones.inputContract.notice.after": ", pero falta decidir qué valor de preset le corresponde a este switch.",
-  "stream.acciones.inputContract.notice.before": "El contrato de entrada es un cambio local — el endpoint ya acepta",
   "stream.acciones.preset.alto": "Alto",
   "stream.acciones.preset.bajo": "Bajo",
   "stream.acciones.preset.medio": "Medio",
@@ -28,7 +27,9 @@ export const streamEs = {
   "stream.acciones.spamOption.15": "15 msgs/usuario en 30s",
   "stream.acciones.spamOption.20": "20 msgs/usuario en 30s",
   "stream.acciones.spamOption.5": "5 msgs/usuario en 30s",
+  "stream.acciones.status.applied": "Cambio aplicado.",
   "stream.acciones.status.applying": "aplicando…",
+  "stream.acciones.status.error": "No se pudo aplicar el cambio.",
   "stream.acciones.title": "Acciones",
   "stream.chatLive.connect.action": "Conectar",
   "stream.chatLive.connect.error": "No se pudo conectar al chat en vivo.",
@@ -38,7 +39,6 @@ export const streamEs = {
   "stream.chatLive.cooldownOption.45": "45 s",
   "stream.chatLive.cooldownOption.60": "60 s",
   "stream.chatLive.disconnect.action": "Desconectar",
-  "stream.chatLive.disconnect.hint": "Desconectar del chat en vivo",
   "stream.chatLive.status.conectado": "conectado",
   "stream.chatLive.status.conectando": "conectando…",
   "stream.chatLive.status.desconectado": "desconectado",
@@ -46,6 +46,15 @@ export const streamEs = {
   "stream.chatLive.url.aria": "URL del directo",
   "stream.chatLive.url.error": "Ingresá una URL válida de YouTube o Twitch (ej: https://twitch.tv/tu_canal).",
   "stream.chatLive.url.placeholder": "https://twitch.tv/tu_canal o https://youtube.com/watch?v=...",
-  "stream.notMigrated.body": "La integración de chat en vivo (Twitch/YouTube) aún no está migrada desde la aplicación anterior. Esta sección estará inactiva hasta esa migración.",
-  "stream.notMigrated.title": "Modo stream no disponible"
+  "stream.chatReadout.body": "El chat de viewers en vivo ahora se lee desde la pestaña Stream del panel de conversación, así lo podés seguir sin salir de la sección en la que estés. Acá conectás el chat y ajustás los límites.",
+  "stream.chatReadout.title": "El chat en vivo se lee en la pestaña Stream",
+  "stream.riskDisclaimer.beta.body":
+    "Al estar impulsada por un LLM, las respuestas pueden ser inexactas o inapropiadas, y qué cuenta como inapropiado depende del perfil de audiencia que tengas activo; esto puede cambiar a medida que llegue feedback. Lo que diga o haga en tu canal mientras esté conectada es tu responsabilidad.",
+  "stream.riskDisclaimer.beta.title": "Todavía en desarrollo — pueden ocurrir errores",
+  "stream.riskDisclaimer.dataDisclosure.body":
+    "Cuando el proveedor de LLM configurado es uno en la nube en vez de un modelo local, el prompt que arma Kira se envía tal cual a ese proveedor, incluyendo un comentario de viewer destacado y el nombre de usuario de quien lo escribió, cuando hay uno seleccionado. Si no querés que el chat de viewers salga de tu máquina, usá un modelo local.",
+  "stream.riskDisclaimer.dataDisclosure.title": "Si el proveedor de LLM no es local, el chat sale de esta máquina",
+  "stream.riskDisclaimer.platform.body":
+    "Esto puede infringir las reglas de una plataforma y ser detectado como un bot automatizado, así que revisá las políticas de la plataforma donde transmitas antes de activarla. Por defecto solo se conecta a Twitch — leer el chat de YouTube usa un método que las Condiciones del Servicio de YouTube no permiten, por lo que activarlo implica un riesgo real de ban del canal.",
+  "stream.riskDisclaimer.platform.title": "Riesgo de infringir políticas de la plataforma, incluido un riesgo real de ban en YouTube"
 } as const;

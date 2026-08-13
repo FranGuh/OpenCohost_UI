@@ -468,6 +468,7 @@ export interface StreamChatLiveResponse {
   cooldown_seconds: number;
   max_messages_per_user: number;
   filter_policy: string;
+  input_contract: boolean;
 }
 
 export const defaultStreamChatLive: StreamChatLiveResponse = {
@@ -477,7 +478,30 @@ export const defaultStreamChatLive: StreamChatLiveResponse = {
   threshold_per_second: 1,
   cooldown_seconds: 45,
   max_messages_per_user: 10,
-  filter_policy: "balanced"
+  filter_policy: "balanced",
+  input_contract: false
+};
+
+/** GET /api/stream/chat-live/messages (RF3) — mirrors
+ * src/api/stream.ts::StreamChatMessagesResponse. Default: empty backlog, so
+ * every existing test that renders ConversationPanel (StreamChatPanel is
+ * kept mounted by Tabs — src/ui/Tabs.tsx — regardless of the active tab)
+ * gets a benign 200 instead of an unhandled-request error
+ * (src/test/setup.ts uses onUnhandledRequest: "error"). */
+export interface StreamChatMessagesResponse {
+  messages: Array<{ seq: number; author: string; text: string; ts: number }>;
+  cursor: number;
+  boot: number;
+  session: number;
+  more_pending: boolean;
+}
+
+export const defaultStreamChatMessages: StreamChatMessagesResponse = {
+  messages: [],
+  cursor: 0,
+  boot: 1,
+  session: 0,
+  more_pending: false
 };
 
 function agendaTopic(overrides: Partial<AgendaTopicOut>): AgendaTopicOut {
@@ -768,6 +792,7 @@ export const handlers = [
     const body = (await request.json()) as Partial<StreamChatLiveResponse>;
     return HttpResponse.json({ ...defaultStreamChatLive, ...body });
   }),
+  http.get(`${API_BASE_URL}/api/stream/chat-live/messages`, () => HttpResponse.json(defaultStreamChatMessages)),
   http.post(`${API_BASE_URL}/api/perfiles/switch`, () =>
     HttpResponse.json({ accepted: true, command_id: "cmd-1", status: "queued" })
   ),
@@ -1151,6 +1176,14 @@ export function streamLimitsValidationHandler(detail = "invalid_filter_policy") 
 export function streamChatLiveUnavailableHandler() {
   return http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
     HttpResponse.json({ detail: "stream_unavailable" }, { status: 503 })
+  );
+}
+
+/** Per-test override: GET /api/stream/chat-live/messages returns 403 (no
+ * operator token reached the backend). */
+export function streamChatMessagesForbiddenHandler() {
+  return http.get(`${API_BASE_URL}/api/stream/chat-live/messages`, () =>
+    HttpResponse.json({ detail: "operator token required" }, { status: 403 })
   );
 }
 

@@ -11,9 +11,9 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.acciones.emision.title": "Broadcast (OAuth/metadata/moderation)",
   "stream.acciones.inputContract.aria": "Input Contract",
   "stream.acciones.inputContract.eyebrow": "Input contract",
+  "stream.acciones.inputContract.helper":
+    "With this on, chat gets condensed into a structured packet (detected topics, one highlighted comment, activity counts) before Kira sees it, and Kira stays quiet when there's no real signal instead of reacting to noise.",
   "stream.acciones.inputContract.label": "Input Contract (real context)",
-  "stream.acciones.inputContract.notice.after": ", but which preset value this switch should map to is still undecided.",
-  "stream.acciones.inputContract.notice.before": "The input contract is a local-only change — the endpoint already accepts",
   "stream.acciones.preset.alto": "High",
   "stream.acciones.preset.bajo": "Low",
   "stream.acciones.preset.medio": "Medium",
@@ -31,7 +31,9 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.acciones.spamOption.15": "15 msgs/user in 30s",
   "stream.acciones.spamOption.20": "20 msgs/user in 30s",
   "stream.acciones.spamOption.5": "5 msgs/user in 30s",
+  "stream.acciones.status.applied": "Change applied.",
   "stream.acciones.status.applying": "applying…",
+  "stream.acciones.status.error": "Could not apply the change.",
   "stream.acciones.title": "Actions",
   "stream.chatLive.connect.action": "Connect",
   "stream.chatLive.connect.error": "Could not connect to live chat.",
@@ -41,7 +43,6 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.chatLive.cooldownOption.45": "45 s",
   "stream.chatLive.cooldownOption.60": "60 s",
   "stream.chatLive.disconnect.action": "Disconnect",
-  "stream.chatLive.disconnect.hint": "Disconnect from live chat",
   "stream.chatLive.status.conectado": "connected",
   "stream.chatLive.status.conectando": "connecting…",
   "stream.chatLive.status.desconectado": "disconnected",
@@ -49,7 +50,16 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.chatLive.url.aria": "Live stream URL",
   "stream.chatLive.url.error": "Enter a valid YouTube or Twitch URL (e.g. https://twitch.tv/your_channel).",
   "stream.chatLive.url.placeholder": "https://twitch.tv/your_channel or https://youtube.com/watch?v=...",
-  "stream.notMigrated.body":
-    "Live chat integration (Twitch/YouTube) hasn't been migrated from the previous application yet. This section will stay inactive until that migration happens.",
-  "stream.notMigrated.title": "Stream mode unavailable"
+  "stream.chatReadout.body":
+    "Live viewer chat now reads from the Stream tab in the conversation panel, so you can follow it without leaving whatever section you're on. This is where you connect chat and adjust its limits.",
+  "stream.chatReadout.title": "Live chat now reads in the Stream tab",
+  "stream.riskDisclaimer.beta.body":
+    "It's powered by an LLM, so responses can be inaccurate or inappropriate, and what counts as inappropriate depends on the audience profile you have active; this can change as we get more feedback. Whatever it says or does on your channel while it's connected is your responsibility as the streamer.",
+  "stream.riskDisclaimer.beta.title": "Still in development — expect errors",
+  "stream.riskDisclaimer.dataDisclosure.body":
+    "When the configured LLM provider is a cloud provider instead of a local model, the chat prompt Kira builds is sent to that provider as-is — including a highlighted viewer comment and that viewer's username, whenever one is selected. Use a local model if you don't want viewer chat leaving your machine.",
+  "stream.riskDisclaimer.dataDisclosure.title": "If your LLM provider isn't local, chat leaves your machine",
+  "stream.riskDisclaimer.platform.body":
+    "This can violate a platform's rules and get flagged as an automated bot, so check the policies of whatever platform you stream to before turning it on. By default it only connects to Twitch — reading YouTube chat uses a method YouTube's Terms of Service don't allow, so enabling it risks a channel ban.",
+  "stream.riskDisclaimer.platform.title": "Platform policy risk, including a real ban risk on YouTube"
 };

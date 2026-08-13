@@ -14,6 +14,7 @@ import { Markdown } from "../../ui/Markdown.js";
 import { Tab, TabList, TabPanel, Tabs } from "../../ui/Tabs.js";
 import { matchCommands } from "../commands/registry.js";
 import { LogsPanel } from "./LogsPanel.js";
+import { StreamChatPanel } from "./StreamChatPanel.js";
 import { useLogsPref } from "../../store/useLogsPref.js";
 import { useAgendaEvents } from "../../api/agenda.js";
 import { useLastReply, useSendChatTurn } from "../../api/chat.js";
@@ -24,12 +25,14 @@ import { errorCopy } from "./pttCopy.js";
 import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
+import { selectStreamChatLatestSeq, useStreamChatStore } from "../../store/streamChatStore.js";
 
 /** Owner layout correction (2026-07-18): ONE unified strip
- * `Todo | Chat | Comandos | Alertas` (+ `Logs` when the pref is on). Todo/Chat/
- * Alertas are feed filters over the single timeline; Comandos swaps to the
- * inline command palette; Logs swaps to the engine event feed. */
-type TabValue = "todo" | "chat" | "comandos" | "alertas" | "logs";
+ * `Todo | Chat | Comandos | Alertas | Stream` (+ `Logs` when the pref is on).
+ * Todo/Chat/Alertas are feed filters over the single timeline; Comandos swaps
+ * to the inline command palette; Stream swaps to the read-only viewer-chat
+ * mirror (RF3); Logs swaps to the engine event feed. */
+type TabValue = "todo" | "chat" | "comandos" | "alertas" | "stream" | "logs";
 
 /** Fixed feed-tab ids so the shared timeline panel's `aria-labelledby` can name
  * the active filter tab (Todo/Chat/Alertas all control one panel). */
@@ -309,6 +312,11 @@ export function ConversationPanel() {
   const { showLogs } = useLogsPref();
   // Unread indicator for the Logs tab (D10/R7): ephemeral, session-only.
   const [seenLogId, setSeenLogId] = useState<string | null>(null);
+  // Unread indicator for the Stream tab (RF3), same D10/R7 contract as Logs
+  // above but keyed off the newest message `seq` instead of an event id — the
+  // store's poll runs even while this tab is hidden (StreamChatPanel is kept
+  // mounted by Tabs, src/ui/Tabs.tsx), so the dot can light up from off-tab.
+  const [seenStreamSeq, setSeenStreamSeq] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   // Composer command palette (mockup): a live, prefix-based detection — the
   // panel shows whenever the trimmed composer value starts with "/" or "!".
@@ -360,6 +368,13 @@ export function ConversationPanel() {
   // already looking at Logs; cleared once Logs is active AND has rendered.
   const latestLogId = appEvents.length > 0 ? appEvents[appEvents.length - 1].id : null;
   const unreadLogs = showLogs && latestLogId !== null && latestLogId !== seenLogId && activeTab !== "logs";
+  // Stream unread dot (RF3): same shape as unreadLogs above, keyed off seq.
+  // Subscribes to the SEQ, not to the message array: this panel is mounted in
+  // every section, and the array's identity changes on every 1.5s ingest — so
+  // reading the number off the array re-rendered the whole panel on every poll
+  // during active chat, defeating the render gate added for exactly that.
+  const latestStreamSeq = useStreamChatStore(selectStreamChatLatestSeq);
+  const unreadStream = latestStreamSeq !== null && latestStreamSeq !== seenStreamSeq && activeTab !== "stream";
   // Tracks the operator bubble for the in-flight/retryable send intent, so a
   // retry after a failed send updates that SAME bubble instead of appending
   // a duplicate "Vos" turn. Cleared once the send succeeds.
@@ -508,6 +523,12 @@ export function ConversationPanel() {
   useEffect(() => {
     if (activeTab === "logs") setSeenLogId(latestLogId);
   }, [activeTab, latestLogId]);
+
+  // Clear the Stream unread dot once the operator is viewing Stream and the
+  // newest message has rendered (same R7 clear-on-view contract as Logs).
+  useEffect(() => {
+    if (activeTab === "stream") setSeenStreamSeq(latestStreamSeq);
+  }, [activeTab, latestStreamSeq]);
 
   // If the pref is turned OFF while Logs is active, fall back to the Todo feed
   // so the strip never points at a tab that no longer exists.
@@ -763,6 +784,16 @@ export function ConversationPanel() {
           <Tab value="chat" id={FEED_TAB_ID.chat} controls="conversation-panel" className={tabClass(activeTab === "chat")}>{t("experiencia.conversationPanel.tabs.chat")}</Tab>
           <Tab value="comandos" className={tabClass(activeTab === "comandos")}>{t("experiencia.conversationPanel.tabs.comandos")}</Tab>
           <Tab value="alertas" id={FEED_TAB_ID.alertas} controls="conversation-panel" className={tabClass(activeTab === "alertas")}>{t("experiencia.conversationPanel.tabs.alertas")}</Tab>
+          <Tab value="stream" className={cn(tabClass(activeTab === "stream"), "relative")}>
+            {t("experiencia.conversationPanel.tabs.stream")}
+            {unreadStream && (
+              <span
+                aria-hidden="true"
+                data-unread
+                className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle"
+              />
+            )}
+          </Tab>
           {showLogs && (
             <Tab value="logs" className={cn(tabClass(activeTab === "logs"), "relative")}>
               {t("experiencia.conversationPanel.tabs.logs")}
@@ -982,6 +1013,10 @@ export function ConversationPanel() {
             visible={activeTab === "comandos"}
             onClose={() => setActiveTab("todo")}
           />
+        </TabPanel>
+
+        <TabPanel value="stream" className="flex min-h-0 flex-1 flex-col">
+          <StreamChatPanel active={activeTab === "stream"} />
         </TabPanel>
 
         {showLogs && (

@@ -30,7 +30,8 @@ const streamBase: StreamChatLiveResponse = {
   threshold_per_second: 1,
   cooldown_seconds: 45,
   max_messages_per_user: 10,
-  filter_policy: "balanced"
+  filter_policy: "balanced",
+  input_contract: false
 };
 
 describe("/acciones vocab tables (R22/R23/R25)", () => {

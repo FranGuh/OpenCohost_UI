@@ -4,7 +4,6 @@ import { Card } from "../../ui/Card.js";
 import { Alert } from "../../ui/Alert.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";
-import { Button } from "../../ui/Button.js";
 import { Input } from "../../ui/Input.js";
 import { Select } from "../../ui/Select.js";
 import { Segmented } from "../../ui/Segmented.js";
@@ -17,6 +16,7 @@ import {
   useStreamDisconnectMutation,
   useStreamLimitsMutation
 } from "../../api/stream.js";
+import { composeStreamUrl } from "../commands/wire.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
 // Wired to GET /api/stream/chat-live, POST .../connect, POST .../disconnect,
@@ -31,11 +31,14 @@ import { useT, type TKey } from "../../i18n/t.js";
 // product decision (STREAM_ADMIN_ENABLED=False in the CTK) and is
 // deliberately NOT built here — see DeferredStreamAdminNote below.
 //
-// `filter_policy`/Input Contract switch: PUT .../limits DOES accept
-// filter_policy (StreamLimitsRequest.filter_policy, main.py:620-624) — the
-// endpoint exists. What's undecided is the product mapping from this
-// boolean toggle to a filter_policy preset value, so the switch stays
-// local-only/non-wired until that mapping is decided — see AccionesCard.
+// Input Contract switch: this is NOT the `filter_policy` preset (a separate
+// 3-way value — balanced/twitch_relaxed/strict — already wired through the
+// /acciones command stepper, see features/commands/wire.ts's FILTER_POLICY).
+// It maps 1:1 to its own `input_contract` boolean on GET/PUT
+// .../chat-live* — the `USE_INPUT_CONTRACT_PROMPT` module flag
+// (opencohost/smart_aggregator/chat_input_contract.py), the same one the
+// legacy CTK Stream admin panel already toggles. Wired end to end below —
+// see AccionesCard.
 
 type StreamConnectionState = "desconectado" | "conectando" | "conectado";
 
@@ -66,6 +69,11 @@ function isValidStreamUrl(value: string): boolean {
 
 // ─── Chat en vivo ─────────────────────────────────────────────────────────
 
+// Shared by both trailing-button states so the toggle doesn't restyle itself
+// when it flips label/role.
+const TRAILING_BUTTON_CLASS =
+  "flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity duration-fast ease-io disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+
 function ChatLiveCard() {
   const t = useT();
   const [isOpen, toggle] = useCollapsible(true, "stream-chat-live");
@@ -83,6 +91,24 @@ function ChatLiveCard() {
       ? "conectado"
       : "desconectado";
   const badge = CONNECTION_BADGE[connectionState];
+
+  // Owner report: the field never reflected the live connection. It seeds from
+  // STREAM_FIXTURE.url (which is "") and nothing ever wrote to it but the
+  // operator's own keystrokes, so a reload against an already-connected backend
+  // left an EMPTY box above a "conectado" badge — no way to tell which channel
+  // was actually live without leaving the app.
+  // StreamChatLiveResponse carries no raw URL (platform + source_id only),
+  // so this reconstructs the same normalized form composeStreamUrl already
+  // builds for the /vivo command path — not the literal string the operator
+  // once typed, but an honest, non-fabricated stand-in for it.
+  // Gated on `connected`: the Input is disabled below whenever connected is
+  // true, so this can never stomp on a URL the operator is mid-typing — that
+  // only happens while disconnected, exactly when this effect is a no-op.
+  useEffect(() => {
+    const data = chatLiveQuery.data;
+    if (!data?.connected || !data.source_id) return;
+    setUrl(composeStreamUrl(data.platform ?? "", data.source_id));
+  }, [chatLiveQuery.data]);
 
   async function handleConnect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -102,6 +128,8 @@ function ChatLiveCard() {
   function handleDisconnect() {
     disconnectMutation.mutate();
   }
+
+  const toggleBusy = connectMutation.isPending || disconnectMutation.isPending;
 
   return (
     <Card className="flex flex-col p-4 gap-0 mb-2">
@@ -125,14 +153,17 @@ function ChatLiveCard() {
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder={t("stream.chatLive.url.placeholder")}
                 trailing={
-                  <button
-                    type="submit"
-                    disabled={connectMutation.isPending || connectionState === "conectado"}
-                    className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity duration-fast ease-io disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                  >
-                    {t("stream.chatLive.connect.action")}
-                  </button>
-                  // Este boton deberia heredar la misma responsabilidad de descoenctar y el boton de abajo de desconectar deberia ser eliminado
+                  connectionState === "conectado" ? (
+                    // type="button": this must never trigger the form's own
+                    // onSubmit (handleConnect) — its job is the opposite.
+                    <button type="button" disabled={toggleBusy} onClick={handleDisconnect} className={TRAILING_BUTTON_CLASS}>
+                      {t("stream.chatLive.disconnect.action")}
+                    </button>
+                  ) : (
+                    <button type="submit" disabled={toggleBusy} className={TRAILING_BUTTON_CLASS}>
+                      {t("stream.chatLive.connect.action")}
+                    </button>
+                  )
                 }
               />
             </form>
@@ -142,18 +173,6 @@ function ChatLiveCard() {
               </p>
             )}
           </section>
-
-          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <span className="text-[13px] text-foreground">{t("stream.chatLive.disconnect.hint")}</span>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={connectionState !== "conectado" || disconnectMutation.isPending}
-              onClick={handleDisconnect}
-            >
-              {t("stream.chatLive.disconnect.action")}
-            </Button>
-          </div>
         </div>
       </CollapsibleBody>
     </Card>
@@ -255,6 +274,7 @@ function AccionesCard() {
     setReactionThreshold(String(chatLiveQuery.data.threshold_per_second));
     setCooldown(String(chatLiveQuery.data.cooldown_seconds));
     setSpamLimit(String(chatLiveQuery.data.max_messages_per_user));
+    setInputContract(chatLiveQuery.data.input_contract);
   }, [chatLiveQuery.data]);
 
   const reactionPreset = presetForValue(reactionThreshold, REACTION_PRESET_VALUES);
@@ -271,14 +291,21 @@ function AccionesCard() {
 
       <CollapsibleBody isOpen={isOpen}>
         <div className="flex flex-col gap-3">
-          {/* Deferred note — local-only filter_policy switch */}
-          <div role="status" className="mb-3.5 rounded-md border border-warn-bd bg-warn-bg px-3 py-2.5">
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {t("stream.acciones.inputContract.notice.before")}{" "}
-              <span className="mono text-warn">filter_policy</span>
-              {t("stream.acciones.inputContract.notice.after")}
-            </p>
-          </div>
+          {/* Owner report: "applying…" vanished with nothing left behind, so a
+              failed apply and a successful one looked identical once the
+              badge cleared. isSuccess/isError reflect the LAST attempt and
+              reset the moment the next mutate() call fires — no separate
+              timer/toast state needed. */}
+          {limitsMutation.isSuccess && (
+            <Alert tone="ok" role="status" className="mb-3.5">
+              {t("stream.acciones.status.applied")}
+            </Alert>
+          )}
+          {limitsMutation.isError && (
+            <Alert tone="danger" className="mb-3.5">
+              {t("stream.acciones.status.error")}
+            </Alert>
+          )}
 
           <section aria-labelledby="stream-reactions-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
             <span id="stream-reactions-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
@@ -375,14 +402,22 @@ function AccionesCard() {
             >
               {t("stream.acciones.inputContract.eyebrow")}
             </span>
-            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-              <span className="text-[13px] text-foreground">{t("stream.acciones.inputContract.label")}</span>
-              <Switch
-                checked={inputContract}
-                disabled
-                onChange={() => {}}
-                aria-label={t("stream.acciones.inputContract.aria")}
-              />
+            <div className="space-y-2">
+              <span id="stream-input-contract-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.inputContract.helper")}
+              </span>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.inputContract.label")}</span>
+                <Switch
+                  checked={inputContract}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => {
+                    setInputContract(value);
+                    limitsMutation.mutate({ input_contract: value });
+                  }}
+                  aria-label={t("stream.acciones.inputContract.aria")}
+                />
+              </div>
             </div>
           </section>
         </div>
@@ -421,22 +456,37 @@ function DeferredStreamAdminNote() {
 /**
  * Stream panel — RF3 "Chat en vivo" only. CTK parity:
  * opencohost/ui/stream_admin_ui.py's 'acciones' subtab. Chat en vivo and
- * Acciones are wired to the real GET/POST/PUT /api/stream/chat-live*
- * endpoints (see the wiring note at the top of this file). Only the Input
- * Contract switch (pending the boolean->filter_policy mapping decision)
- * and the RF4 note stay deliberately non-wired — see AccionesCard and
+ * Acciones — including the Input Contract switch — are wired to the real
+ * GET/POST/PUT /api/stream/chat-live* endpoints (see the wiring note at the
+ * top of this file). Only the RF4 note stays deliberately non-wired — see
  * DeferredStreamAdminNote.
  *
- * The actual chat sources (Twitch/YouTube ingestion) only run in the
- * deprecated CTK app, so this whole section is dormant on Tauri until that
- * migration lands — the banner below says so up front, ahead of the cards.
+ * RF3 (tauri_stream_chat_20260812): live chat READING now works — the feed
+ * is mirrored read-only into the Stream tab of ConversationPanel (see
+ * src/features/experiencia/StreamChatPanel.tsx) so the operator can follow
+ * it without leaving whatever section they're on. This section stays the
+ * place to connect/disconnect and tune limits — the banner below points at
+ * where reading happens instead of claiming the whole section is inactive.
  */
 export function StreamPanel() {
   const t = useT();
   return (
     <>
-      <Alert tone="info" title={t("stream.notMigrated.title")} role="status">
-        {t("stream.notMigrated.body")}
+      <Alert tone="info" title={t("stream.chatReadout.title")} role="status">
+        {t("stream.chatReadout.body")}
+      </Alert>
+      {/* Three themed alerts (not one, not a list-in-a-p — Alert.tsx wraps
+          children in a single <p>) so the two consequential clauses, ban
+          risk and the cloud-provider data disclosure, each get their own
+          bold title instead of hiding inside a wall of caveats. */}
+      <Alert tone="warn" title={t("stream.riskDisclaimer.beta.title")} role="status">
+        {t("stream.riskDisclaimer.beta.body")}
+      </Alert>
+      <Alert tone="danger" title={t("stream.riskDisclaimer.platform.title")} role="status">
+        {t("stream.riskDisclaimer.platform.body")}
+      </Alert>
+      <Alert tone="info" title={t("stream.riskDisclaimer.dataDisclosure.title")} role="status">
+        {t("stream.riskDisclaimer.dataDisclosure.body")}
       </Alert>
       <ChatLiveCard />
       <AccionesCard />

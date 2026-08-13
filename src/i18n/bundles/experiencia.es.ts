@@ -33,6 +33,7 @@ export const experienciaEs = {
   "experiencia.conversationPanel.tabs.chat": "Chat",
   "experiencia.conversationPanel.tabs.comandos": "Comandos",
   "experiencia.conversationPanel.tabs.logs": "Logs",
+  "experiencia.conversationPanel.tabs.stream": "Stream",
   "experiencia.conversationPanel.tabs.todo": "Todo",
   "experiencia.conversationPanel.turn.agendaBadge": "KIRA · AGENDA",
   "experiencia.conversationPanel.turn.operator": "Vos",
@@ -115,6 +116,21 @@ export const experienciaEs = {
   "experiencia.ptt.state.flushing": "Procesando…",
   "experiencia.ptt.state.idle": "Mantené para hablar",
   "experiencia.ptt.state.listening": "Escuchando…",
+  "experiencia.streamChatPanel.header.connected": "Conectado · {channel}",
+  "experiencia.streamChatPanel.header.disconnected": "Desconectado",
+  "experiencia.streamChatPanel.header.hint": "Los controles están en la sección Stream.",
+  "experiencia.streamChatPanel.list.aria": "Chat en vivo de viewers",
+  "experiencia.streamChatPanel.state.empty": "Esperando mensajes…",
+  "experiencia.streamChatPanel.state.forbidden": "No podés leer el chat desde acá.",
+  "experiencia.streamChatPanel.state.gap":
+    "Se perdieron mensajes acá — el chat llegó más rápido de lo que se pudo leer.",
+  "experiencia.streamChatPanel.state.notConnected":
+    "No hay canal conectado. Conectá el chat desde la sección Stream.",
+  "experiencia.streamChatPanel.state.restarted":
+    "El motor se reinició — se perdieron los mensajes anteriores.",
+  "experiencia.streamChatPanel.state.sessionReset":
+    "Empezó una conexión nueva — se descartaron los mensajes de la anterior.",
+  "experiencia.streamChatPanel.state.stalled": "El chat no se está actualizando — el motor no responde.",
   "experiencia.welcomeCard.dialog.close.aria": "Cerrar bienvenida",
   "experiencia.welcomeCard.header.brand": "Bienvenido a OpenCohost",
   "experiencia.welcomeCard.nav.finish.action": "Empezar con Kira",

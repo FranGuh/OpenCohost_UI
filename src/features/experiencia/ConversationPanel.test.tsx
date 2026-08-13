@@ -934,6 +934,24 @@ describe("ConversationPanel — unified tab strip (owner layout correction 2026-
     expect(timeline()).toBe(before);
   });
 
+  // Stream (RF3, tauri_stream_chat_20260812): a READ-ONLY mirror tab, same
+  // panel-swap contract as Comandos/Logs — the feed hides and the composer
+  // unmounts (R8), it does not become a feed filter.
+  it("selecting the Stream tab swaps the panel: timeline hidden, composer unmounted", () => {
+    renderPanel();
+    expect(tab("Stream")).toBeInTheDocument();
+    const composer = () => screen.queryByPlaceholderText("Escribí un mensaje para Kira…");
+    expect(composer()).toBeInTheDocument(); // Todo (default)
+
+    fireEvent.click(tab("Stream"));
+
+    expect(tab("Stream")).toHaveAttribute("aria-selected", "true");
+    expect(composer()).not.toBeInTheDocument();
+    // The feed wrapper (ancestor of #conversation-panel) is aria-hidden once
+    // a non-feed tab is active — same mechanism Comandos/Logs already rely on.
+    expect(timeline().closest("[aria-hidden='true']")).not.toBeNull();
+  });
+
   it("renders all 7 commands inline in the Comandos tab, with no floating dialog (R9)", () => {
     renderPanel();
     fireEvent.click(tab("Comandos"));
