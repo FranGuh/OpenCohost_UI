@@ -48,6 +48,18 @@ import { useT, type TKey } from "../../i18n/t.js";
 // streamer's chosen stream_ttl_seconds. AccionesCard discloses the gap
 // whenever the two differ instead of silently honoring the floor — see the
 // Alert in the Vigencia section.
+//
+// Small Stream (stream.acciones.smallStream.*): same GET/PUT .../chat-live*
+// contract, CTK parity for stream_admin_ui.py's `switch_stream_small` /
+// _dispatch_toggle_small_stream. Real incident, 2026-08-14: an 11-minute
+// low-traffic Twitch session peaked at 0.333 accepted msg/s — below even
+// this panel's lowest 0.5 msg/s reaction preset — so ActivityTrigger's
+// threshold*window accepted-message floor was never reachable and Kira
+// reacted zero times. ON sends threshold_per_second/cooldown_seconds/
+// max_messages_per_user together in a single PUT; unlike the CTK original,
+// OFF here also restores the spam default (CTK's OFF path leaves spam at
+// 30 — see SMALL_STREAM_OFF below for why that's a deliberate deviation,
+// not a port bug).
 
 type StreamConnectionState = "desconectado" | "conectando" | "conectado";
 
@@ -212,6 +224,24 @@ const COOLDOWN_PRESET_VALUES = {
   alto: "120"
 } as const satisfies Record<StreamPresetLevel, string>;
 
+// Small Stream ON — CTK's exact values (stream_admin_ui.py:1265-1266). Both
+// 0.2 msg/s and 20s sit below anything REACTION_PRESET_VALUES/
+// COOLDOWN_PRESET_VALUES can express (0.5/1/3 and 30/45/60/120), so a backend
+// state matching both is an unambiguous signal that this switch — and
+// nothing else reachable from the UI — turned it on. See smallStreamOn below.
+const SMALL_STREAM_ON = { threshold_per_second: 0.2, cooldown_seconds: 20, max_messages_per_user: 30 } as const;
+
+// Small Stream OFF — smart_aggregator.yaml's own defaults (activity.
+// threshold_per_second: 1.0, activity.cooldown_seconds: 45.0, spam.
+// max_messages_per_user: 10), i.e. exactly what the backend already reverts
+// to on restart since it never persists these fields. The CTK's OFF path
+// (stream_admin_ui.py:1268-1275) only restores threshold/cooldown and leaves
+// spam wherever ON last set it (30). This panel's OFF restores spam as well,
+// so that OFF means one state instead of two — otherwise a toggle round trip
+// would leave the spam limit tripled with no control showing it. A superset
+// of CTK's behavior, chosen here rather than inherited from it.
+const SMALL_STREAM_OFF = { threshold_per_second: 1, cooldown_seconds: 45, max_messages_per_user: 10 } as const;
+
 function buildReactionOptions(t: ReturnType<typeof useT>) {
   return [
     { value: REACTION_PRESET_VALUES.bajo, label: t("stream.acciones.reactionOption.0_5") },
@@ -313,6 +343,17 @@ function AccionesCard() {
 
   const reactionPreset = presetForValue(reactionThreshold, REACTION_PRESET_VALUES);
   const cooldownPreset = presetForValue(cooldown, COOLDOWN_PRESET_VALUES);
+
+  // Deliberately NOT local state like reactionThreshold/cooldown/spamLimit
+  // above — the backend never persists these three fields, so a restart
+  // silently reverts them to smart_aggregator.yaml's defaults, and this
+  // switch must read that back honestly as OFF instead of trusting a stale
+  // local flag. Undefined-safe the same way ttlDiverges is above.
+  const smallStreamOn =
+    chatLiveQuery.data !== undefined &&
+    chatLiveQuery.data.threshold_per_second === SMALL_STREAM_ON.threshold_per_second &&
+    chatLiveQuery.data.cooldown_seconds === SMALL_STREAM_ON.cooldown_seconds &&
+    chatLiveQuery.data.max_messages_per_user === SMALL_STREAM_ON.max_messages_per_user;
 
   const pending = limitsMutation.isPending;
 
@@ -426,6 +467,29 @@ function AccionesCard() {
                   limitsMutation.mutate({ max_messages_per_user: Number(value) });
                 }}
               />
+            </div>
+          </section>
+
+          <section aria-labelledby="stream-small-stream-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span
+              id="stream-small-stream-label"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("stream.acciones.smallStream.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-small-stream-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.smallStream.helper")}
+              </span>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.smallStream.label")}</span>
+                <Switch
+                  checked={smallStreamOn}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => limitsMutation.mutate(value ? SMALL_STREAM_ON : SMALL_STREAM_OFF)}
+                  aria-label={t("stream.acciones.smallStream.aria")}
+                />
+              </div>
             </div>
           </section>
 

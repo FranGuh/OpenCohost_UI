@@ -29,6 +29,11 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.acciones.reactions.helper": "React when chat exceeds",
   "stream.acciones.reactions.preset.aria": "Reaction preset",
   "stream.acciones.reactions.select.aria": "Reaction threshold",
+  "stream.acciones.smallStream.aria": "Small Stream",
+  "stream.acciones.smallStream.eyebrow": "Small Stream",
+  "stream.acciones.smallStream.helper":
+    "Lowers the reaction threshold and cooldown for low-traffic channels, so Kira doesn't stay silent for the whole stream.",
+  "stream.acciones.smallStream.label": "Small Stream (low traffic)",
   "stream.acciones.spam.eyebrow": "Spam",
   "stream.acciones.spam.helper": "Limit on repeated messages",
   "stream.acciones.spam.select.aria": "Spam limit",

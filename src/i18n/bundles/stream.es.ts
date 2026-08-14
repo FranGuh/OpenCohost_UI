@@ -24,6 +24,11 @@ export const streamEs = {
   "stream.acciones.reactions.helper": "Reaccionar si el chat supera",
   "stream.acciones.reactions.preset.aria": "Preset de reacciones",
   "stream.acciones.reactions.select.aria": "Umbral de reacciones",
+  "stream.acciones.smallStream.aria": "Stream pequeño",
+  "stream.acciones.smallStream.eyebrow": "Stream pequeño",
+  "stream.acciones.smallStream.helper":
+    "Reduce el umbral de reacción y el cooldown para canales con poco tráfico, evitando que Kira permanezca en silencio durante todo el stream.",
+  "stream.acciones.smallStream.label": "Stream pequeño (bajo tráfico)",
   "stream.acciones.spam.eyebrow": "Spam",
   "stream.acciones.spam.helper": "Límite de mensajes repetidos",
   "stream.acciones.spam.select.aria": "Límite de spam",

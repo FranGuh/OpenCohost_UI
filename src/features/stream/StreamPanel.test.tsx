@@ -226,6 +226,84 @@ describe("StreamPanel", () => {
     await waitFor(() => expect(capturedBody).toEqual({ max_messages_per_user: 20 }));
   });
 
+  it("Small Stream switch reads OFF against the smart_aggregator.yaml defaults defaultStreamChatLive already carries", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Stream pequeño" })).not.toBeDisabled());
+    expect(screen.getByRole("switch", { name: "Stream pequeño" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("Small Stream switch reads ON straight from backend values it was never clicked to produce, proving it isn't local click state", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({
+          ...defaultStreamChatLive,
+          threshold_per_second: 0.2,
+          cooldown_seconds: 20,
+          max_messages_per_user: 30
+        })
+      )
+    );
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Stream pequeño" })).toHaveAttribute("aria-checked", "true")
+    );
+  });
+
+  it("turning Small Stream ON fires PUT /api/stream/chat-live/limits with the CTK's exact values", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          ...defaultStreamChatLive,
+          threshold_per_second: 0.2,
+          cooldown_seconds: 20,
+          max_messages_per_user: 30
+        });
+      })
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Stream pequeño" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({ threshold_per_second: 0.2, cooldown_seconds: 20, max_messages_per_user: 30 })
+    );
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("turning Small Stream OFF restores the smart_aggregator.yaml defaults, including spam (a superset of the CTK's own OFF path)", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({
+          ...defaultStreamChatLive,
+          threshold_per_second: 0.2,
+          cooldown_seconds: 20,
+          max_messages_per_user: 30
+        })
+      )
+    );
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(defaultStreamChatLive);
+      })
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Stream pequeño" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({ threshold_per_second: 1, cooldown_seconds: 45, max_messages_per_user: 10 })
+    );
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+  });
+
   it("shows a confirmation alert once a limit change lands", async () => {
     server.use(
       http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
