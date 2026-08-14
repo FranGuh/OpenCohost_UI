@@ -1,1 +1,5736 @@
-{"openapi": "3.1.0", "info": {"title": "FastAPI", "version": "0.1.0"}, "paths": {"/api/health": {"get": {"summary": "Get Health", "operationId": "get_health_api_health_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}}}}, "/api/status": {"get": {"summary": "Get Status", "operationId": "get_status_api_status_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusResponse"}}}}}}}, "/api/perfiles": {"get": {"summary": "List Perfiles", "operationId": "list_perfiles_api_perfiles_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProfilesListResponse"}}}}}}}, "/api/models": {"get": {"summary": "Get Models", "operationId": "get_models_api_models_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ModelsResponse"}}}}}}}, "/api/tts/config": {"get": {"summary": "Get Tts Config", "operationId": "get_tts_config_api_tts_config_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TTSConfigResponse"}}}}}}}, "/api/memoria/stats": {"get": {"summary": "Get Memoria Stats", "operationId": "get_memoria_stats_api_memoria_stats_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoriaStatsResponse"}}}}}}}, "/api/perfiles/switch": {"post": {"summary": "Switch Profile", "operationId": "switch_profile_api_perfiles_switch_post", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/SwitchProfileRequest"}}}, "required": true}, "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/commands": {"post": {"summary": "Post Command", "operationId": "post_command_api_commands_post", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandRequest"}}}, "required": true}, "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}}, "components": {"schemas": {"CommandRequest": {"properties": {"command": {"type": "string", "title": "Command"}, "payload": {"additionalProperties": true, "type": "object", "title": "Payload", "default": {}}, "idempotency_key": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Idempotency Key"}}, "type": "object", "required": ["command"], "title": "CommandRequest", "description": "Wire shape for POST /api/commands (Phase 2, B2).\n\n`command` is checked against a server-side whitelist in main.py \u2014 this\nmodel accepts any string so the handler controls the reject status code\n(422) instead of pydantic's enum-validation 422 with a different body."}, "HTTPValidationError": {"properties": {"detail": {"items": {"$ref": "#/components/schemas/ValidationError"}, "type": "array", "title": "Detail"}}, "type": "object", "title": "HTTPValidationError"}, "HealthResponse": {"properties": {"status": {"type": "string", "title": "Status"}, "engine_alive": {"type": "boolean", "title": "Engine Alive"}}, "type": "object", "required": ["status", "engine_alive"], "title": "HealthResponse", "description": "Fast liveness probe \u2014 no engine work, no queue. R8: no chat/model detail."}, "HealthState": {"properties": {"vram_status": {"type": "string", "title": "Vram Status"}, "rtf_status": {"type": "string", "title": "Rtf Status"}, "ollama_status": {"type": "string", "title": "Ollama Status"}, "qwen_status": {"type": "string", "title": "Qwen Status"}, "overall_status": {"type": "string", "title": "Overall Status"}, "ollama_lifecycle": {"type": "string", "title": "Ollama Lifecycle"}, "qwen_lifecycle": {"type": "string", "title": "Qwen Lifecycle"}, "free_vram_mb": {"type": "number", "title": "Free Vram Mb"}, "rtf_rolling_avg": {"anyOf": [{"type": "number"}, {"type": "null"}], "title": "Rtf Rolling Avg"}, "last_updated": {"type": "number", "title": "Last Updated"}}, "type": "object", "required": ["vram_status", "rtf_status", "ollama_status", "qwen_status", "overall_status", "ollama_lifecycle", "qwen_lifecycle", "free_vram_mb", "rtf_rolling_avg", "last_updated"], "title": "HealthState", "description": "Mirrors `opencohost.core.health_monitor.MonitorState`."}, "MemoriaStatsResponse": {"properties": {"session_turns": {"type": "integer", "title": "Session Turns"}, "digest_entries": {"type": "integer", "title": "Digest Entries"}, "saved_memorias": {"type": "integer", "title": "Saved Memorias"}, "pinned": {"type": "integer", "title": "Pinned"}, "editorial_cards_by_status": {"additionalProperties": {"type": "integer"}, "type": "object", "title": "Editorial Cards By Status"}}, "type": "object", "required": ["session_turns", "digest_entries", "saved_memorias", "pinned", "editorial_cards_by_status"], "title": "MemoriaStatsResponse", "description": "GET /api/memoria/stats (Tier B, R8-CRITICAL).\n\nCOUNTS ONLY \u2014 never add a field carrying memoria/card title, content,\ntranscript, or any other text. See `_DIGEST_CAPTURE_SOURCES` /\n`memory_inspector_snapshot` in opencohost/core/llm_engine.py (the only\nprovenance gates \u2014 reused verbatim, never re-derived)."}, "ModelCatalogEntry": {"properties": {"display": {"type": "string", "title": "Display"}, "desc": {"type": "string", "title": "Desc"}, "size_gb": {"type": "number", "title": "Size Gb"}, "family": {"type": "string", "title": "Family"}}, "type": "object", "required": ["display", "desc", "size_gb", "family"], "title": "ModelCatalogEntry", "description": "Mirrors one entry of `opencohost.config.settings.MODELS_CATALOG`."}, "ModelsResponse": {"properties": {"catalog": {"additionalProperties": {"$ref": "#/components/schemas/ModelCatalogEntry"}, "type": "object", "title": "Catalog"}, "discovered": {"items": {"type": "string"}, "type": "array", "title": "Discovered"}, "current_model": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Current Model"}, "tiers": {"additionalProperties": {"type": "string"}, "type": "object", "title": "Tiers"}, "active_tier": {"type": "string", "title": "Active Tier"}}, "type": "object", "required": ["catalog", "discovered", "current_model", "tiers", "active_tier"], "title": "ModelsResponse", "description": "GET /api/models (Tier B, direct read).\n\n`discovered` degrades to `[]` when live Ollama discovery times out or\nerrors \u2014 the catalog + tiers still resolve to safe catalog-only values."}, "ProfilesListResponse": {"properties": {"profiles": {"items": {"type": "string"}, "type": "array", "title": "Profiles"}}, "type": "object", "required": ["profiles"], "title": "ProfilesListResponse", "description": "Profile NAMES only \u2014 never persona text, prompts, or other fields."}, "StatusResponse": {"properties": {"is_ready": {"type": "boolean", "title": "Is Ready"}, "current_model": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Current Model"}, "is_speaking": {"type": "boolean", "title": "Is Speaking"}, "is_processing": {"type": "boolean", "title": "Is Processing"}, "active_profile": {"type": "string", "title": "Active Profile"}, "health": {"$ref": "#/components/schemas/HealthState"}, "state_version": {"type": "integer", "title": "State Version"}}, "type": "object", "required": ["is_ready", "current_model", "is_speaking", "is_processing", "active_profile", "health", "state_version"], "title": "StatusResponse"}, "SwitchProfileRequest": {"properties": {"name": {"type": "string", "title": "Name"}, "idempotency_key": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Idempotency Key"}}, "type": "object", "required": ["name"], "title": "SwitchProfileRequest"}, "TTSConfigResponse": {"properties": {"piper_voice": {"type": "string", "title": "Piper Voice"}, "local_only": {"type": "boolean", "title": "Local Only"}, "speed": {"type": "number", "title": "Speed"}, "engine": {"type": "string", "title": "Engine"}, "heavy_available": {"type": "boolean", "title": "Heavy Available"}}, "type": "object", "required": ["piper_voice", "local_only", "speed", "engine", "heavy_available"], "title": "TTSConfigResponse", "description": "GET /api/tts/config (Tier B, direct read). Pure config read, no I/O timeout needed."}, "ValidationError": {"properties": {"loc": {"items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "type": "array", "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}, "input": {"title": "Input"}, "ctx": {"type": "object", "title": "Context"}}, "type": "object", "required": ["loc", "msg", "type"], "title": "ValidationError"}}}}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/events": {
+      "get": {
+        "summary": "Get Events",
+        "operationId": "get_events_api_events_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventLogResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Get Health",
+        "operationId": "get_health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "summary": "Get Status",
+        "operationId": "get_status_api_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models": {
+      "get": {
+        "summary": "Get Models",
+        "operationId": "get_models_api_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/provider": {
+      "get": {
+        "summary": "Get Llm Provider",
+        "operationId": "get_llm_provider_api_llm_provider_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Llm Provider",
+        "operationId": "put_llm_provider_api_llm_provider_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/provider/probe": {
+      "post": {
+        "summary": "Post Llm Provider Probe",
+        "description": "WU2 (cloud_rearm_20260801): manual cloud re-arm trigger. Same tier\nas PUT /api/llm/provider right above -- synchronous direct call onto\nthe running motor, no dispatcher, no config-file write. Auth is\ninherited automatically (auth.py rule 2, mutating /api/* path\nprefix) -- no allowlist entry needed. `armed:false` is a benign\nno-op (not_in_fallback / no_cloud_profile), so it is still a 200;\nonly a motor build predating trigger_cloud_probe_now is a 503.",
+        "operationId": "post_llm_provider_probe_api_llm_provider_probe_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderProbeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/i18n": {
+      "get": {
+        "summary": "Get I18N",
+        "operationId": "get_i18n_api_i18n_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/I18nStateResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Set I18N",
+        "operationId": "set_i18n_api_i18n_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/I18nSetLocaleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/I18nStateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tts/config": {
+      "get": {
+        "summary": "Get Tts Config",
+        "operationId": "get_tts_config_api_tts_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TTSConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/avatar/config": {
+      "get": {
+        "summary": "Get Avatar Config",
+        "operationId": "get_avatar_config_api_avatar_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Avatar Config",
+        "operationId": "put_avatar_config_api_avatar_config_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/obs/config": {
+      "get": {
+        "summary": "Get Obs Config",
+        "operationId": "get_obs_config_api_obs_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObsConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Obs Config",
+        "operationId": "put_obs_config_api_obs_config_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObsConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObsConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/obs/test": {
+      "post": {
+        "summary": "Post Obs Test",
+        "operationId": "post_obs_test_api_obs_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ObsConfigRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObsTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/personalization": {
+      "get": {
+        "summary": "Get Personalization",
+        "operationId": "get_personalization_api_personalization_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalizationResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Personalization",
+        "operationId": "update_personalization_api_personalization_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalizationUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalizationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Personalization",
+        "operationId": "delete_personalization_api_personalization_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/perfiles": {
+      "get": {
+        "summary": "List Perfiles",
+        "operationId": "list_perfiles_api_perfiles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilesListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Perfil",
+        "operationId": "create_perfil_api_perfiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/perfiles/{name}": {
+      "get": {
+        "summary": "Get Perfil",
+        "operationId": "get_perfil_api_perfiles__name__get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Perfil",
+        "operationId": "update_perfil_api_perfiles__name__put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Perfil",
+        "operationId": "delete_perfil_api_perfiles__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/perfiles/switch": {
+      "post": {
+        "summary": "Switch Profile",
+        "operationId": "switch_profile_api_perfiles_switch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/library": {
+      "get": {
+        "summary": "Get Music Library",
+        "operationId": "get_music_library_api_music_library_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicLibraryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/mood": {
+      "post": {
+        "summary": "Post Music Mood",
+        "operationId": "post_music_mood_api_music_mood_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicMoodRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicMoodResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/state": {
+      "get": {
+        "summary": "Get Music State",
+        "operationId": "get_music_state_api_music_state_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/fade": {
+      "post": {
+        "summary": "Post Music Fade",
+        "operationId": "post_music_fade_api_music_fade_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicFadeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicStateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/import": {
+      "post": {
+        "summary": "Post Music Import",
+        "operationId": "post_music_import_api_music_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicImportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/track/{track_id}": {
+      "delete": {
+        "summary": "Delete Music Track",
+        "operationId": "delete_music_track_api_music_track__track_id__delete",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/music/track/{track_id}/audio": {
+      "get": {
+        "summary": "Get Music Track Audio",
+        "operationId": "get_music_track_audio_api_music_track__track_id__audio_get",
+        "parameters": [
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Track Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/topics": {
+      "post": {
+        "summary": "Post Agent Topic",
+        "operationId": "post_agent_topic_api_agent_topics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentTopicRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTopicResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/status": {
+      "get": {
+        "summary": "Get Agent Status",
+        "operationId": "get_agent_status_api_agent_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/cards": {
+      "get": {
+        "summary": "Get Agent Cards",
+        "operationId": "get_agent_cards_api_agent_cards_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCardsListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Post Agent Card",
+        "operationId": "post_agent_card_api_agent_cards_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/cards/{card_id}/arm": {
+      "post": {
+        "summary": "Post Agent Card Arm",
+        "operationId": "post_agent_card_arm_api_agent_cards__card_id__arm_post",
+        "parameters": [
+          {
+            "name": "card_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Card Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCardArmResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/notice": {
+      "post": {
+        "summary": "Post Agent Notice",
+        "operationId": "post_agent_notice_api_agent_notice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentNoticeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentNoticeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/notices": {
+      "get": {
+        "summary": "Get Agent Notices",
+        "operationId": "get_agent_notices_api_agent_notices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentNoticesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/notices/{notice_id}/dismiss": {
+      "post": {
+        "summary": "Dismiss Agent Notice",
+        "operationId": "dismiss_agent_notice_api_agent_notices__notice_id__dismiss_post",
+        "parameters": [
+          {
+            "name": "notice_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Notice Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentNoticeDismissResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/stats": {
+      "get": {
+        "summary": "Get Memoria Stats",
+        "operationId": "get_memoria_stats_api_memoria_stats_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaStatsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/list": {
+      "get": {
+        "summary": "Get Memoria List",
+        "operationId": "get_memoria_list_api_memoria_list_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/row/{row_id}": {
+      "get": {
+        "summary": "Get Memoria Row",
+        "description": "One row's full content, on-demand (WU-H, operator viewing decision).\n\nMirrors the ownership-guard pattern from POST /api/memoria/{delete,\nupdate}: store.get(raising=True) pre-check, then the SAME 404 body\nfor a missing row and a wrong-profile row (R7: no cross-profile\nexistence oracle). Disabled feature also maps to 404 — there is no\n\"empty\" analog for a single-row GET the way list/stats have.",
+        "operationId": "get_memoria_row_api_memoria_row__row_id__get",
+        "parameters": [
+          {
+            "name": "row_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Row Id"
+            }
+          },
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaRowResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/purge": {
+      "post": {
+        "summary": "Post Memoria Purge",
+        "operationId": "post_memoria_purge_api_memoria_purge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaPurgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaPurgeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/flags": {
+      "post": {
+        "summary": "Post Memoria Flags",
+        "operationId": "post_memoria_flags_api_memoria_flags_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaFlagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/delete": {
+      "post": {
+        "summary": "Post Memoria Delete",
+        "operationId": "post_memoria_delete_api_memoria_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/update": {
+      "post": {
+        "summary": "Post Memoria Update",
+        "operationId": "post_memoria_update_api_memoria_update_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/import": {
+      "post": {
+        "summary": "Post Memoria Import",
+        "description": "Import an external-AI export into the per-profile store as 'imported'\nrows (memoria_import_20260718, WU3).\n\nPosture mirrors post_memoria_update: MEMORIAS_ENABLED no-op, 422 for the\ntrust-boundary caps, 503 memoria_unavailable when the store is down, same\nloopback auth as the sibling routes (no rate limiting — single operator).\n\nCounts-only response (R8 — never echoes claim/title/content). Every parsed\nclaim maps to exactly one of the four insert_imported outcomes so a lock\nloss is reported as `failed`, never a `duplicate` (R4).\n\nBounded work: the byte cap bounds parse cost, the 100-item cap bounds the\nper-item loop, and each insert_imported is bounded by WRITE_TIMEOUT_SECONDS.\nUnder a sustained DB lock the loop early-aborts after 3 consecutive `error`\noutcomes (remaining items count into `failed`, R4), so the worst case is\n~3s of lock probing plus parse time — not ~100s of grinding every item.\n\nD6 cap honesty: a profile already at MEMORIAS_IMPORT_CAP is rejected\npre-flight (422); otherwise the cap is enforced in-loop — only `created`\nrows consume headroom, and creatable items past the cap are counted in\n`skipped_cap`, so a full-duplicate re-import near the cap lands 0 rows and\nis never falsely rejected (duplicates/too-short never consume headroom).",
+        "operationId": "post_memoria_import_api_memoria_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaImportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/capture": {
+      "post": {
+        "summary": "Post Memoria Capture",
+        "operationId": "post_memoria_capture_api_memoria_capture_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaCaptureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaMutationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/memoria/notice": {
+      "get": {
+        "summary": "Get Memoria Notice",
+        "operationId": "get_memoria_notice_api_memoria_notice_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaNoticeResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Post Memoria Notice",
+        "operationId": "post_memoria_notice_api_memoria_notice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaNoticeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaNoticeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ptt/start": {
+      "post": {
+        "summary": "Post Ptt Start",
+        "operationId": "post_ptt_start_api_ptt_start_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ptt/keepalive": {
+      "post": {
+        "summary": "Post Ptt Keepalive",
+        "operationId": "post_ptt_keepalive_api_ptt_keepalive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PttKeepaliveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ptt/stop": {
+      "post": {
+        "summary": "Post Ptt Stop",
+        "operationId": "post_ptt_stop_api_ptt_stop_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PttStopRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ptt/state": {
+      "get": {
+        "summary": "Get Ptt State",
+        "operationId": "get_ptt_state_api_ptt_state_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PttStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ptt/config": {
+      "put": {
+        "summary": "Put Ptt Config",
+        "operationId": "put_ptt_config_api_ptt_config_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PttConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PttConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ptt/test": {
+      "post": {
+        "summary": "Post Ptt Test",
+        "operationId": "post_ptt_test_api_ptt_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PttTestRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PttTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda": {
+      "get": {
+        "summary": "Get Agenda",
+        "operationId": "get_agenda_api_agenda_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgendaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda/topic": {
+      "post": {
+        "summary": "Post Agenda Topic",
+        "operationId": "post_agenda_topic_api_agenda_topic_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgendaTopicRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgendaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda/topic/action": {
+      "post": {
+        "summary": "Post Agenda Topic Action",
+        "operationId": "post_agenda_topic_action_api_agenda_topic_action_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgendaTopicActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgendaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda/session": {
+      "put": {
+        "summary": "Put Agenda Session",
+        "operationId": "put_agenda_session_api_agenda_session_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgendaSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgendaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda/cohost-profiles": {
+      "get": {
+        "summary": "Get Cohost Profiles",
+        "operationId": "get_cohost_profiles_api_agenda_cohost_profiles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohostProfilesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Save Cohost Profile",
+        "operationId": "save_cohost_profile_api_agenda_cohost_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CohostProfileSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohostProfilesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda/cohost-profiles/select": {
+      "post": {
+        "summary": "Select Cohost Profile",
+        "operationId": "select_cohost_profile_api_agenda_cohost_profiles_select_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CohostProfileSelectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohostProfileSelectResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agenda/session/action": {
+      "post": {
+        "summary": "Post Agenda Session Action",
+        "operationId": "post_agenda_session_action_api_agenda_session_action_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgendaSessionActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgendaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/commands": {
+      "post": {
+        "summary": "Post Command",
+        "operationId": "post_command_api_commands_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/turn": {
+      "post": {
+        "summary": "Post Chat Turn",
+        "operationId": "post_chat_turn_api_chat_turn_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/last-reply": {
+      "get": {
+        "summary": "Get Chat Last Reply",
+        "operationId": "get_chat_last_reply_api_chat_last_reply_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatLastReplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/chat-live": {
+      "get": {
+        "summary": "Get Stream Chat Live",
+        "operationId": "get_stream_chat_live_api_stream_chat_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamChatLiveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/chat-live/connect": {
+      "post": {
+        "summary": "Post Stream Connect",
+        "operationId": "post_stream_connect_api_stream_chat_live_connect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamChatLiveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/chat-live/disconnect": {
+      "post": {
+        "summary": "Post Stream Disconnect",
+        "operationId": "post_stream_disconnect_api_stream_chat_live_disconnect_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamChatLiveResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/chat-live/messages": {
+      "get": {
+        "summary": "Get Stream Chat Live Messages",
+        "operationId": "get_stream_chat_live_messages_api_stream_chat_live_messages_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatLiveMessagesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/chat-live/limits": {
+      "put": {
+        "summary": "Put Stream Limits",
+        "operationId": "put_stream_limits_api_stream_chat_live_limits_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamLimitsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamChatLiveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgendaMetrics": {
+        "properties": {
+          "total_rejections": {
+            "type": "integer",
+            "title": "Total Rejections"
+          },
+          "by_error_code": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Error Code"
+          },
+          "by_guardrail": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Guardrail"
+          },
+          "avg_similarity_overlap_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Similarity Overlap Pct"
+          },
+          "current_state": {
+            "type": "string",
+            "title": "Current State"
+          },
+          "failure_count": {
+            "type": "integer",
+            "title": "Failure Count"
+          },
+          "response_length": {
+            "type": "string",
+            "title": "Response Length"
+          },
+          "active_topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Topic"
+          },
+          "topics_queued": {
+            "type": "integer",
+            "title": "Topics Queued"
+          },
+          "last_outputs_count": {
+            "type": "integer",
+            "title": "Last Outputs Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_rejections",
+          "by_error_code",
+          "by_guardrail",
+          "avg_similarity_overlap_pct",
+          "current_state",
+          "failure_count",
+          "response_length",
+          "active_topic",
+          "topics_queued",
+          "last_outputs_count"
+        ],
+        "title": "AgendaMetrics",
+        "description": "GET /api/agenda counts (Tier C, R8-CRITICAL).\n\nExplicit field whitelist of `KiraAgendaController.get_metrics()` —\nCOUNTS/STATE ONLY. `get_metrics()` never includes `rejection_log`\nitself (which carries `matched_text`, i.e. raw viewer phrases); this\nmodel must never grow a field sourced from that log's raw text."
+      },
+      "AgendaProfileRequest": {
+        "properties": {
+          "style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Style"
+          }
+        },
+        "type": "object",
+        "title": "AgendaProfileRequest"
+      },
+      "AgendaResponse": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "active_topic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgendaTopicOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queued_topics": {
+            "items": {
+              "$ref": "#/components/schemas/AgendaTopicOut"
+            },
+            "type": "array",
+            "title": "Queued Topics"
+          },
+          "drafted_topics": {
+            "items": {
+              "$ref": "#/components/schemas/AgendaTopicOut"
+            },
+            "type": "array",
+            "title": "Drafted Topics"
+          },
+          "session_settings": {
+            "$ref": "#/components/schemas/AgendaSessionSettings"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/AgendaMetrics"
+          },
+          "applied": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "active_topic",
+          "queued_topics",
+          "drafted_topics",
+          "session_settings",
+          "metrics"
+        ],
+        "title": "AgendaResponse",
+        "description": "GET/POST/PUT /api/agenda* shared response shape (Tier C, WS3 slice 3)."
+      },
+      "AgendaSessionActionRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "AgendaSessionActionRequest",
+        "description": "POST /api/agenda/session/action body.\n\n`action` is checked against a server-side whitelist in main.py (mirrors\n`AgendaTopicActionRequest`) — accepts any string so the handler controls\nthe 422 body shape rather than pydantic's enum-validation 422."
+      },
+      "AgendaSessionRequest": {
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgendaProfileRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_turns_per_topic": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Turns Per Topic"
+          },
+          "rhythm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rhythm"
+          },
+          "response_length": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Length"
+          },
+          "safety_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safety Mode"
+          }
+        },
+        "type": "object",
+        "title": "AgendaSessionRequest",
+        "description": "PUT /api/agenda/session body — a partial update.\n\nEvery field optional; an omitted field leaves the stored value\nunchanged (mirrors `ObsConfigRequest`)."
+      },
+      "AgendaSessionSettings": {
+        "properties": {
+          "max_turns_per_topic": {
+            "type": "integer",
+            "title": "Max Turns Per Topic"
+          },
+          "rhythm": {
+            "type": "string",
+            "title": "Rhythm"
+          },
+          "response_length": {
+            "type": "string",
+            "title": "Response Length"
+          },
+          "safety_mode": {
+            "type": "string",
+            "title": "Safety Mode"
+          },
+          "profile_style": {
+            "type": "string",
+            "title": "Profile Style"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_turns_per_topic",
+          "rhythm",
+          "response_length",
+          "safety_mode",
+          "profile_style"
+        ],
+        "title": "AgendaSessionSettings",
+        "description": "Global agenda pacing knobs — mirrors controller attrs set via\n`set_session_settings()`/`set_profile()`."
+      },
+      "AgendaTopicActionRequest": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "topic_id": {
+            "type": "string",
+            "title": "Topic Id"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "topic_id"
+        ],
+        "title": "AgendaTopicActionRequest",
+        "description": "POST /api/agenda/topic/action body.\n\n`action` is checked against a server-side whitelist in main.py (mirrors\n`CommandRequest.command`) — accepts any string so the handler controls\nthe 422 body shape. Whitelisted verbs: approve, queue, remove, move,\nreject. `direction` is only consumed by `move` (>=0 means move later/down,\n<0 means move earlier/up — passed straight through to `move_queued_topic`)."
+      },
+      "AgendaTopicOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "angle": {
+            "type": "string",
+            "title": "Angle"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "response_length": {
+            "type": "string",
+            "title": "Response Length"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "turns_spoken": {
+            "type": "integer",
+            "title": "Turns Spoken"
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "angle",
+          "priority",
+          "response_length",
+          "status",
+          "turns_spoken",
+          "confidence",
+          "source"
+        ],
+        "title": "AgendaTopicOut",
+        "description": "Mirrors `opencohost.smart_aggregator.kira_agenda_controller.AgendaTopic`.\n\nOperator-authored/sanitized fields only (title/angle already pass\nthrough `sanitize_topic_text`) — never raw viewer chat."
+      },
+      "AgendaTopicRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "angle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Angle",
+            "default": ""
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraints"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "response_length": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Length"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "AgendaTopicRequest",
+        "description": "POST /api/agenda/topic body.\n\n`constraints`/`priority`/`response_length` are sanitized/normalized by\n`KiraAgendaController.add_topic` — an unknown priority/response_length\nsilently normalizes to \"normal\" (controller contract, no 422). A\nconstraint whose text fails `sanitize_topic_text` (emoji/code/too long)\nraises ValueError, surfaced as 422 by the existing handler path."
+      },
+      "AgentCardArmResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "AgentCardArmResponse"
+      },
+      "AgentCardListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "topic_slug": {
+            "type": "string",
+            "title": "Topic Slug"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "single_use": {
+            "type": "boolean",
+            "title": "Single Use"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "topic",
+          "topic_slug",
+          "status",
+          "origin",
+          "expires_at",
+          "updated_at",
+          "single_use"
+        ],
+        "title": "AgentCardListItem",
+        "description": "One row of GET /api/agent/cards — light projection (design D4): no\nsummary/streamer_take/list fields, the UI never needs card bodies here."
+      },
+      "AgentCardRequest": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Agent"
+          },
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "streamer_take": {
+            "type": "string",
+            "title": "Streamer Take"
+          },
+          "counterpoints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Counterpoints",
+            "default": []
+          },
+          "discussion_hooks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Discussion Hooks",
+            "default": []
+          },
+          "triggers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Triggers",
+            "default": []
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "single_use": {
+            "type": "boolean",
+            "title": "Single Use",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent",
+          "topic",
+          "summary",
+          "streamer_take"
+        ],
+        "title": "AgentCardRequest",
+        "description": "POST /api/agent/cards body (agent_context_gateway Phase 3).\n\nMaps to ``EditorialCardStore.upsert`` with the ``EditorialCard``\ndataclass's own validation (SUMMARY_MAX=1200, STREAMER_TAKE_MAX=800,\nTOPIC_MAX=120, ITEM_MAX=240x8, raw_chat/raw_page rejection), so this\nmodel stays permissive and the handler surfaces the dataclass's error\nstring as the 422 detail. ``agent`` is the self-reported provenance\nname written to the ``editorial_cards.origin`` column ('' = operator).\n``expires_at`` is an optional ISO-8601 timestamp."
+      },
+      "AgentCardResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "topic_slug": {
+            "type": "string",
+            "title": "Topic Slug"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "demoted": {
+            "type": "boolean",
+            "title": "Demoted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "topic_slug",
+          "status",
+          "demoted"
+        ],
+        "title": "AgentCardResponse",
+        "description": "POST /api/agent/cards response.\n\nDemotion rule (design 'POST /api/agent/cards'): a new card always lands\nDRAFT; when the upsert hit an existing ARMED/ACTIVE card it is set back\nto DRAFT and ``demoted`` is true — the operator must re-arm via CLI/UI\nbefore the rewritten content can auto-fire again."
+      },
+      "AgentCardsListResponse": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/AgentCardListItem"
+            },
+            "type": "array",
+            "title": "Cards"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cards"
+        ],
+        "title": "AgentCardsListResponse"
+      },
+      "AgentNoticeDismissResponse": {
+        "properties": {
+          "dismissed": {
+            "type": "boolean",
+            "title": "Dismissed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dismissed"
+        ],
+        "title": "AgentNoticeDismissResponse",
+        "description": "POST /api/agent/notices/{id}/dismiss response (operator surface)."
+      },
+      "AgentNoticeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "source",
+          "created_at"
+        ],
+        "title": "AgentNoticeOut",
+        "description": "One undismissed notice as shown to the operator."
+      },
+      "AgentNoticeRequest": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Agent"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent",
+          "text"
+        ],
+        "title": "AgentNoticeRequest",
+        "description": "POST /api/agent/notice body — a short agent-to-operator message.\n\n``AgentNoticeStore`` owns validation (text <= 280, source <= 80,\ncode/HTML rejection); the handler surfaces its error string as the\n422 detail."
+      },
+      "AgentNoticeResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "deduped": {
+            "type": "boolean",
+            "title": "Deduped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "deduped"
+        ],
+        "title": "AgentNoticeResponse",
+        "description": "POST /api/agent/notice response. ``deduped=True`` means an identical\n(source, text) pair already existed among undismissed notices and that\nrow was returned — repeat POSTs are safe (natural idempotency)."
+      },
+      "AgentNoticesResponse": {
+        "properties": {
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/AgentNoticeOut"
+            },
+            "type": "array",
+            "title": "Notices"
+          }
+        },
+        "type": "object",
+        "required": [
+          "notices"
+        ],
+        "title": "AgentNoticesResponse",
+        "description": "GET /api/agent/notices response (operator surface). Only rows that\npass read-time validation are surfaced — hostile direct-DB rows stay\nquarantined in the store's invalid bucket."
+      },
+      "AgentStatusResponse": {
+        "properties": {
+          "topics_pending": {
+            "type": "integer",
+            "title": "Topics Pending"
+          },
+          "cards": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Cards"
+          },
+          "notices_undismissed": {
+            "type": "integer",
+            "title": "Notices Undismissed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topics_pending",
+          "cards",
+          "notices_undismissed"
+        ],
+        "title": "AgentStatusResponse",
+        "description": "GET /api/agent/status (read-only, any valid token).\n\nCOUNTS ONLY — never add a field carrying topic/card/notice text.\n``notices_undismissed`` counts agent_notices rows still 'proposed'\n(wired in Phase 3)."
+      },
+      "AgentTopicRequest": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Agent"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "angle": {
+            "type": "string",
+            "title": "Angle",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent",
+          "title"
+        ],
+        "title": "AgentTopicRequest",
+        "description": "POST /api/agent/topics body (agent_context_gateway Phase 2).\n\nMaps 1:1 to ``TopicInboxStore.propose(title, angle, tags, source=agent)``\n— the store owns ALL content validation (TITLE_MAX=120, ANGLE_MAX=600,\nTAGS_MAX=8x40, SOURCE_MAX=80, code/HTML rejection), so this model stays\npermissive and the handler surfaces the store's own error string as the\n422 detail (mirrors the ``CommandRequest`` whitelist pattern). ``agent``\nis the self-reported provenance name stored in ``topic_inbox.source``\nand rendered to the operator in the inbox UI."
+      },
+      "AgentTopicResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "deduped": {
+            "type": "boolean",
+            "title": "Deduped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "deduped"
+        ],
+        "title": "AgentTopicResponse",
+        "description": "POST /api/agent/topics response.\n\nOwner decision D1: a proposal lands in the human-gated topic inbox as\n'proposed' — never in the agenda queue. ``deduped=True`` means the title\nslug matched an existing proposed row, which was updated in place: the\nstore's dedupe-upsert IS the idempotency contract (repeat POSTs are\nsafe, no Idempotency-Key header)."
+      },
+      "AvatarConfigRequest": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "state_images": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Images"
+          }
+        },
+        "type": "object",
+        "title": "AvatarConfigRequest",
+        "description": "PUT /api/avatar/config body — a partial update.\n\n`state_images` keys are validated against `VALID_STATES` server-side\n(unknown state -> 422) before anything is applied. Image UPLOAD is\ndeferred (owner decision) — values are paths only, never multipart."
+      },
+      "AvatarConfigResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "assets_folder": {
+            "type": "string",
+            "title": "Assets Folder"
+          },
+          "state_images": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "State Images"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "mode",
+          "assets_folder",
+          "state_images"
+        ],
+        "title": "AvatarConfigResponse",
+        "description": "GET/PUT /api/avatar/config response (Tier C). Paths only, no secrets."
+      },
+      "ChatLastReplyResponse": {
+        "properties": {
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "turn_id": {
+            "type": "integer",
+            "title": "Turn Id"
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
+          "queue_wait_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Wait Ms"
+          },
+          "answered_by_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By Provider"
+          },
+          "answered_by_transport": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By Transport"
+          },
+          "submitted_under_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted Under Provider"
+          },
+          "provider_changed_while_queued": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Changed While Queued"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "source",
+          "turn_id",
+          "ts"
+        ],
+        "title": "ChatLastReplyResponse",
+        "description": "GET /api/chat/last-reply (P3, R8-safe).\n\nSurfaces Kira's OWN generated reply text ONLY — mirrors the `_Drain` /\n`ChatReplySink` privacy contract in engine_host.py. This is NOT the\nviewer/operator chat that triggered the reply; that text never crosses\nHTTP (R8). Before any turn: `{text: null, source: null, turn_id: 0,\nts: null, queue_wait_ms: null, origin: null}`."
+      },
+      "ChatLiveMessageOut": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "ts": {
+            "type": "number",
+            "title": "Ts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "author",
+          "text",
+          "ts"
+        ],
+        "title": "ChatLiveMessageOut",
+        "description": "One entry in GET /api/stream/chat-live/messages (RF3).\n\nMirrors `ChatFeedSink.record()`'s stored fields (engine_host.py) exactly\n-- author/text/ts/seq, nothing else. R8-CRITICAL: this is the one place\nraw viewer chat text and usernames are allowed to reach HTTP at all, and\nonly post-filter (see ChatFeedSink's own docstring)."
+      },
+      "ChatLiveMessagesResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatLiveMessageOut"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "cursor": {
+            "type": "integer",
+            "title": "Cursor"
+          },
+          "boot": {
+            "type": "number",
+            "title": "Boot"
+          },
+          "session": {
+            "type": "integer",
+            "title": "Session"
+          },
+          "more_pending": {
+            "type": "boolean",
+            "title": "More Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "messages",
+          "cursor",
+          "boot",
+          "session",
+          "more_pending"
+        ],
+        "title": "ChatLiveMessagesResponse",
+        "description": "GET /api/stream/chat-live/messages?since=cursor (RF3).\n\nSame cursor/boot contract as EventLogResponse. `messages` is capped at\n50 per poll (oldest-after-cursor first); when the sink held more than\nthat, `more_pending` is True and `cursor` advances only to the last\nmessage actually returned, so a client polling in a loop catches up\ngradually instead of skipping the backlog.\n\n`session` changes on every chat-source connect (ChatFeedSink.new_session)\nand is REQUIRED, not optional: absent, it would be indistinguishable from\nsession 0, and a client would keep appending #canalB's chat onto\n#canalA's. `cursor` does NOT reset with it -- see that docstring."
+      },
+      "ChatTurnRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "ChatTurnRequest",
+        "description": "Wire shape for POST /api/chat/turn (design v2.1 build-order step 4).\n\n`text` is the raw viewer/operator message — dispatched verbatim as the\n`process_context` payload (see `MotorVocalIA._dispatch_command` in\nllm_engine.py). R8: `text` is NEVER echoed back in any response."
+      },
+      "CohostProfileOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "style": {
+            "type": "string",
+            "title": "Style"
+          },
+          "default_priority": {
+            "type": "string",
+            "title": "Default Priority"
+          },
+          "default_response_length": {
+            "type": "string",
+            "title": "Default Response Length"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "style",
+          "default_priority",
+          "default_response_length"
+        ],
+        "title": "CohostProfileOut",
+        "description": "One cohost profile as returned by GET/POST /api/agenda/cohost-profiles."
+      },
+      "CohostProfileSaveRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "style": {
+            "type": "string",
+            "title": "Style"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "style"
+        ],
+        "title": "CohostProfileSaveRequest",
+        "description": "POST /api/agenda/cohost-profiles body. `priority`/`length` map to the\nstored default_priority/default_response_length (CTK save-form parity)."
+      },
+      "CohostProfileSelectRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CohostProfileSelectRequest",
+        "description": "POST /api/agenda/cohost-profiles/select body."
+      },
+      "CohostProfileSelectResponse": {
+        "properties": {
+          "selected": {
+            "type": "string",
+            "title": "Selected"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selected"
+        ],
+        "title": "CohostProfileSelectResponse",
+        "description": "POST /api/agenda/cohost-profiles/select response — RAM-only apply."
+      },
+      "CohostProfilesResponse": {
+        "properties": {
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/CohostProfileOut"
+            },
+            "type": "array",
+            "title": "Profiles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles"
+        ],
+        "title": "CohostProfilesResponse",
+        "description": "GET/POST /api/agenda/cohost-profiles response.\n\nNO `selected` field by design: profile selection is stateless (RAM-only on\nthe running controller), never persisted. GET returns the on-disk profiles;\nclients default to \"Natural\" (CTK parity)."
+      },
+      "CommandRequest": {
+        "properties": {
+          "command": {
+            "type": "string",
+            "title": "Command"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload",
+            "default": {}
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "command"
+        ],
+        "title": "CommandRequest",
+        "description": "Wire shape for POST /api/commands (Phase 2, B2).\n\n`command` is checked against a server-side whitelist in main.py — this\nmodel accepts any string so the handler controls the reject status code\n(422) instead of pydantic's enum-validation 422 with a different body."
+      },
+      "CtxTelemetryOut": {
+        "properties": {
+          "ratio": {
+            "type": "number",
+            "title": "Ratio"
+          },
+          "effective_ctx": {
+            "type": "integer",
+            "title": "Effective Ctx"
+          },
+          "native_ctx": {
+            "type": "integer",
+            "title": "Native Ctx"
+          },
+          "evicted_pairs": {
+            "type": "integer",
+            "title": "Evicted Pairs"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ratio",
+          "effective_ctx",
+          "native_ctx",
+          "evicted_pairs",
+          "source"
+        ],
+        "title": "CtxTelemetryOut",
+        "description": "Unit 2.5: the four numbers `StatusRail`'s \"Contexto (KV)\" section\nrenders — mirrors `MotorVocalIA.ctx_telemetry_snapshot()`'s \"latest\" entry\n(llm_engine.py), never re-derived. `ratio`/`native_ctx`/`effective_ctx`\nare per-REQUEST (F10 fix): a background pregen worker can produce its own\n\"latest\" entry independent of whichever turn is still being spoken."
+      },
+      "EventLogResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "cursor": {
+            "type": "integer",
+            "title": "Cursor"
+          },
+          "boot": {
+            "type": "number",
+            "title": "Boot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "cursor",
+          "boot"
+        ],
+        "title": "EventLogResponse",
+        "description": "GET /api/events?since=cursor (item B).\n\n`cursor` is the sink's current max `seq` -- callers poll again with\n`since=cursor`. `boot` changes across a process restart (`seq` resets\nto 0 too); a client must reset its own `since` to 0 when `boot` changes,\nor a stale (too-high) `since` silently returns an empty backfill\nforever (see EventLogSink docstring, engine_host.py)."
+      },
+      "EventOut": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "ts": {
+            "type": "number",
+            "title": "Ts"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "ts",
+          "source",
+          "action"
+        ],
+        "title": "EventOut",
+        "description": "One entry in GET /api/events?since=cursor (item B).\n\nPRIVACY: `source`/`action` are drawn from EngineHost's closed\n`_MOTOR_EVENT_WHITELIST` (engine_host.py) -- `detail` is null for every\nwhitelisted status EXCEPT `ctx_pressure_high` (unit 2.3/2.5,\nruntime_findings_batch_20260731 F10), which carries a small numeric-only\ndict (`ratio`/`effective_ctx`/`native_ctx`/`evicted_pairs`) built by\n`EngineHost._on_ctx_pressure_high`'s own whitelist+numeric-type gate.\n`detail` must NEVER carry dialogue, chat, or request/response bodies --\na future numeric-detail action stays inside this same str|numeric-dict\nshape, never `Any`."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "engine_alive": {
+            "type": "boolean",
+            "title": "Engine Alive"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "engine_alive"
+        ],
+        "title": "HealthResponse",
+        "description": "Fast liveness probe — no engine work, no queue. R8: no chat/model detail."
+      },
+      "HealthState": {
+        "properties": {
+          "vram_status": {
+            "type": "string",
+            "title": "Vram Status"
+          },
+          "rtf_status": {
+            "type": "string",
+            "title": "Rtf Status"
+          },
+          "ollama_status": {
+            "type": "string",
+            "title": "Ollama Status"
+          },
+          "qwen_status": {
+            "type": "string",
+            "title": "Qwen Status"
+          },
+          "overall_status": {
+            "type": "string",
+            "title": "Overall Status"
+          },
+          "ollama_lifecycle": {
+            "type": "string",
+            "title": "Ollama Lifecycle"
+          },
+          "qwen_lifecycle": {
+            "type": "string",
+            "title": "Qwen Lifecycle"
+          },
+          "free_vram_mb": {
+            "type": "number",
+            "title": "Free Vram Mb"
+          },
+          "rtf_rolling_avg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtf Rolling Avg"
+          },
+          "last_updated": {
+            "type": "number",
+            "title": "Last Updated"
+          },
+          "total_vram_mb": {
+            "type": "number",
+            "title": "Total Vram Mb",
+            "default": 0.0
+          },
+          "used_vram_mb": {
+            "type": "number",
+            "title": "Used Vram Mb",
+            "default": 0.0
+          },
+          "model_resident_mb_est": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Resident Mb Est"
+          },
+          "model_vram_mb_est": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Vram Mb Est"
+          },
+          "model_ram_spill_mb_est": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Ram Spill Mb Est"
+          },
+          "model_processor_split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Processor Split"
+          }
+        },
+        "type": "object",
+        "required": [
+          "vram_status",
+          "rtf_status",
+          "ollama_status",
+          "qwen_status",
+          "overall_status",
+          "ollama_lifecycle",
+          "qwen_lifecycle",
+          "free_vram_mb",
+          "rtf_rolling_avg",
+          "last_updated"
+        ],
+        "title": "HealthState",
+        "description": "Mirrors `opencohost.core.observability.health_monitor.MonitorState`."
+      },
+      "I18nBundleInfo": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "display": {
+            "type": "string",
+            "title": "Display"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "display",
+          "tier",
+          "status"
+        ],
+        "title": "I18nBundleInfo",
+        "description": "One entry of GET /api/i18n's `available` list (design §7.1).\n\nMirrors a discovered locale bundle's `meta` section — `display`/`status`\ncome straight from the manifest (`opencohost/locales/{code}/manifest.yaml`),\n`tier` is the registry's authoritative (source-directory-stamped) tier,\nnever the manifest's own claim (security boundary, registry.py:8-10)."
+      },
+      "I18nSetLocaleRequest": {
+        "properties": {
+          "locale": {
+            "type": "string",
+            "title": "Locale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "locale"
+        ],
+        "title": "I18nSetLocaleRequest",
+        "description": "PUT /api/i18n body. `locale` is normalized (BCP-47) and matched\nagainst the discovered bundles server-side; unmatched -> 422."
+      },
+      "I18nStateResponse": {
+        "properties": {
+          "active_locale": {
+            "type": "string",
+            "title": "Active Locale"
+          },
+          "persisted_locale": {
+            "type": "string",
+            "title": "Persisted Locale"
+          },
+          "pending_restart": {
+            "type": "boolean",
+            "title": "Pending Restart"
+          },
+          "available": {
+            "items": {
+              "$ref": "#/components/schemas/I18nBundleInfo"
+            },
+            "type": "array",
+            "title": "Available"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/I18nWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_locale",
+          "persisted_locale",
+          "pending_restart",
+          "available",
+          "warnings"
+        ],
+        "title": "I18nStateResponse",
+        "description": "GET/PUT /api/i18n response (design §7.1).\n\n`active_locale` is what THIS running process loaded at startup;\n`persisted_locale` is what the NEXT start will load (D6: next-boot only,\nno hot-swap). `pending_restart` is true when they disagree — the config\nsurface (API/CTK/Tauri) uses it to show a \"restart required\" state."
+      },
+      "I18nWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "I18nWarning",
+        "description": "One `opencohost.i18n.coherence.CoherenceWarning` (stable `code`, human `message`)."
+      },
+      "LlmProviderProbeResponse": {
+        "properties": {
+          "armed": {
+            "type": "boolean",
+            "title": "Armed"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "armed"
+        ],
+        "title": "LlmProviderProbeResponse",
+        "description": "POST /api/llm/provider/probe response (WU2, cloud_rearm_20260801).\n\n`armed=False` is a benign no-op (not_in_fallback / no_cloud_profile),\nnever an error -- always 200. See MotorVocalIA.trigger_cloud_probe_now."
+      },
+      "LlmProviderProfileOut": {
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "api_key_set": {
+            "type": "boolean",
+            "title": "Api Key Set"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_url",
+          "model",
+          "api_key_set"
+        ],
+        "title": "LlmProviderProfileOut",
+        "description": "One entry of `LlmProviderResponse.profiles` — never carries a key."
+      },
+      "LlmProviderRequest": {
+        "properties": {
+          "active_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Provider"
+          },
+          "fallback_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "manual"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Mode"
+          },
+          "pregen_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pregen Enabled"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "delete_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delete Profile"
+          }
+        },
+        "type": "object",
+        "title": "LlmProviderRequest",
+        "description": "PUT /api/llm/provider body — a partial update.\n\nGlobal fields (`active_provider`/`fallback_mode`/`pregen_enabled`) apply\nunconditionally. Profile-scoped fields (`base_url`/`model`/`preset`/\n`api_key`) REQUIRE `profile_id` and merge into ONLY that one profile —\nnever another provider's saved entry (design 'never overwrites another\nprovider'). `api_key` is write-only: a non-empty value stores it, `\"\"`\nclears ONLY that profile's key, omitting it leaves the stored key\nuntouched.\n\n`delete_profile` is a write-only ACTION field naming the profile id to\nremove (config entry + stored key). Mutually exclusive with the\nprofile-scoped edit fields above in the same PUT; global fields (e.g.\n`active_provider`) MAY combine with it in one call (switch-then-delete)."
+      },
+      "LlmProviderResponse": {
+        "properties": {
+          "active_provider": {
+            "type": "string",
+            "title": "Active Provider"
+          },
+          "fallback_mode": {
+            "type": "string",
+            "title": "Fallback Mode"
+          },
+          "pregen_enabled": {
+            "type": "boolean",
+            "title": "Pregen Enabled"
+          },
+          "profiles": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LlmProviderProfileOut"
+            },
+            "type": "object",
+            "title": "Profiles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_provider",
+          "fallback_mode",
+          "pregen_enabled",
+          "profiles"
+        ],
+        "title": "LlmProviderResponse",
+        "description": "GET/PUT /api/llm/provider response (Tier C, multi_provider_llm_20260723).\n\nNever echoes any key — only `api_key_set` per profile, mirroring\n`ObsConfigResponse.password_set`."
+      },
+      "MemoriaCaptureRequest": {
+        "properties": {
+          "paused": {
+            "type": "boolean",
+            "title": "Paused"
+          }
+        },
+        "type": "object",
+        "required": [
+          "paused"
+        ],
+        "title": "MemoriaCaptureRequest",
+        "description": "POST /api/memoria/capture body — session-scoped capture-privacy toggle.\n\n`paused=True` pauses auto-capture; `False` resumes it. The handler calls\n`host.motor.set_memorias_private(paused)` DIRECTLY (mirrors the CTK path in\ninspector_memory.py), NOT via /api/commands (design resolution 2905/D3)."
+      },
+      "MemoriaDeleteRequest": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "id"
+        ],
+        "title": "MemoriaDeleteRequest",
+        "description": "POST /api/memoria/delete body — hard-delete one row by id.\n\nReuses MemoriaMutationResponse. The handler's store.get pre-check owns\nthe 404 for a missing/wrong-profile row, so delete_row's False can only\nmean a genuine write failure (503), never \"already gone\"."
+      },
+      "MemoriaFlagsRequest": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "pinned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned"
+          },
+          "private": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private"
+          },
+          "inactive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "id"
+        ],
+        "title": "MemoriaFlagsRequest",
+        "description": "POST /api/memoria/flags body — a partial flag update.\n\nEvery flag is optional; an omitted flag is left unchanged. The handler\nrejects a body with all three omitted (422) rather than issuing a no-op\nwrite. F5: pin/private promote status='curated' in the store (same\nstatement); un-pin never demotes; `inactive` never touches status."
+      },
+      "MemoriaImportRequest": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "source_label": {
+            "type": "string",
+            "title": "Source Label"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "source_label",
+          "content"
+        ],
+        "title": "MemoriaImportRequest",
+        "description": "POST /api/memoria/import body — a bounded external-AI export (memoria_\nimport_20260718).\n\n`content` is the raw markdown/plain-text export (parsed server-side into\nper-profile 'imported' rows); `source_label` is a short provenance tag\n(\"Gemini\", \"ChatGPT\", …) that becomes the row title prefix. R8: content\nflows INBOUND only; the response is counts-only and never echoes it.\nThe route enforces the 64 KB / 100-item / 40-char-label / import-cap\ntrust-boundary bounds before any write."
+      },
+      "MemoriaImportResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "imported": {
+            "type": "integer",
+            "title": "Imported"
+          },
+          "skipped_duplicates": {
+            "type": "integer",
+            "title": "Skipped Duplicates"
+          },
+          "skipped_too_short": {
+            "type": "integer",
+            "title": "Skipped Too Short"
+          },
+          "skipped_cap": {
+            "type": "integer",
+            "title": "Skipped Cap"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "imported",
+          "skipped_duplicates",
+          "skipped_too_short",
+          "skipped_cap",
+          "failed"
+        ],
+        "title": "MemoriaImportResponse",
+        "description": "POST /api/memoria/import response — counts ONLY (R8), one field per\nper-item outcome of the four-state insert_imported contract.\n\n`imported` = fresh rows created; `skipped_duplicates` = ON-CONFLICT\ncollisions (already present, nothing overwritten); `skipped_too_short` =\nclaims with too few significant tokens to store; `skipped_cap` = creatable\nclaims left unattempted because the profile's import cap headroom was\nexhausted in-loop (D6 — only `created` rows consume headroom); `failed` =\nfail-open store errors (a lock loss is surfaced honestly here, NEVER counted\nas a duplicate — R4). `ok` is False for the disabled no-op or when any item\nfailed to write."
+      },
+      "MemoriaListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned"
+          },
+          "private": {
+            "type": "boolean",
+            "title": "Private"
+          },
+          "inactive": {
+            "type": "boolean",
+            "title": "Inactive"
+          },
+          "imported": {
+            "type": "boolean",
+            "title": "Imported"
+          },
+          "draft": {
+            "type": "boolean",
+            "title": "Draft"
+          },
+          "promoted": {
+            "type": "boolean",
+            "title": "Promoted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "updated_at",
+          "revision",
+          "pinned",
+          "private",
+          "inactive",
+          "imported",
+          "draft",
+          "promoted"
+        ],
+        "title": "MemoriaListItem",
+        "description": "One row of GET /api/memoria/list (Tier B).\n\nWU-H (operator viewing decision, 2026-07-05): `title` is now included in\nthe list projection — a deliberate, scoped relaxation of the prior\nmetadata-only rule so the operator can recognize a row before deciding\nto load it. `content` is still deliberately excluded, and the endpoint's\nSQL SELECT never reads that column off disk in the first place (defense\nin depth, not just field omission here) — content is only readable one\nrow at a time via GET /api/memoria/row/{id}. R8 (raw viewer chat never\nleaves the API) is unaffected: memoria title/content is Kira's\ncurated/derived memory, not raw chat."
+      },
+      "MemoriaListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoriaListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "MemoriaListResponse",
+        "description": "GET /api/memoria/list response body."
+      },
+      "MemoriaMutationResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "MemoriaMutationResponse",
+        "description": "POST /api/memoria/{flags,delete,update} response. R8: never echoes\ntitle/content — read-back stays metadata-only via /api/memoria/list."
+      },
+      "MemoriaNoticeRequest": {
+        "properties": {
+          "dismissed": {
+            "type": "boolean",
+            "title": "Dismissed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dismissed"
+        ],
+        "title": "MemoriaNoticeRequest",
+        "description": "POST /api/memoria/notice body — sets the F1 disclosure-banner state."
+      },
+      "MemoriaNoticeResponse": {
+        "properties": {
+          "dismissed": {
+            "type": "boolean",
+            "title": "Dismissed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dismissed"
+        ],
+        "title": "MemoriaNoticeResponse",
+        "description": "GET/POST /api/memoria/notice response — F1 disclosure-banner state.\n\n`dismissed=False` means the operator has not yet dismissed the banner, so\nit shows. Fails open to False (banner shows) when the flag is absent."
+      },
+      "MemoriaPurgeRequest": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id"
+        ],
+        "title": "MemoriaPurgeRequest",
+        "description": "POST /api/memoria/purge body."
+      },
+      "MemoriaPurgeResponse": {
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "MemoriaPurgeResponse",
+        "description": "POST /api/memoria/purge response body."
+      },
+      "MemoriaRowResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned"
+          },
+          "private": {
+            "type": "boolean",
+            "title": "Private"
+          },
+          "inactive": {
+            "type": "boolean",
+            "title": "Inactive"
+          },
+          "draft": {
+            "type": "boolean",
+            "title": "Draft"
+          },
+          "promoted": {
+            "type": "boolean",
+            "title": "Promoted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "content",
+          "created_at",
+          "updated_at",
+          "pinned",
+          "private",
+          "inactive",
+          "draft",
+          "promoted"
+        ],
+        "title": "MemoriaRowResponse",
+        "description": "GET /api/memoria/row/{id} response body (WU-H, operator viewing decision).\n\nThe ONLY memoria surface that returns `content` — on-demand, one row at a\ntime, never preloaded alongside GET /api/memoria/list. Mirrors the\nownership-guard shape used by POST /api/memoria/{delete,update}: the\nhandler's store.get(raising=True) pre-check owns the 404 for a\nmissing/wrong-profile row (R7: identical 404 body either way)."
+      },
+      "MemoriaStatsResponse": {
+        "properties": {
+          "session_turns": {
+            "type": "integer",
+            "title": "Session Turns"
+          },
+          "digest_entries": {
+            "type": "integer",
+            "title": "Digest Entries"
+          },
+          "saved_memorias": {
+            "type": "integer",
+            "title": "Saved Memorias"
+          },
+          "pinned": {
+            "type": "integer",
+            "title": "Pinned"
+          },
+          "saved_memorias_total": {
+            "type": "integer",
+            "title": "Saved Memorias Total",
+            "default": 0
+          },
+          "pinned_total": {
+            "type": "integer",
+            "title": "Pinned Total",
+            "default": 0
+          },
+          "editorial_cards_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Editorial Cards By Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_turns",
+          "digest_entries",
+          "saved_memorias",
+          "pinned",
+          "editorial_cards_by_status"
+        ],
+        "title": "MemoriaStatsResponse",
+        "description": "GET /api/memoria/stats (Tier B, R8-CRITICAL).\n\nCOUNTS ONLY — never add a field carrying memoria/card title, content,\ntranscript, or any other text. See `_DIGEST_CAPTURE_SOURCES` /\n`memory_inspector_snapshot` in opencohost/core/llm_engine.py (the only\nprovenance gates — reused verbatim, never re-derived)."
+      },
+      "MemoriaUpdateRequest": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "id",
+          "title",
+          "content"
+        ],
+        "title": "MemoriaUpdateRequest",
+        "description": "POST /api/memoria/update body — operator edit of one row's text.\n\nR8 note: title/content flow INBOUND only; the response never echoes them\n(MemoriaMutationResponse is ok-only) and read-back stays metadata-only via\n/api/memoria/list. The handler strips + length-caps both before the write;\nupdate_row then whitespace-normalizes and promotes status='curated' (F5)."
+      },
+      "ModelCatalogEntry": {
+        "properties": {
+          "display": {
+            "type": "string",
+            "title": "Display"
+          },
+          "desc": {
+            "type": "string",
+            "title": "Desc"
+          },
+          "size_gb": {
+            "type": "number",
+            "title": "Size Gb"
+          },
+          "family": {
+            "type": "string",
+            "title": "Family"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display",
+          "desc",
+          "size_gb",
+          "family"
+        ],
+        "title": "ModelCatalogEntry",
+        "description": "Mirrors one entry of `opencohost.config.settings.MODELS_CATALOG`."
+      },
+      "ModelsResponse": {
+        "properties": {
+          "catalog": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ModelCatalogEntry"
+            },
+            "type": "object",
+            "title": "Catalog"
+          },
+          "discovered": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Discovered"
+          },
+          "current_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Model"
+          },
+          "tiers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Tiers"
+          },
+          "active_tier": {
+            "type": "string",
+            "title": "Active Tier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "catalog",
+          "discovered",
+          "current_model",
+          "tiers",
+          "active_tier"
+        ],
+        "title": "ModelsResponse",
+        "description": "GET /api/models (Tier B, direct read).\n\n`discovered` degrades to `[]` when live Ollama discovery times out or\nerrors — the catalog + tiers still resolve to safe catalog-only values."
+      },
+      "MusicFadeOut": {
+        "properties": {
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "ts": {
+            "type": "number",
+            "title": "Ts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "direction",
+          "duration_ms",
+          "seq",
+          "ts"
+        ],
+        "title": "MusicFadeOut",
+        "description": "A recorded fade INTENT (client-side-playback model). Populated by WU2's\nPOST /api/music/fade; carried on MusicStateResponse.fade so a polling\nclient executes the fade when it sees a `seq` greater than its last."
+      },
+      "MusicFadeRequest": {
+        "properties": {
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "direction"
+        ],
+        "title": "MusicFadeRequest",
+        "description": "POST /api/music/fade body. `direction` ('in'|'out') is checked against\n_MUSIC_FADE_DIRECTIONS in main.py (422 on unknown). `duration_ms` defaults\nserver-side to _MUSIC_FADE_DEFAULT_MS when omitted, then range-capped to\n(0, _MUSIC_FADE_MAX_MS] — the fade is an INTENT the client executes."
+      },
+      "MusicImportRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "mood": {
+            "type": "string",
+            "title": "Mood"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "mood"
+        ],
+        "title": "MusicImportRequest",
+        "description": "POST /api/music/import body (WU3). `path` is an absolute local audio\nfile the server copies into the managed library dir; `mood` is\ncase/whitespace-normalized then checked against KNOWN_MOODS (422 on\nunknown). Client and server share a filesystem (local-first product)."
+      },
+      "MusicImportResponse": {
+        "properties": {
+          "track": {
+            "$ref": "#/components/schemas/MusicTrackOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "track"
+        ],
+        "title": "MusicImportResponse",
+        "description": "POST /api/music/import response. Orchestration fields only — the nested\n`track` carries NO filesystem `path` (resolution 2914: audio is delivered\nvia a FileResponse endpoint, so the raw path is never leaked)."
+      },
+      "MusicLibraryResponse": {
+        "properties": {
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/MusicTrackOut"
+            },
+            "type": "array",
+            "title": "Tracks"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "moods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Moods"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tracks",
+          "count",
+          "moods"
+        ],
+        "title": "MusicLibraryResponse",
+        "description": "GET /api/music/library (Tier B, direct read-only, no queue, no audio).\n\nServer-side audio playback (`request_mood`) is deferred — this is a\npure library listing."
+      },
+      "MusicMoodRequest": {
+        "properties": {
+          "mood": {
+            "type": "string",
+            "title": "Mood"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mood"
+        ],
+        "title": "MusicMoodRequest",
+        "description": "POST /api/music/mood body. `mood` is case/whitespace-normalized then\nchecked against KNOWN_MOODS in main.py (422 on unknown) — a stricter\ncontract than music_library.normalize_mood's silent fallback to 'normal'."
+      },
+      "MusicMoodResponse": {
+        "properties": {
+          "active_mood": {
+            "type": "string",
+            "title": "Active Mood"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/MusicTrackOut"
+            },
+            "type": "array",
+            "title": "Tracks"
+          },
+          "suggested_track_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Track Id"
+          },
+          "fallback": {
+            "type": "boolean",
+            "title": "Fallback",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_mood",
+          "tracks",
+          "suggested_track_id"
+        ],
+        "title": "MusicMoodResponse",
+        "description": "POST /api/music/mood response. No playback/audio field — the client\nreads `suggested_track_id` (select_for_mood's mood->normal->any fallback)\nand the valid `tracks` in the bucket, then plays client-side. When the\nrequested mood's bucket is empty, `tracks` is populated with the same\nnormal->any fallback pool and `fallback` is True so the client can rotate\ninstead of always replaying `suggested_track_id`."
+      },
+      "MusicStateResponse": {
+        "properties": {
+          "active_mood": {
+            "type": "string",
+            "title": "Active Mood"
+          },
+          "fade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MusicFadeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_mood"
+        ],
+        "title": "MusicStateResponse",
+        "description": "GET /api/music/state (and the POST mood/fade responses). Orchestration\nstate ONLY (music-orchestration-model): the API never plays audio; the\nclient reads this and plays. `fade` is None until a fade intent is set."
+      },
+      "MusicTrackOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "mood": {
+            "type": "string",
+            "title": "Mood"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "mood",
+          "status"
+        ],
+        "title": "MusicTrackOut",
+        "description": "Mirrors `opencohost.core.music.music_library.MusicTrack` (READ-ONLY slice,\nWS3 slice 4). `status` is derived, never the raw `missing`/`invalid`\nbooleans: ok (file present + valid signature), faltante (path gone),\ninvalido (file present but fails the audio-signature check)."
+      },
+      "ObsConfigRequest": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "title": "ObsConfigRequest",
+        "description": "PUT /api/obs/config body — a partial update.\n\nEvery field is optional; an omitted field leaves the stored value\nunchanged. `password` is write-only: provide it to set it, omit it to\nleave the stored password untouched (omitting never clears it).\n\nReused as-is for POST /api/obs/test's optional `{host, port, password}`\noverride (its `enabled`/`source` fields are simply ignored there)."
+      },
+      "ObsConfigResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "password_set": {
+            "type": "boolean",
+            "title": "Password Set"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "host",
+          "port",
+          "source",
+          "password_set"
+        ],
+        "title": "ObsConfigResponse",
+        "description": "GET/PUT /api/obs/config response (Tier C).\n\nR8/secret: NEVER carries the stored password — `password_set` is a bool\nderived from it (`bool(non-empty stored password)`), nothing more."
+      },
+      "ObsTestResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "ObsTestResponse",
+        "description": "POST /api/obs/test response. Never carries the password."
+      },
+      "PersonalizationResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          },
+          "occupation": {
+            "type": "string",
+            "title": "Occupation"
+          },
+          "interests": {
+            "type": "string",
+            "title": "Interests"
+          },
+          "custom_instructions": {
+            "type": "string",
+            "title": "Custom Instructions"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "nickname",
+          "occupation",
+          "interests",
+          "custom_instructions",
+          "updated_at"
+        ],
+        "title": "PersonalizationResponse",
+        "description": "GET/PUT/DELETE /api/personalization response (design §4).\n\nExplicit field picks only — never `**data` — mirrors\n`ProfileDetailResponse`: a future persisted field (e.g. the internal\n`version` key) can never leak through this endpoint."
+      },
+      "PersonalizationUpdateRequest": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "interests": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interests"
+          },
+          "custom_instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instructions"
+          }
+        },
+        "type": "object",
+        "title": "PersonalizationUpdateRequest",
+        "description": "PUT /api/personalization body — a partial update.\n\nEvery field optional; an omitted field leaves the stored value\nunchanged. Mirrors `ProfileUpdateRequest`."
+      },
+      "ProfileCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "use_system": {
+            "type": "boolean",
+            "title": "Use System",
+            "default": false
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "prompt"
+        ],
+        "title": "ProfileCreateRequest",
+        "description": "POST /api/perfiles body — create a new profile. A stable `id` is\nminted server-side (never accepted from the wire)."
+      },
+      "ProfileDetailResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "use_system": {
+            "type": "boolean",
+            "title": "Use System"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "id",
+          "prompt",
+          "use_system"
+        ],
+        "title": "ProfileDetailResponse",
+        "description": "GET /api/perfiles/{name} response (R8/D5).\n\n`id` is included so the FE can target this (possibly non-active)\nprofile's memoria rows, which are stored keyed by the stable uuid `id`,\nnot the display name. prompt/use_system/id ONLY — never chat content or\nany other field. The handler builds this from explicit field picks\n(never `**data`), so a new persisted field can never leak through this\nendpoint."
+      },
+      "ProfileUpdateRequest": {
+        "properties": {
+          "new_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Name"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "use_system": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use System"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locale"
+          }
+        },
+        "type": "object",
+        "title": "ProfileUpdateRequest",
+        "description": "PUT /api/perfiles/{name} body — a partial update.\n\nEvery field optional; an omitted field leaves the stored value unchanged.\n`new_name` renames the profile while preserving its stable on-disk `id`\n(R12)."
+      },
+      "ProfilesListResponse": {
+        "properties": {
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Profiles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles"
+        ],
+        "title": "ProfilesListResponse",
+        "description": "Profile NAMES only — never persona text, prompts, or other fields."
+      },
+      "PttConfigRequest": {
+        "properties": {
+          "stt_ws_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stt Ws Uri"
+          }
+        },
+        "type": "object",
+        "title": "PttConfigRequest",
+        "description": "PUT /api/ptt/config body. ``stt_ws_uri`` is optional — an omitted field\nmeans \"no change\", so the PUT doubles as a read of the effective config\n(there is no dedicated GET; the UI reads GET /api/ptt/state)."
+      },
+      "PttConfigResponse": {
+        "properties": {
+          "stt_ws_uri": {
+            "type": "string",
+            "title": "Stt Ws Uri"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stt_ws_uri"
+        ],
+        "title": "PttConfigResponse",
+        "description": "The EFFECTIVE LiveAudio/WhisperLive URL after the write."
+      },
+      "PttKeepaliveRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "PttKeepaliveRequest",
+        "description": "POST /api/ptt/keepalive body. The client posts this ~1 Hz while the key\nis held; the stream IS the server-side proof-of-life (guillotine)."
+      },
+      "PttStateResponse": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "buffered_chars": {
+            "type": "integer",
+            "title": "Buffered Chars",
+            "default": 0
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "stt_ws_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stt Ws Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "PttStateResponse",
+        "description": "GET /api/ptt/state. ``buffered_chars`` is a count, NEVER the text.\n\n``stt_ws_url`` is the LiveAudio/WhisperLive viewer WebSocket URL the\nbackend itself consumes — exposed so the webview can open its OWN\nrecv-only connection (the OBS-browser-source pattern) for the transcript\necho. A URL/port is not transcript text; the privacy rule is untouched."
+      },
+      "PttStopRequest": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "title": "PttStopRequest",
+        "description": "POST /api/ptt/stop body. ``session_id`` is optional — stop is fully\nidempotent, so an unknown/absent id still returns 200."
+      },
+      "PttTestRequest": {
+        "properties": {
+          "stt_ws_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stt Ws Uri"
+          }
+        },
+        "type": "object",
+        "title": "PttTestRequest",
+        "description": "POST /api/ptt/test body. ``stt_ws_uri`` is optional — omitted means\n\"probe whatever is configured right now\"."
+      },
+      "PttTestResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "detail"
+        ],
+        "title": "PttTestResponse",
+        "description": "A failed probe is a RESULT, not an HTTP error: this always rides a 200.\n\n``detail`` is a short fixed literal (connected | invalid_scheme | timeout |\nunreachable) — never the raw exception text, which can carry bytes echoed\nfrom an untrusted remote straight into the operator's UI."
+      },
+      "StatusResponse": {
+        "properties": {
+          "is_ready": {
+            "type": "boolean",
+            "title": "Is Ready"
+          },
+          "current_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Model"
+          },
+          "is_speaking": {
+            "type": "boolean",
+            "title": "Is Speaking"
+          },
+          "is_processing": {
+            "type": "boolean",
+            "title": "Is Processing"
+          },
+          "active_profile": {
+            "type": "string",
+            "title": "Active Profile"
+          },
+          "active_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Profile Id"
+          },
+          "health": {
+            "$ref": "#/components/schemas/HealthState"
+          },
+          "state_version": {
+            "type": "integer",
+            "title": "State Version"
+          },
+          "ollama_warming": {
+            "type": "boolean",
+            "title": "Ollama Warming",
+            "default": false
+          },
+          "session_mode": {
+            "type": "string",
+            "title": "Session Mode",
+            "default": "inactiva"
+          },
+          "llm_generating": {
+            "type": "boolean",
+            "title": "Llm Generating",
+            "default": false
+          },
+          "pending_commands_count": {
+            "type": "integer",
+            "title": "Pending Commands Count",
+            "default": 0
+          },
+          "avatar_state": {
+            "type": "string",
+            "title": "Avatar State",
+            "default": "idle"
+          },
+          "obs_connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obs Connected"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "default": "local"
+          },
+          "transport": {
+            "type": "string",
+            "title": "Transport",
+            "default": "local"
+          },
+          "fallback_active": {
+            "type": "boolean",
+            "title": "Fallback Active",
+            "default": false
+          },
+          "fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Reason"
+          },
+          "next_cloud_probe_in_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cloud Probe In Seconds"
+          },
+          "ctx_telemetry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CtxTelemetryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_ready",
+          "current_model",
+          "is_speaking",
+          "is_processing",
+          "active_profile",
+          "health",
+          "state_version"
+        ],
+        "title": "StatusResponse"
+      },
+      "StreamChatLiveResponse": {
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "threshold_per_second": {
+            "type": "number",
+            "title": "Threshold Per Second"
+          },
+          "cooldown_seconds": {
+            "type": "number",
+            "title": "Cooldown Seconds"
+          },
+          "max_messages_per_user": {
+            "type": "integer",
+            "title": "Max Messages Per User"
+          },
+          "filter_policy": {
+            "type": "string",
+            "title": "Filter Policy"
+          },
+          "input_contract": {
+            "type": "boolean",
+            "title": "Input Contract"
+          },
+          "stream_over_agenda": {
+            "type": "boolean",
+            "title": "Stream Over Agenda"
+          },
+          "stream_ttl_seconds": {
+            "type": "number",
+            "title": "Stream Ttl Seconds"
+          },
+          "effective_stream_ttl_seconds": {
+            "type": "number",
+            "title": "Effective Stream Ttl Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connected",
+          "platform",
+          "source_id",
+          "threshold_per_second",
+          "cooldown_seconds",
+          "max_messages_per_user",
+          "filter_policy",
+          "input_contract",
+          "stream_over_agenda",
+          "stream_ttl_seconds",
+          "effective_stream_ttl_seconds"
+        ],
+        "title": "StreamChatLiveResponse",
+        "description": "GET /api/stream/chat-live (Tier C, R8-CRITICAL).\n\nCONNECTION STATE + LIMITS ONLY — never add a field carrying viewer\nmessage text. Mirrors opencohost.smart_aggregator.aggregator.Aggregator\nstate accessors (`_source`, `.activity`, `._spam_max_messages`,\n`.get_filter_policy()`) verbatim."
+      },
+      "StreamConnectRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "StreamConnectRequest"
+      },
+      "StreamLimitsRequest": {
+        "properties": {
+          "threshold_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold Per Second"
+          },
+          "cooldown_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldown Seconds"
+          },
+          "max_messages_per_user": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Messages Per User"
+          },
+          "filter_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter Policy"
+          },
+          "input_contract": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Contract"
+          },
+          "stream_over_agenda": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Over Agenda"
+          },
+          "stream_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Ttl Seconds"
+          }
+        },
+        "type": "object",
+        "title": "StreamLimitsRequest"
+      },
+      "SwitchProfileRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SwitchProfileRequest"
+      },
+      "TTSConfigResponse": {
+        "properties": {
+          "piper_voice": {
+            "type": "string",
+            "title": "Piper Voice"
+          },
+          "local_only": {
+            "type": "boolean",
+            "title": "Local Only"
+          },
+          "speed": {
+            "type": "number",
+            "title": "Speed"
+          },
+          "engine": {
+            "type": "string",
+            "title": "Engine"
+          },
+          "heavy_available": {
+            "type": "boolean",
+            "title": "Heavy Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "piper_voice",
+          "local_only",
+          "speed",
+          "engine",
+          "heavy_available"
+        ],
+        "title": "TTSConfigResponse",
+        "description": "GET /api/tts/config (Tier B, direct read). Pure config read, no I/O timeout needed."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

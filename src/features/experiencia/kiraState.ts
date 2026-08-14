@@ -80,7 +80,14 @@ const KNOWN_AVATAR_STATES = new Set<AvatarState>([
 // pipeline exposes them.
 export function deriveAvatarState(
   data:
-    | Pick<StatusResponse, "is_speaking" | "is_processing" | "is_ready" | "health" | "avatar_state">
+    | (Pick<StatusResponse, "is_speaking" | "is_processing" | "is_ready" | "health"> &
+        // OPTIONAL on purpose. The backend field carries `default: "idle"`, so a
+        // real StatusResponse always has it and the generated type makes it
+        // required — but the body below is deliberately defensive
+        // (`if (data.avatar_state && ...)`) and falls back to derivation when it
+        // is missing. Requiring it here would type away a branch this function
+        // actually has, and delete the test that proves the branch works.
+        Partial<Pick<StatusResponse, "avatar_state">>)
     | undefined
 ): AvatarState {
   if (!data) return "sleeping";

@@ -15,7 +15,16 @@ function makeHealth(overall_status: string): StatusResponse["health"] {
     qwen_lifecycle: "running",
     free_vram_mb: 4096,
     rtf_rolling_avg: 0.3,
-    last_updated: 0
+    last_updated: 0,
+    // These six carry a `default` in HealthState, so the server always sends
+    // them. The fixture predates them and types.gen.ts was six weeks stale, so
+    // nothing could say the placeholder shape had fallen behind the payload.
+    total_vram_mb: 0,
+    used_vram_mb: 0,
+    model_resident_mb_est: null,
+    model_vram_mb_est: null,
+    model_ram_spill_mb_est: null,
+    model_processor_split: null
   };
 }
 
@@ -68,6 +77,10 @@ describe("deriveAvatarState (F4 — prefers backend avatar_state)", () => {
   });
 });
 
+// `avatar_state` is deliberately ABSENT: these cases exercise the derivation
+// fallback, and supplying it would short-circuit the very branch under test
+// (`deriveAvatarState` returns the backend field verbatim when present).
+// The parameter type marks it optional for exactly this reason.
 const idleStatus = {
   is_speaking: false,
   is_processing: false,

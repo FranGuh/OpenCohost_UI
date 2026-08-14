@@ -85,7 +85,13 @@ export interface LastReplyResponse {
   origin?: string | null;
 }
 
-export const defaultStatus: StatusResponse = {
+// `avatar_state` is deliberately OMITTED from this base fixture, hence the
+// Omit<>. The real server always sends it (the field carries a default), but
+// most avatar tests spread this object and flip `is_speaking`/`is_processing`
+// /`is_ready` to exercise CLIENT-SIDE derivation — supplying `avatar_state`
+// here would short-circuit that branch and make those tests assert nothing.
+// A test that wants the backend-passthrough path adds the field explicitly.
+export const defaultStatus: Omit<StatusResponse, "avatar_state"> = {
   is_ready: true,
   current_model: "qwen3-tts",
   is_speaking: false,
@@ -98,6 +104,10 @@ export const defaultStatus: StatusResponse = {
   session_mode: "inactiva",
   llm_generating: false,
   pending_commands_count: 0,
+  // Carries a `default` in the backend model, so the server always sends it.
+  // The mock omitted it while types.gen.ts was six weeks stale and could not
+  // say so. Unlike `avatar_state` above, adding it changes no test semantics.
+  ollama_warming: false,
   ctx_telemetry: null,
   health: {
     vram_status: "ok",
@@ -1023,7 +1033,12 @@ export function chatTurnNetworkErrorHandler() {
  * no real "applied" field to observe.
  */
 export function commandDispatcherHandlers(initial: Partial<StatusResponse> = {}) {
-  let status: StatusResponse = { ...defaultStatus, ...initial };
+  // Mirrors `defaultStatus`'s shape (avatar_state omitted, see its comment)
+  // while still letting a caller opt into supplying it via `initial`.
+  let status: typeof defaultStatus & Partial<StatusResponse> = {
+    ...defaultStatus,
+    ...initial,
+  };
   return [
     http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json(status)),
     http.post(`${API_BASE_URL}/api/commands`, () => {
