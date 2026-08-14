@@ -242,8 +242,8 @@ Restored (orchestrator, from the reviewer's captured pre-revert diff + fixer tra
 - `src-tauri/backend.config.json` — recreated verbatim (content recovered from the fixer
   transcript's own `cat` output).
 
-RECOVERED (update, same day): the owner located the original generation batch at
-`C:/Users/tavo_/.codex/generated_images/019f48b4-c1b4-7093-b4d9-f5fa1a179244/` —
+RECOVERED (update, same day): the owner located the original generation batch in
+a local image-tool cache outside the repo —
 `kira-capabilities.png` there is hash-identical (md5 70040f29…) to the HEAD-tracked
 copy, confirming this folder as the exact source. The four slide illustrations were
 copied back into `public/welcome/` as `kira-agenda.png`, `kira-voice.png`,
