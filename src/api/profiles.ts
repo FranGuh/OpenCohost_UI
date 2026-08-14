@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { components } from "./types.gen.js";
 import {
   ApiError,
   ConflictError,
@@ -27,31 +28,32 @@ export const PROFILES_QUERY_KEY = ["perfiles"] as const;
  * not `name`, for any /api/memoria/* call targeting this profile.
  * ponytail: keep in sync manually.
  */
-export interface ProfileDetailResponse {
-  name: string;
-  id: string;
-  prompt: string;
-  use_system: boolean;
-}
+// MIGRATED to the generated schema (2026-08-14). All three were hand-typed
+// while openapi.snapshot.json sat six weeks stale, and all three had drifted
+// the same way: the backend gained a `locale` field on every profile — a
+// profile can carry its own language — and none of these knew it existed, so
+// the shipped feature was invisible to the UI.
+export type ProfileDetailResponse = components["schemas"]["ProfileDetailResponse"];
 
-/** POST /api/perfiles body (opencohost/api/main.py ~629-650) — hand-typed
- * from ProfileCreateRequest. `use_system` defaults to `false` server-side
- * when omitted. ponytail: keep in sync manually. */
-export interface ProfileCreateRequest {
-  name: string;
-  prompt: string;
-  use_system?: boolean;
-}
+/** POST /api/perfiles body. `use_system` defaults to `false` server-side when
+ * omitted, and stays OPTIONAL here on purpose.
+ *
+ * openapi-typescript marks any field carrying a `default` as always-present.
+ * That is right for a RESPONSE — the server fills it in — and wrong for a
+ * REQUEST body, where the default is precisely what lets the client omit it.
+ * The schema agrees: `required` is ["name", "prompt"]. Taking the generated
+ * shape verbatim would force every caller to send `use_system` and change the
+ * bytes on the wire. */
+export type ProfileCreateRequest = Omit<
+  components["schemas"]["ProfileCreateRequest"],
+  "use_system"
+> &
+  Partial<Pick<components["schemas"]["ProfileCreateRequest"], "use_system">>;
 
-/** PUT /api/perfiles/{name} body (opencohost/api/main.py ~652-684) — hand-typed
- * from ProfileUpdateRequest. Every field is a PARTIAL update: an omitted
+/** PUT /api/perfiles/{name} body. Every field is a PARTIAL update: an omitted
  * field leaves the stored value unchanged (`new_name` renames while
- * preserving the profile's stable on-disk id). ponytail: keep in sync manually. */
-export interface ProfileUpdateRequest {
-  new_name?: string;
-  prompt?: string;
-  use_system?: boolean;
-}
+ * preserving the profile's stable on-disk id). */
+export type ProfileUpdateRequest = components["schemas"]["ProfileUpdateRequest"];
 
 /** DELETE /api/perfiles/{name} (opencohost/api/main.py ~686-702) has no
  * `response_model` — hand-typed from the literal `{"ok": True}` return,

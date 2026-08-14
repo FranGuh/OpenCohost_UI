@@ -1,4 +1,4 @@
-import type { paths } from "./types.gen.js";
+import type { components, paths } from "./types.gen.js";
 
 type GeneratedStatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["application/json"];
 
@@ -101,34 +101,15 @@ export type MemoriaStatsResponse = GeneratedMemoriaStatsResponse & {
  * src/api/memoria.ts::getMemoriaRow).
  * ponytail: keep in sync manually until the snapshot is regenerated.
  */
-export interface MemoriaListItem {
-  id: string;
-  // WU-H (operator viewing decision, 2026-07-05): the list projection now
-  // ALSO includes `title` — a deliberate, scoped relaxation of the prior
-  // metadata-only rule so the operator can recognize a row before deciding
-  // to load its content. `content` is still deliberately excluded here.
-  title: string;
-  created_at: string;
-  updated_at: string;
-  revision: number;
-  pinned: boolean;
-  private: boolean;
-  // F5/WU-D: opencohost/api/main.py::_list_memoria_metadata's SELECT now
-  // reads `inactive` too (mirrors MemoriaFlagsRequest.inactive) — added here
-  // to keep this hand-typed shape honest with the real projection.
-  inactive: boolean;
-  // memoria_import_20260718 WU4: get_memoria_list now computes `imported` from
-  // the row's status ('imported' → true), so MemoriaRow can render the
-  // "importada" badge. Not in types.gen.ts yet (snapshot lag, same reason as
-  // the fields above) — the orchestrator regenerates the snapshot via the
-  // openapi prebuild. ponytail: keep in sync manually until then.
-  imported: boolean;
-  // memoria_draft_visibility_20260725: True when status='draft' — an
-  // auto-captured row with no operator confirmation yet. Mirrors `imported`'s
-  // derivation shape (opencohost/api/models.py::MemoriaListItem.draft).
-  // ponytail: keep in sync manually until the snapshot is regenerated.
-  draft: boolean;
-}
+// MIGRATED to the generated schema (2026-08-14). This was hand-typed while
+// openapi.snapshot.json sat six weeks stale, and it had already drifted: the
+// backend computes and sends `promoted` (true when the promotion judge kept
+// the row) on every response, and this interface did not know the field
+// existed — so the Memoria panel could not tell a judge-approved memory from
+// an unjudged draft. R8 is unaffected: `content` is still absent from the LIST
+// projection server-side, readable one row at a time via
+// GET /api/memoria/row/{id} (see src/api/memoria.ts::getMemoriaRow).
+export type MemoriaListItem = components["schemas"]["MemoriaListItem"];
 export interface MemoriaListResponse {
   items: MemoriaListItem[];
 }
@@ -144,18 +125,9 @@ export interface MemoriaPurgeResponse {
  * preloaded alongside MemoriaListResponse.
  * ponytail: keep in sync manually until the snapshot is regenerated.
  */
-export interface MemoriaRowResponse {
-  id: string;
-  title: string;
-  content: string;
-  created_at: string;
-  updated_at: string;
-  pinned: boolean;
-  private: boolean;
-  inactive: boolean;
-  // memoria_draft_visibility_20260725: mirrors MemoriaListItem.draft above.
-  draft: boolean;
-}
+// MIGRATED to the generated schema (2026-08-14), same drift as
+// MemoriaListItem above: `promoted` was missing here too.
+export type MemoriaRowResponse = components["schemas"]["MemoriaRowResponse"];
 
 /**
  * `POST /api/perfiles/switch` has no `response_model` on the backend route
