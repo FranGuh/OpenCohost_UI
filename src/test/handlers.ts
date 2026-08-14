@@ -484,6 +484,7 @@ export interface StreamChatLiveResponse {
   stream_over_agenda: boolean;
   stream_ttl_seconds: number;
   effective_stream_ttl_seconds: number;
+  adaptive_activation: boolean;
 }
 
 // Default: agenda-first (stream_over_agenda: false) with a chosen TTL that
@@ -501,7 +502,8 @@ export const defaultStreamChatLive: StreamChatLiveResponse = {
   input_contract: false,
   stream_over_agenda: false,
   stream_ttl_seconds: 300,
-  effective_stream_ttl_seconds: 300
+  effective_stream_ttl_seconds: 300,
+  adaptive_activation: false
 };
 
 /** GET /api/stream/chat-live/messages (RF3) — mirrors

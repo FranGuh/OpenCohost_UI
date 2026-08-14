@@ -60,6 +60,20 @@ import { useT, type TKey } from "../../i18n/t.js";
 // OFF here also restores the spam default (CTK's OFF path leaves spam at
 // 30 — see SMALL_STREAM_OFF below for why that's a deliberate deviation,
 // not a port bug).
+//
+// Adaptive Activation (stream.acciones.adaptive.*): same 2026-08-14 incident,
+// the next step after Small Stream — instead of one fixed floor, the backend
+// periodically retunes threshold_per_second to the channel's OWN recent
+// accepted-message rate (opencohost/smart_aggregator/activity_trigger.py).
+// OWNER OVERRIDE on precedence: the reaction Select/Segmented and the Small
+// Stream switch stay enabled while adaptive is on — no greying, no lock, no
+// 422. A manual threshold write (any of those three controls, all of which
+// send threshold_per_second) silently turns adaptive OFF server-side and
+// applies the manual value in the same PUT. This switch's `checked` is read
+// straight from `adaptive_activation` on every poll (never local click
+// state, same reasoning as smallStreamOn below), which is exactly what makes
+// that silent flip visible here without this switch's own onChange ever
+// firing.
 
 type StreamConnectionState = "desconectado" | "conectando" | "conectado";
 
@@ -355,6 +369,14 @@ function AccionesCard() {
     chatLiveQuery.data.cooldown_seconds === SMALL_STREAM_ON.cooldown_seconds &&
     chatLiveQuery.data.max_messages_per_user === SMALL_STREAM_ON.max_messages_per_user;
 
+  // Not local state, same reasoning as smallStreamOn above: this switch must
+  // reflect the backend's authoritative flag, including the "off" it can
+  // reach on its own — a manual threshold write on a DIFFERENT control
+  // (Select/Segmented/Small Stream) silently disables adaptive server-side
+  // (owner override, see the wiring comment at the top of this file). Local
+  // optimistic state would miss that silent flip entirely.
+  const adaptiveActivation = chatLiveQuery.data?.adaptive_activation ?? false;
+
   const pending = limitsMutation.isPending;
 
   return (
@@ -413,6 +435,29 @@ function AccionesCard() {
                 limitsMutation.mutate({ threshold_per_second: Number(value) });
               }}
             />
+          </section>
+
+          <section aria-labelledby="stream-adaptive-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span
+              id="stream-adaptive-label"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("stream.acciones.adaptive.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-adaptive-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.adaptive.helper")}
+              </span>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.adaptive.label")}</span>
+                <Switch
+                  checked={adaptiveActivation}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => limitsMutation.mutate({ adaptive_activation: value })}
+                  aria-label={t("stream.acciones.adaptive.aria")}
+                />
+              </div>
+            </div>
           </section>
 
           <section aria-labelledby="stream-cooldown-label" className="space-y-2.5 border-t border-border-soft pt-3.5">

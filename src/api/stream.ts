@@ -61,6 +61,17 @@ export interface StreamChatLiveResponse {
    * from stream_ttl_seconds exactly when that floor kicks in — the UI must
    * disclose the difference to the streamer when it does (AccionesCard). */
   effective_stream_ttl_seconds: number;
+  /** Adaptive Chat Activation (2026-08-14 incident design): true while the
+   * backend is periodically retuning threshold_per_second to the channel's
+   * own recent accepted-message rate instead of the fixed value above.
+   * Required, matching the backend's required-not-Optional
+   * StreamChatLiveResponse.adaptive_activation — a real backend response
+   * always includes it. Also resets to false on every backend restart: the
+   * value is never persisted. Owner override: a manual threshold_per_second
+   * write (directly, via a preset, or via Small Stream) while this is true
+   * silently flips it back to false server-side — see StreamPanel.tsx's
+   * AccionesCard adaptive Switch section. */
+  adaptive_activation: boolean;
 }
 
 export interface StreamLimitsRequest {
@@ -71,6 +82,9 @@ export interface StreamLimitsRequest {
   input_contract?: boolean;
   stream_over_agenda?: boolean;
   stream_ttl_seconds?: number;
+  /** Explicit adaptive Switch write only — does NOT gate
+   * threshold_per_second above; see StreamChatLiveResponse.adaptive_activation. */
+  adaptive_activation?: boolean;
 }
 
 export const STREAM_CHAT_LIVE_QUERY_KEY = ["stream-chat-live"] as const;

@@ -304,6 +304,78 @@ describe("StreamPanel", () => {
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
   });
 
+  it("Adaptive switch reads OFF when the backend doesn't carry adaptive_activation", async () => {
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Activación adaptativa" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("Adaptive switch reads ON straight from backend adaptive_activation", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, adaptive_activation: true })
+      )
+    );
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Activación adaptativa" })).toHaveAttribute("aria-checked", "true")
+    );
+  });
+
+  it("turning Adaptive ON fires PUT /api/stream/chat-live/limits with adaptive_activation: true", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, adaptive_activation: true });
+      })
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Activación adaptativa" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(capturedBody).toEqual({ adaptive_activation: true }));
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("does NOT grey out or lock the reaction Select or Small Stream switch while Adaptive is on", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, adaptive_activation: true })
+      )
+    );
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Activación adaptativa" })).toHaveAttribute("aria-checked", "true")
+    );
+    expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Stream pequeño" })).not.toBeDisabled();
+  });
+
+  it("Adaptive switch reflects a silent backend-driven OFF after a manual threshold change (owner override), without the switch itself ever being clicked", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, adaptive_activation: true })
+      ),
+      http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        // Mirrors the real backend: a manual threshold_per_second write
+        // silently disables adaptive (routers/stream.py::put_stream_limits).
+        return HttpResponse.json({ ...defaultStreamChatLive, ...body, adaptive_activation: false });
+      })
+    );
+    renderPanel();
+    const adaptiveToggle = screen.getByRole("switch", { name: "Activación adaptativa" });
+    await waitFor(() => expect(adaptiveToggle).toHaveAttribute("aria-checked", "true"));
+
+    selectCustomOption("Umbral de reacciones", "3 msg/s");
+
+    await waitFor(() => expect(adaptiveToggle).toHaveAttribute("aria-checked", "false"));
+  });
+
   it("shows a confirmation alert once a limit change lands", async () => {
     server.use(
       http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {

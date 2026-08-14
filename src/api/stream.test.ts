@@ -67,7 +67,8 @@ describe("useStreamChatLiveQuery", () => {
       "input_contract",
       "stream_over_agenda",
       "stream_ttl_seconds",
-      "effective_stream_ttl_seconds"
+      "effective_stream_ttl_seconds",
+      "adaptive_activation"
     ]);
   });
 });

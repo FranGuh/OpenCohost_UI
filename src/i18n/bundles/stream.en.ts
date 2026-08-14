@@ -1,6 +1,11 @@
 import type { streamEs } from "./stream.es.js";
 
 export const streamEn: Record<keyof typeof streamEs, string> = {
+  "stream.acciones.adaptive.aria": "Adaptive activation",
+  "stream.acciones.adaptive.eyebrow": "Adaptive activation",
+  "stream.acciones.adaptive.helper":
+    "Every 2 minutes it retunes the reaction threshold to the channel's real accepted-message rate instead of a fixed number. Changing the threshold, a reaction preset, or Small Stream by hand turns this off automatically, and it also resets to off on every restart.",
+  "stream.acciones.adaptive.label": "Adaptive activation (auto-tuning)",
   "stream.acciones.cooldown.eyebrow": "Cooldown",
   "stream.acciones.cooldown.helper": "Wait at least, between reactions",
   "stream.acciones.cooldown.preset.aria": "Cooldown preset",

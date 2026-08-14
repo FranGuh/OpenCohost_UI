@@ -1,4 +1,9 @@
 export const streamEs = {
+  "stream.acciones.adaptive.aria": "Activación adaptativa",
+  "stream.acciones.adaptive.eyebrow": "Activación adaptativa",
+  "stream.acciones.adaptive.helper":
+    "Cada 2 minutos ajusta el umbral de reacciones al ritmo real de mensajes aceptados del canal, en vez de un número fijo. Cambiar el umbral, un preset de reacciones o Stream pequeño a mano apaga este modo automáticamente, y también vuelve a apagarse en cada reinicio.",
+  "stream.acciones.adaptive.label": "Activación adaptativa (ajuste automático)",
   "stream.acciones.cooldown.eyebrow": "Cooldown",
   "stream.acciones.cooldown.helper": "Esperar al menos, entre reacciones",
   "stream.acciones.cooldown.preset.aria": "Preset de cooldown",

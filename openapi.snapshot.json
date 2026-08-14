@@ -3684,12 +3684,12 @@
           "total_vram_mb": {
             "type": "number",
             "title": "Total Vram Mb",
-            "default": 0.0
+            "default": 0
           },
           "used_vram_mb": {
             "type": "number",
             "title": "Used Vram Mb",
-            "default": 0.0
+            "default": 0
           },
           "model_resident_mb_est": {
             "anyOf": [
@@ -5518,6 +5518,10 @@
           "effective_stream_ttl_seconds": {
             "type": "number",
             "title": "Effective Stream Ttl Seconds"
+          },
+          "adaptive_activation": {
+            "type": "boolean",
+            "title": "Adaptive Activation"
           }
         },
         "type": "object",
@@ -5532,7 +5536,8 @@
           "input_contract",
           "stream_over_agenda",
           "stream_ttl_seconds",
-          "effective_stream_ttl_seconds"
+          "effective_stream_ttl_seconds",
+          "adaptive_activation"
         ],
         "title": "StreamChatLiveResponse",
         "description": "GET /api/stream/chat-live (Tier C, R8-CRITICAL).\n\nCONNECTION STATE + LIMITS ONLY — never add a field carrying viewer\nmessage text. Mirrors opencohost.smart_aggregator.aggregator.Aggregator\nstate accessors (`_source`, `.activity`, `._spam_max_messages`,\n`.get_filter_policy()`) verbatim."
@@ -5628,6 +5633,17 @@
               }
             ],
             "title": "Stream Ttl Seconds"
+          },
+          "adaptive_activation": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adaptive Activation"
           }
         },
         "type": "object",

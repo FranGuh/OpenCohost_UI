@@ -34,7 +34,8 @@ const streamBase: StreamChatLiveResponse = {
   input_contract: false,
   stream_over_agenda: false,
   stream_ttl_seconds: 300,
-  effective_stream_ttl_seconds: 300
+  effective_stream_ttl_seconds: 300,
+  adaptive_activation: false
 };
 
 describe("/acciones vocab tables (R22/R23/R25)", () => {
