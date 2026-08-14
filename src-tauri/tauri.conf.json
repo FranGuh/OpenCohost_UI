@@ -31,6 +31,8 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "resources": ["backend.config.json"]
+    "resources": {
+      "backend.config.default.json": "backend.config.json"
+    }
   }
 }

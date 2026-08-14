@@ -1,0 +1,9 @@
+{
+  "python_path": "python",
+  "working_dir": "..",
+  "app_module": "opencohost.api.main:app",
+  "port": 8765,
+  "fallback_port": 8770,
+  "spawn": true,
+  "log_file": null
+}

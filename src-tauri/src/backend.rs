@@ -50,10 +50,14 @@ pub struct BackendConfig {
     pub log_file: Option<String>,
 }
 
-/// Compiled-in dev-mode fallback — this crate's own `backend.config.json`,
-/// baked in at compile time via `include_str!` so a dev build always has a
-/// working config even with no external file present.
-const DEV_DEFAULT_CONFIG_JSON: &str = include_str!("../backend.config.json");
+/// Compiled-in fallback — this crate's tracked `backend.config.default.json`,
+/// baked in at compile time via `include_str!` so a build always has a
+/// working, portable config even with no external file present. Deliberately
+/// NOT `backend.config.json`: that filename stays gitignored so each
+/// developer's real `python_path`/`working_dir` never gets committed or
+/// clobbered by this portable default. Override it with
+/// `OPENCOHOST_BACKEND_CONFIG` — see `load()` below.
+const DEV_DEFAULT_CONFIG_JSON: &str = include_str!("../backend.config.default.json");
 
 impl BackendConfig {
     pub fn from_json(contents: &str) -> Result<Self, serde_json::Error> {
@@ -61,12 +65,26 @@ impl BackendConfig {
     }
 
     /// Resolution order:
-    /// (a) `OPENCOHOST_BACKEND_CONFIG` env var — path to a JSON file.
+    /// (a) `OPENCOHOST_BACKEND_CONFIG` env var — path to a JSON file. This is
+    ///     how a developer with a real local `backend.config.json` (gitignored,
+    ///     never committed) points the app at their own python_path/working_dir.
     /// (b) `backend.config.json` next to the running exe (or, for a bundled
     ///     NSIS install, inside its `resources/` subfolder — Tauri's
     ///     bundle.resources may land there instead of directly beside the
-    ///     exe depending on the target).
-    /// (c) the compiled-in dev default (this crate's own backend.config.json).
+    ///     exe depending on the target). `tauri.conf.json` bundles the
+    ///     PORTABLE `backend.config.default.json` under this name by default,
+    ///     so an unconfigured build still resolves here with portable values
+    ///     — not a per-developer real config.
+    /// (c) the compiled-in default (this crate's tracked
+    ///     backend.config.default.json) — same portable values as (b), used
+    ///     only if no file is found next to the exe at all.
+    ///
+    /// This resolves WHICH config to load — it does not resolve `working_dir`
+    /// itself. That field means different things depending on whether it's
+    /// absolute or relative; see `resolved_working_dir()` for the rule (a
+    /// relative value like the shipped default's `".."` is walked from the
+    /// exe location to the real backend root, NOT interpreted against
+    /// whatever the calling process's current directory happens to be).
     pub fn load() -> Self {
         if let Ok(path) = env::var("OPENCOHOST_BACKEND_CONFIG") {
             match Self::load_from_path(Path::new(&path)) {
@@ -93,7 +111,7 @@ impl BackendConfig {
         }
 
         Self::from_json(DEV_DEFAULT_CONFIG_JSON)
-            .expect("backend.rs: compiled-in backend.config.json must be valid JSON")
+            .expect("backend.rs: compiled-in backend.config.default.json must be valid JSON")
     }
 
     fn load_from_path(path: &Path) -> Option<Self> {
@@ -106,6 +124,61 @@ impl BackendConfig {
             }
         }
     }
+
+    /// Resolves `working_dir` to an absolute path every caller (spawning the
+    /// backend/PTT bridge, locating the dev-mode token file) can use as-is.
+    ///
+    /// - Absolute input: returned verbatim, no walking. This is the owner's/
+    ///   every power user's escape hatch and must never change behavior.
+    /// - Relative input (the shipped default is `".."`): NOT resolved against
+    ///   the calling process's current directory — that is ambiguous by
+    ///   design (`tauri dev`'s own CWD vs. whatever OS gives a bundled exe,
+    ///   and it differs between a dev build in `target/debug/` and an NSIS
+    ///   install). Instead this walks up from the running exe's directory
+    ///   looking for the real backend root (see `find_repo_root`), so the
+    ///   answer is the same regardless of how or from where the process was
+    ///   launched. Falls back to resolving against the process's current
+    ///   directory (today's behavior) only if no root is found anywhere up
+    ///   the chain — logged to stderr so a downstream spawn failure has a
+    ///   traceable cause instead of a silent wrong CWD.
+    pub fn resolved_working_dir(&self) -> PathBuf {
+        let raw = Path::new(&self.working_dir);
+        if raw.is_absolute() {
+            return raw.to_path_buf();
+        }
+
+        if let Ok(exe_path) = env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                if let Some(root) = find_repo_root(exe_dir) {
+                    return root;
+                }
+            }
+        }
+
+        eprintln!(
+            "backend.rs: could not find the opencohost backend (pyproject.toml + opencohost/) \
+             walking up from the exe directory — falling back to resolving working_dir={:?} \
+             against the process's current directory, which may be wrong",
+            self.working_dir
+        );
+        raw.to_path_buf()
+    }
+}
+
+/// Walks up from `start` (inclusive) looking for the backend repo root: a
+/// directory containing both `pyproject.toml` and an `opencohost/` package
+/// directory. No fixed hop count — a dev build runs from `target/debug/`, a
+/// bundled NSIS install nests differently, and both must resolve to the same
+/// root without hardcoding how many `..` that takes.
+fn find_repo_root(start: &Path) -> Option<PathBuf> {
+    let mut dir = Some(start);
+    while let Some(d) = dir {
+        if d.join("pyproject.toml").is_file() && d.join("opencohost").is_dir() {
+            return Some(d.to_path_buf());
+        }
+        dir = d.parent();
+    }
+    None
 }
 
 /// Response of the `backend_info` command — mirrors
@@ -197,14 +270,14 @@ fn resolve_token_file_path() -> PathBuf {
 /// (`spawn_backend` below), never frozen, so `USER_DATA_DIR` — and therefore
 /// `settings.API_TOKENS_FILE` — resolves to `<working_dir>\config\api_tokens.json`
 /// in every current deployment.
-fn dev_token_file_path(working_dir: &str) -> PathBuf {
-    Path::new(working_dir).join("config").join("api_tokens.json")
+fn dev_token_file_path(working_dir: impl AsRef<Path>) -> PathBuf {
+    working_dir.as_ref().join("config").join("api_tokens.json")
 }
 
 /// Both plausible token file locations, in probe order: the source-run
 /// (`working_dir`) candidate first — the one actually used today — then the
 /// `%APPDATA%` candidate as the frozen-build fallback.
-fn resolve_token_file_candidates(working_dir: &str) -> Vec<PathBuf> {
+fn resolve_token_file_candidates(working_dir: impl AsRef<Path>) -> Vec<PathBuf> {
     vec![dev_token_file_path(working_dir), resolve_token_file_path()]
 }
 
@@ -265,7 +338,7 @@ fn read_operator_token_with_retry(paths: &[PathBuf], attempts: u32, delay: Durat
 #[tauri::command(async)]
 pub fn api_token() -> Option<String> {
     let config = BackendConfig::load();
-    let candidates = resolve_token_file_candidates(&config.working_dir);
+    let candidates = resolve_token_file_candidates(config.resolved_working_dir());
     read_operator_token_with_retry(&candidates, TOKEN_READ_ATTEMPTS, TOKEN_READ_RETRY_DELAY)
 }
 
@@ -370,6 +443,7 @@ fn log_stdio(log_path: &Path) -> (Stdio, Stdio) {
 fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
     let log_path = resolve_log_path(config);
     let (stdout, stderr) = log_stdio(&log_path);
+    let working_dir = config.resolved_working_dir();
 
     let mut command = Command::new(&config.python_path);
     command
@@ -382,9 +456,9 @@ fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
         .arg(port.to_string())
         .arg("--workers")
         .arg("1")
-        .env("PYTHONPATH", &config.working_dir)
+        .env("PYTHONPATH", &working_dir)
         .env("PYTHONUNBUFFERED", "1")
-        .current_dir(&config.working_dir)
+        .current_dir(&working_dir)
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
@@ -663,7 +737,7 @@ fn spawn_ptt_bridge(
         return PttBridge::default();
     }
 
-    let script = Path::new(&config.working_dir).join("ptt_f10_bridge.py");
+    let script = config.resolved_working_dir().join("ptt_f10_bridge.py");
     if !script.exists() {
         eprintln!(
             "backend.rs: PTT bridge script not found at {script:?} — skipping global F10 push-to-talk"
@@ -706,13 +780,14 @@ fn spawn_ptt_bridge_process(
 ) -> std::io::Result<Child> {
     let log_path = env::temp_dir().join("opencohost-ptt-bridge.log");
     let (stdout, stderr) = log_stdio(&log_path);
+    let working_dir = config.resolved_working_dir();
 
     let mut command = Command::new(&config.python_path);
     command
         .arg(script)
-        .env("PYTHONPATH", &config.working_dir)
+        .env("PYTHONPATH", &working_dir)
         .env("PYTHONUNBUFFERED", "1")
-        .current_dir(&config.working_dir)
+        .current_dir(&working_dir)
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
@@ -745,7 +820,7 @@ pub fn setup_backend(app: &tauri::App) -> tauri::Result<()> {
     // enforcement is off (D2): the bridge sends no header, same as the frontend.
     // ponytail: single sweep, no retry — revisit (read the token inside the
     // bridge, or delay its spawn) only when API auth enforcement is switched on.
-    let token_candidates = resolve_token_file_candidates(&config.working_dir);
+    let token_candidates = resolve_token_file_candidates(config.resolved_working_dir());
     let token = read_operator_token_with_retry(&token_candidates, 1, Duration::from_millis(0));
 
     let bridge = spawn_ptt_bridge(&config, outcome.job.as_ref(), token.as_deref());
@@ -983,15 +1058,75 @@ mod tests {
     #[test]
     fn compiled_in_dev_default_config_is_valid_and_matches_shipped_values() {
         let config = BackendConfig::from_json(DEV_DEFAULT_CONFIG_JSON)
-            .expect("src-tauri/backend.config.json must be valid JSON matching BackendConfig's shape");
+            .expect("src-tauri/backend.config.default.json must be valid JSON matching BackendConfig's shape");
 
-        assert_eq!(config.python_path, "E:\\Miniconda\\envs\\flux_env\\python.exe");
-        assert_eq!(config.working_dir, "E:\\VoiceAI");
+        // Portable, machine-neutral values — NOT a real developer's paths.
+        // A developer's real config lives in the gitignored backend.config.json
+        // and/or OPENCOHOST_BACKEND_CONFIG; this compiled-in default must never
+        // bake in anyone's local paths (see load()'s doc comment).
+        assert_eq!(config.python_path, "python");
+        assert_eq!(config.working_dir, "..");
         assert_eq!(config.app_module, "opencohost.api.main:app");
         assert_eq!(config.port, 8765);
         assert_eq!(config.fallback_port, 8770);
         assert!(config.spawn);
         assert_eq!(config.log_file, None);
+    }
+
+    // --- resolved_working_dir / find_repo_root — CWD-independent working_dir
+    // resolution. A relative working_dir must mean the same thing regardless
+    // of the calling process's own current directory, which is ambiguous
+    // between `tauri dev`'s launch dir and whatever the OS gives a bundled
+    // exe, and differs in nesting depth between a dev build (target/debug/)
+    // and an installed one. ---
+
+    fn make_repo_root_marker(root: &Path) {
+        fs::create_dir_all(root.join("opencohost"))
+            .expect("test setup: mkdir opencohost/ must succeed");
+        fs::write(root.join("pyproject.toml"), "[project]\nname = \"opencohost\"\n")
+            .expect("test setup: write pyproject.toml must succeed");
+    }
+
+    #[test]
+    fn find_repo_root_locates_marker_several_levels_up() {
+        let root = env::temp_dir().join("opencohost-test-repo-root-depth");
+        let _ = fs::remove_dir_all(&root);
+        make_repo_root_marker(&root);
+        // Mirrors a real dev build's nesting under the repo root, several
+        // levels deep — proves the walk isn't hardcoded to a fixed hop count.
+        let start = root.join("OpenCohost_UI").join("src-tauri").join("target").join("debug");
+        fs::create_dir_all(&start).expect("test setup: mkdir nested start dir must succeed");
+
+        assert_eq!(find_repo_root(&start), Some(root.clone()));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_repo_root_returns_none_when_no_marker_exists_up_the_chain() {
+        let base = env::temp_dir().join("opencohost-test-repo-root-missing");
+        let _ = fs::remove_dir_all(&base);
+        let start = base.join("a").join("b");
+        fs::create_dir_all(&start).expect("test setup: mkdir must succeed");
+
+        // No ancestor of a fresh temp dir has an opencohost/ + pyproject.toml
+        // pair sitting in it — true in any real environment.
+        assert_eq!(find_repo_root(&start), None);
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolved_working_dir_returns_absolute_input_verbatim_without_walking() {
+        let json = r#"{
+            "python_path": "python",
+            "working_dir": "C:\\Some\\Absolute\\Path"
+        }"#;
+        let config = BackendConfig::from_json(json).expect("valid config JSON must parse");
+
+        // Must return the input as-is, no filesystem walk — the override
+        // escape hatch, unaffected by whether that path exists at all.
+        assert_eq!(config.resolved_working_dir(), PathBuf::from("C:\\Some\\Absolute\\Path"));
     }
 
     // --- decide_action: pure decision logic, no IO involved (WU-E M1) ---
@@ -1168,8 +1303,8 @@ mod tests {
 
     #[test]
     fn dev_token_file_path_joins_working_dir_config_api_tokens_json() {
-        let path = dev_token_file_path("E:\\VoiceAI");
-        assert_eq!(path, PathBuf::from("E:\\VoiceAI\\config\\api_tokens.json"));
+        let path = dev_token_file_path("C:\\App");
+        assert_eq!(path, PathBuf::from("C:\\App\\config\\api_tokens.json"));
     }
 
     #[test]
@@ -1177,9 +1312,9 @@ mod tests {
         // working_dir (source-run) is the real, verified-on-disk path in
         // every current deployment — must be probed before the
         // frozen-build-only %APPDATA% candidate.
-        let candidates = resolve_token_file_candidates("E:\\VoiceAI");
+        let candidates = resolve_token_file_candidates("C:\\App");
         assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0], PathBuf::from("E:\\VoiceAI\\config\\api_tokens.json"));
+        assert_eq!(candidates[0], PathBuf::from("C:\\App\\config\\api_tokens.json"));
         assert!(candidates[1].ends_with(Path::new("OpenCohost").join("config").join("api_tokens.json")));
     }
 
