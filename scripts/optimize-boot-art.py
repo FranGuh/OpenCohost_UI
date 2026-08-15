@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 """Optimize boot memory-wall source art into web-ready WebP tiles.
 
-Reads a fixed, ordered list of source PNGs (kept OUTSIDE the repo, read-only),
-downscales each to max-width 960 with LANCZOS, strips metadata, flattens onto
-the app's near-black ground (--void #05070b) and writes lossy WebP (quality 70)
-to public/boot/kira-01.webp … kira-08.webp.
+Reads an ordered list of source PNGs (kept OUTSIDE the repo, read-only) passed
+as argv, downscales each to max-width 960 with LANCZOS, strips metadata,
+flattens onto the app's near-black ground (--void #05070b) and writes lossy
+WebP (quality 70) to public/boot/kira-01.webp … kira-08.webp.
 
-The output order is stable and IS the contract: it maps 1:1 to
-BOOT_COLLAGE_ART in src/ui/BootCollage.tsx. Re-run whenever the art
-changes; edit SOURCES (or pass paths as argv) to point at new source files.
+The output order is stable and IS the contract: argv order maps 1:1 to
+BOOT_COLLAGE_ART in src/ui/BootCollage.tsx, so pass exactly 8 source paths in
+the order they should appear.
 
 Run with the project interpreter, e.g.:
-    E:/Miniconda/envs/flux_env/python.exe scripts/optimize-boot-art.py
+    python scripts/optimize-boot-art.py <src1.png> <src2.png> ... <src8.png>
 """
 
 from __future__ import annotations
@@ -22,18 +22,6 @@ from pathlib import Path
 MAX_WIDTH = 960
 WEBP_QUALITY = 70
 VOID_RGB = (5, 7, 11)  # --void, so any transparent art flattens to the app ground
-
-# Stable source order — output index N comes from SOURCES[N-1].
-SOURCES = [
-    r"C:/Users/tavo_/Downloads/Generated image 6.png",
-    r"C:/Users/tavo_/Downloads/Generated image 1.png",
-    r"C:/Users/tavo_/Downloads/Diseño_2D/Codex IA/ig_0685d7d083266450016a3e09940594819985e84b69b00ad42b.png",
-    r"C:/Users/tavo_/Downloads/Diseño_2D/Codex IA/ig_0685d7d083266450016a3e0892ea20819982e3fffb0868b348.png",
-    r"C:/Users/tavo_/Downloads/Diseño_2D/Codex IA/ig_0f023f2186e5dd74016a3e06458e90819a8fd19ee072226119.png",
-    r"C:/Users/tavo_/Downloads/Diseño_2D/Codex IA/ig_0f023f2186e5dd74016a3e06fb96f0819abcd4884a2dff42a5.png",
-    r"C:/Users/tavo_/Downloads/Diseño_2D/Codex IA/ig_0875cb642634c1f1016a3cce0f73b4819886a3bf25c27f8b31.png",
-    r"C:/Users/tavo_/Downloads/Diseño_2D/Codex IA/ig_059432c4ac233196016a3cb494db34819bbed836a3e6337f37.png",
-]
 
 
 def _human(nbytes: int) -> str:
@@ -82,9 +70,18 @@ def optimize(sources: list[str], out_dir: Path) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) < 2:
+        print(__doc__, file=sys.stderr)
+        print("ERROR: no source paths given.", file=sys.stderr)
+        print(
+            "Usage: python scripts/optimize-boot-art.py <src1.png> ... <src8.png>",
+            file=sys.stderr,
+        )
+        return 1
+
     repo_root = Path(__file__).resolve().parent.parent
     out_dir = repo_root / "public" / "boot"
-    sources = sys.argv[1:] if len(sys.argv) > 1 else SOURCES
+    sources = sys.argv[1:]
     return optimize(sources, out_dir)
 
 
