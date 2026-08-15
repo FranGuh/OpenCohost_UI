@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Select } from "../../ui/Select.js";
@@ -40,19 +39,21 @@ const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
  * "Cambiar" opens the native file dialog (Tauri's dialog plugin) and PUTs the
  * chosen absolute path into `state_images`. No upload endpoint is involved and
  * none is needed: `state_images` IS a path map and client and server share a
- * filesystem.
+ * filesystem. The write reaches OBS live — the PUT rebuilds the OBSClient via
+ * api/shared.py::apply_config, and obs_client.py resolves the per-state image
+ * from the map it was constructed with.
  *
- * "Probar" previews a configured state's image locally (swatch) — still never
- * sent to OBS/stream, just reads the real path out of `state_images`. Because
- * the PUT response is written straight back into the query cache, the preview
- * picks up a freshly chosen path with no extra wiring.
+ * There is deliberately NO in-app image preview. One existed and could never
+ * paint: the webview cannot read an absolute local path unless Tauri's asset
+ * protocol is enabled with a read scope covering arbitrary user paths, which is
+ * a real permission widening for a swatch. A control that never works is worse
+ * than an absent one, so the resolved path under each row is the confirmation
+ * that the change landed, and OBS is where the image is actually verified.
  */
 export function AvatarCard() {
   const t = useT();
   const { data, isError: getError } = useAvatarConfigQuery();
   const updateConfig = useUpdateAvatarConfigMutation();
-  const [previewState, setPreviewState] = useState<string>(STATE_LABELS[0][0]);
-  const [previewShown, setPreviewShown] = useState(false);
 
   function applyMode(value: string) {
     updateConfig.mutate({ mode: value });
@@ -68,12 +69,7 @@ export function AvatarCard() {
     updateConfig.mutate({ state_images: { ...data?.state_images, [state]: path } });
   }
 
-  const previewImage = previewShown ? data?.state_images[previewState] : undefined;
-  const previewLabelKey = STATE_LABELS.find(([state]) => state === previewState)?.[1];
-  const previewLabel = previewLabelKey ? t(previewLabelKey) : undefined;
-
   const modeSelectOptions = MODE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }));
-  const stateSelectOptions = STATE_LABELS.map(([state, labelKey]) => ({ value: state, label: t(labelKey) }));
 
   return (
     <Card className="flex flex-col p-4">
@@ -141,44 +137,6 @@ export function AvatarCard() {
               <p role="status" className="text-xs leading-relaxed text-muted-foreground">
                 {t("controles.avatar.stateImages.hint")}
               </p>
-            </section>
-
-            <section aria-labelledby="avatar-preview-label" className="space-y-2">
-              <span
-                id="avatar-preview-label"
-                className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-              >
-                {t("controles.avatar.preview.eyebrow")}
-              </span>
-              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <Select
-                  aria-label={t("controles.avatar.preview.stateSelect.aria")}
-                  value={previewState}
-                  onChange={setPreviewState}
-                  options={stateSelectOptions}
-                />
-                <Button type="button" variant="outline" onClick={() => setPreviewShown(true)}>
-                  {t("controles.avatar.preview.action")}
-                </Button>
-              </div>
-              {previewImage && (
-                <>
-                  {/* ponytail: the swatch renders the configured path as-is, so
-                      an absolute local path only paints once the webview is
-                      allowed to read it (Tauri's asset protocol + a read scope).
-                      Enabling that is a real permission widening, not a
-                      one-liner, so the path text below the row stays the honest
-                      confirmation that the change landed. */}
-                  <img
-                    src={previewImage}
-                    alt={t("controles.avatar.preview.image.alt", { label: previewLabel ?? "" })}
-                    className="h-16 w-16 rounded-md border border-border-soft object-cover"
-                  />
-                  <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-                    {t("controles.avatar.preview.hint")}
-                  </p>
-                </>
-              )}
             </section>
           </>
         )}

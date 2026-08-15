@@ -153,7 +153,7 @@ describe("AvatarCard per-state image picks a real path through the native dialog
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shows the new path in the row and in Probar's preview once the PUT lands", async () => {
+  it("shows the new path in the row once the PUT lands", async () => {
     openDialog.mockResolvedValue("C:\\avatars\\kira-idle.png");
     server.use(
       http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
@@ -163,13 +163,19 @@ describe("AvatarCard per-state image picks a real path through the native dialog
     );
 
     await clickChange("en vivo");
-    await waitFor(() => expect(screen.getByText("C:\\avatars\\kira-idle.png")).toBeInTheDocument());
 
-    // Probar defaults to the "idle" state, so its swatch must read the path
-    // that was just written — no extra endpoint involved.
-    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
-    await waitFor(() =>
-      expect(screen.getByRole("img", { name: /en vivo/ })).toHaveAttribute("src", "C:\\avatars\\kira-idle.png")
-    );
+    // The path text IS the confirmation. There is no in-app image preview by
+    // design — see the component docstring: the webview cannot read an absolute
+    // local path without widening Tauri's asset scope, so a swatch could only
+    // ever render broken. OBS is where the image itself gets verified.
+    await waitFor(() => expect(screen.getByText("C:\\avatars\\kira-idle.png")).toBeInTheDocument());
+  });
+
+  it("renders no image element — the preview was removed, not left broken", async () => {
+    renderCard();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo" })).toBeInTheDocument());
+
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Probar" })).not.toBeInTheDocument();
   });
 });
