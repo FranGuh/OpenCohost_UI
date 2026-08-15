@@ -59,6 +59,17 @@ pub struct BackendConfig {
 /// `OPENCOHOST_BACKEND_CONFIG` — see `load()` below.
 const DEV_DEFAULT_CONFIG_JSON: &str = include_str!("../backend.config.default.json");
 
+/// Dev builds only: this crate's own gitignored `backend.config.json`, where a
+/// developer keeps their real interpreter and repo paths.
+/// `env!("CARGO_MANIFEST_DIR")` is resolved at compile time, so this bakes in a
+/// *path* to the machine that built the binary — never the file's contents, and
+/// never anything that survives into a release build (`debug_assertions` is off
+/// there). Needed because `tauri.conf.json`'s `resources` copies the portable
+/// default next to the exe under the name `backend.config.json` in dev too, so
+/// the exe-adjacent candidate can no longer stand in for a developer's config.
+#[cfg(debug_assertions)]
+const DEV_SOURCE_CONFIG_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/backend.config.json");
+
 impl BackendConfig {
     pub fn from_json(contents: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(contents)
@@ -68,15 +79,21 @@ impl BackendConfig {
     /// (a) `OPENCOHOST_BACKEND_CONFIG` env var — path to a JSON file. This is
     ///     how a developer with a real local `backend.config.json` (gitignored,
     ///     never committed) points the app at their own python_path/working_dir.
-    /// (b) `backend.config.json` next to the running exe (or, for a bundled
+    /// (b) DEV BUILDS ONLY: this crate's source-tree `backend.config.json`
+    ///     (`DEV_SOURCE_CONFIG_PATH`). Deliberately ahead of (c): Tauri copies
+    ///     the portable default next to the exe under that same filename during
+    ///     `tauri dev`, so without this a developer's real config would be
+    ///     shadowed by `python_path: "python"` and the app would silently spawn
+    ///     the backend under whatever interpreter PATH happens to point at.
+    /// (c) `backend.config.json` next to the running exe (or, for a bundled
     ///     NSIS install, inside its `resources/` subfolder — Tauri's
     ///     bundle.resources may land there instead of directly beside the
     ///     exe depending on the target). `tauri.conf.json` bundles the
     ///     PORTABLE `backend.config.default.json` under this name by default,
     ///     so an unconfigured build still resolves here with portable values
     ///     — not a per-developer real config.
-    /// (c) the compiled-in default (this crate's tracked
-    ///     backend.config.default.json) — same portable values as (b), used
+    /// (d) the compiled-in default (this crate's tracked
+    ///     backend.config.default.json) — same portable values as (c), used
     ///     only if no file is found next to the exe at all.
     ///
     /// This resolves WHICH config to load — it does not resolve `working_dir`
@@ -94,6 +111,13 @@ impl BackendConfig {
                         "backend.rs: OPENCOHOST_BACKEND_CONFIG={path} could not be read/parsed, trying next candidate"
                     );
                 }
+            }
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            if let Some(cfg) = Self::load_from_path(Path::new(DEV_SOURCE_CONFIG_PATH)) {
+                return cfg;
             }
         }
 
@@ -1071,6 +1095,32 @@ mod tests {
         assert_eq!(config.fallback_port, 8770);
         assert!(config.spawn);
         assert_eq!(config.log_file, None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn dev_source_config_path_anchors_to_this_crate_root() {
+        // Regression: `tauri.conf.json`'s `resources` copies the portable
+        // default next to the exe as `backend.config.json` during `tauri dev`,
+        // which shadowed the developer's real config and spawned the backend
+        // under PATH's `python` — a different interpreter, so the engine died on
+        // a missing dependency and the shell reported "no local engine".
+        //
+        // The file itself is gitignored (it holds per-machine paths) so its
+        // existence can't be asserted here; what must hold is that the constant
+        // points at THIS crate's directory rather than anywhere near the exe.
+        let path = Path::new(DEV_SOURCE_CONFIG_PATH);
+        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("backend.config.json"));
+
+        let crate_dir = path.parent().expect("the constant must have a parent directory");
+        assert!(
+            crate_dir.join("Cargo.toml").is_file(),
+            "expected the src-tauri crate root at {crate_dir:?}"
+        );
+        assert!(
+            crate_dir.join("backend.config.default.json").is_file(),
+            "the portable default must sit beside the developer config path at {crate_dir:?}"
+        );
     }
 
     // --- resolved_working_dir / find_repo_root — CWD-independent working_dir
