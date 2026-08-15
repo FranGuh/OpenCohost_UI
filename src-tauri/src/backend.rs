@@ -6,7 +6,7 @@
 
 use std::env;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -166,15 +166,26 @@ impl BackendConfig {
     ///   the chain — logged to stderr so a downstream spawn failure has a
     ///   traceable cause instead of a silent wrong CWD.
     pub fn resolved_working_dir(&self) -> PathBuf {
+        self.resolve_working_dir().0
+    }
+
+    /// Same resolution as `resolved_working_dir`, plus whether the answer is
+    /// trustworthy: `true` when `working_dir` was absolute (taken verbatim)
+    /// or the repo-root walk actually found the engine, `false` when the
+    /// fallback below was taken. That flag used to exist only as a line on
+    /// stderr, which nobody sees in a bundled app — and it is the single
+    /// strongest signal that the shell was installed without the engine, so
+    /// `describe_spawn_failure` surfaces it in the error the user reads.
+    fn resolve_working_dir(&self) -> (PathBuf, bool) {
         let raw = Path::new(&self.working_dir);
         if raw.is_absolute() {
-            return raw.to_path_buf();
+            return (raw.to_path_buf(), true);
         }
 
         if let Ok(exe_path) = env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 if let Some(root) = find_repo_root(exe_dir) {
-                    return root;
+                    return (root, true);
                 }
             }
         }
@@ -185,7 +196,7 @@ impl BackendConfig {
              against the process's current directory, which may be wrong",
             self.working_dir
         );
-        raw.to_path_buf()
+        (raw.to_path_buf(), false)
     }
 }
 
@@ -435,6 +446,119 @@ fn resolve_log_path(config: &BackendConfig) -> PathBuf {
     env::temp_dir().join("opencohost-backend.log")
 }
 
+/// How much of the backend log to read back when the spawned process died
+/// immediately. The meaningful line of a Python traceback is its last one, so
+/// a small tail is always enough — and bounding the read keeps a log that grew
+/// large (or was replaced by something huge) from being pulled into memory
+/// just to render an error card.
+const LOG_TAIL_BYTES: u64 = 8 * 1024;
+
+/// Last `LOG_TAIL_BYTES` of `path`, lossily decoded. `None` for a missing,
+/// unreadable or empty log — diagnosing a failed spawn must never itself
+/// fail. A tail can start mid-UTF-8-sequence; `from_utf8_lossy` absorbs that
+/// (the classifier only matches whole lines further in).
+fn read_log_tail(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    if len > LOG_TAIL_BYTES {
+        file.seek(SeekFrom::Start(len - LOG_TAIL_BYTES)).ok()?;
+    }
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+    if buf.is_empty() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Everything a user needs in order to act on a backend that died on spawn.
+/// The interpreter and the working directory are the two values they must
+/// actually change, and neither was reachable from the old message — it only
+/// pointed at a 60-line Python traceback.
+struct SpawnFailureFacts<'a> {
+    port: u16,
+    /// `Display` of the child's `ExitStatus` (`exit code: 1` on Windows).
+    status: &'a str,
+    /// `config.python_path` as resolved — `"python"` means whatever is first
+    /// on PATH, which is exactly the common misconfiguration.
+    python_path: &'a str,
+    /// The directory `resolved_working_dir()` actually produced.
+    working_dir: &'a Path,
+    /// Second element of `BackendConfig::resolve_working_dir` — `false` means
+    /// no `pyproject.toml` + `opencohost/` pair exists above the app.
+    engine_root_found: bool,
+    log_path: &'a Path,
+    /// Output of `read_log_tail`, or `None` when there was no readable log.
+    log_tail: Option<&'a str>,
+}
+
+/// Emitted by a plain `import opencohost` failure. The trailing quote matters:
+/// a partially installed engine reports `No module named 'opencohost.api'`,
+/// which is a different problem and must not be classified as "not installed".
+const ENGINE_MISSING_MARKER: &str = "No module named 'opencohost'";
+
+/// Two spellings, both real: `python -m uvicorn` prints the unquoted form when
+/// uvicorn is not installed at all, while a failure inside uvicorn's own
+/// import chain raises the quoted `ModuleNotFoundError` form.
+const UVICORN_MISSING_MARKERS: [&str; 2] =
+    ["No module named uvicorn", "No module named 'uvicorn'"];
+
+/// Turns "the backend exited immediately" into something a stranger can act
+/// on. Pure over its inputs — no IO, no spawning — so every classification is
+/// unit-testable. Single-line output by contract: `BackendGate` renders it
+/// into one `<p>`, so newlines would collapse anyway.
+fn describe_spawn_failure(facts: &SpawnFailureFacts) -> String {
+    let tail = facts.log_tail.unwrap_or_default();
+
+    // The load-bearing signal: no engine anywhere above the app. Appended to
+    // every branch, because it explains all of them.
+    let root_note = if facts.engine_root_found {
+        ""
+    } else {
+        " No engine folder (pyproject.toml + opencohost/) was found above the app, \
+          so this install does not include the Python engine."
+    };
+    // Both values are quoted: the shipped default working_dir is `..`, which
+    // rendered bare in front of a sentence-ending period reads as an ellipsis
+    // rather than a path. Quotes also make a bare `python` (i.e. "whatever is
+    // on PATH") legible as the literal value it is.
+    let context = format!(
+        "Interpreter: '{}'. Working directory: '{}'.{root_note} Log: {}",
+        facts.python_path,
+        facts.working_dir.display(),
+        facts.log_path.display()
+    );
+
+    if tail.contains(ENGINE_MISSING_MARKER) {
+        return format!(
+            "The OpenCohost Python engine is not installed in the interpreter this app used. \
+             Install the engine, then point python_path and working_dir in backend.config.json \
+             at it. {context}"
+        );
+    }
+
+    if UVICORN_MISSING_MARKERS.iter().any(|marker| tail.contains(marker)) {
+        return format!(
+            "uvicorn is missing from the interpreter this app used, so the API server could not \
+             start. Install the engine's \"api\" extra there. {context}"
+        );
+    }
+
+    // Unknown: today's generic message, plus the three facts that make it
+    // reportable by someone who will never read the traceback themselves.
+    let last_line = tail
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("(no log output)");
+    format!(
+        "Backend process on port {} exited immediately after spawn ({}). Last log line: \
+         {last_line}. {context}",
+        facts.port, facts.status
+    )
+}
+
 /// Opens `log_path` (truncating) as the stdout+stderr targets for a spawned
 /// child. A log failure (create or clone) must never abort a spawn — logging
 /// is a nice-to-have, the process itself is not — so any IO error falls back
@@ -612,18 +736,27 @@ fn spawn_and_verify(config: &BackendConfig, port: u16) -> SpawnOutcome {
 
     match child.try_wait() {
         Ok(Some(status)) => {
-            eprintln!(
-                "backend.rs: backend spawned on port {port} exited immediately ({status}) — see log at {}",
-                log_path.display()
-            );
+            // The old message pointed at the log and stopped there, which is
+            // unactionable: the log is a Python traceback whose only useful
+            // line is the last one. Classify it here instead.
+            let (working_dir, engine_root_found) = config.resolve_working_dir();
+            let status_text = status.to_string();
+            let log_tail = read_log_tail(&log_path);
+            let message = describe_spawn_failure(&SpawnFailureFacts {
+                port,
+                status: &status_text,
+                python_path: &config.python_path,
+                working_dir: &working_dir,
+                engine_root_found,
+                log_path: &log_path,
+                log_tail: log_tail.as_deref(),
+            });
+            eprintln!("backend.rs: {message}");
             SpawnOutcome {
                 info: BackendInfo {
                     base_url: base_url_for(port),
                     managed: false,
-                    error: Some(format!(
-                        "Backend process on port {port} exited immediately after spawn ({status}). See log: {}",
-                        log_path.display()
-                    )),
+                    error: Some(message),
                 },
                 child: None,
                 job: None,
@@ -1177,6 +1310,145 @@ mod tests {
         // Must return the input as-is, no filesystem walk — the override
         // escape hatch, unaffected by whether that path exists at all.
         assert_eq!(config.resolved_working_dir(), PathBuf::from("C:\\Some\\Absolute\\Path"));
+    }
+
+    // --- immediate-exit diagnosis: the log tail turned into something a
+    // stranger can act on. The failure this covers is the most common one for
+    // anyone who installs the Tauri shell without the Python engine: uvicorn
+    // raises `ModuleNotFoundError: No module named 'opencohost'` and the old
+    // message only offered a 60-line traceback to decode. ---
+
+    /// Facts fixture matching the real bad install: PATH's `python`, and a
+    /// working directory the repo-root walk never found.
+    fn shell_only_install_facts(log_tail: Option<&str>) -> SpawnFailureFacts<'_> {
+        SpawnFailureFacts {
+            port: 8765,
+            status: "exit code: 1",
+            python_path: "python",
+            working_dir: Path::new("C:\\Users\\bob\\OpenCohost\\.."),
+            engine_root_found: false,
+            log_path: Path::new("C:\\Users\\bob\\AppData\\Local\\Temp\\opencohost-backend.log"),
+            log_tail,
+        }
+    }
+
+    #[test]
+    fn describe_spawn_failure_names_the_missing_engine() {
+        let tail = "  File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked\nModuleNotFoundError: No module named 'opencohost'\n";
+
+        let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
+
+        assert!(message.contains("engine is not installed"), "got: {message}");
+        assert!(message.contains("backend.config.json"), "must name the file to fix: {message}");
+        // The two values the user actually has to change.
+        assert!(message.contains("Interpreter: 'python'"), "got: {message}");
+        assert!(message.contains("C:\\Users\\bob\\OpenCohost\\.."), "got: {message}");
+        assert!(!message.contains("importlib"), "the traceback body must not leak into the UI: {message}");
+    }
+
+    #[test]
+    fn describe_spawn_failure_points_at_the_api_extra_for_both_uvicorn_spellings() {
+        // `python -m uvicorn` prints the unquoted form; an import failure
+        // inside uvicorn itself raises the quoted ModuleNotFoundError form.
+        for tail in ["C:\\Python313\\python.exe: No module named uvicorn\n", "ModuleNotFoundError: No module named 'uvicorn'\n"] {
+            let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
+
+            assert!(message.contains("uvicorn is missing"), "got: {message}");
+            assert!(message.contains("\"api\" extra"), "got: {message}");
+        }
+    }
+
+    #[test]
+    fn describe_spawn_failure_does_not_treat_a_missing_submodule_as_a_missing_engine() {
+        // `No module named 'opencohost.api'` means the engine IS installed but
+        // incomplete — a different fix, so it must fall through to generic.
+        let tail = "ModuleNotFoundError: No module named 'opencohost.api'\n";
+
+        let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
+
+        assert!(!message.contains("engine is not installed"), "got: {message}");
+        assert!(message.contains("No module named 'opencohost.api'"), "got: {message}");
+    }
+
+    #[test]
+    fn describe_spawn_failure_keeps_the_generic_message_and_adds_the_last_log_line() {
+        let tail = "INFO: starting\nOSError: [Errno 98] Address already in use\n\n";
+
+        let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
+
+        assert!(message.contains("exited immediately after spawn (exit code: 1)"), "got: {message}");
+        assert!(message.contains("Last log line: OSError: [Errno 98] Address already in use"), "trailing blank lines must be skipped: {message}");
+        assert!(message.contains("Interpreter: 'python'"), "got: {message}");
+        assert!(message.contains("C:\\Users\\bob\\AppData\\Local\\Temp\\opencohost-backend.log"), "got: {message}");
+    }
+
+    #[test]
+    fn describe_spawn_failure_still_reports_the_facts_with_no_log_at_all() {
+        // `read_log_tail` returns None for both a missing and an empty log —
+        // neither may swallow the interpreter/working-dir facts.
+        let message = describe_spawn_failure(&shell_only_install_facts(None));
+
+        assert!(message.contains("Last log line: (no log output)"), "got: {message}");
+        assert!(message.contains("Interpreter: 'python'"), "got: {message}");
+        assert!(message.contains("C:\\Users\\bob\\OpenCohost\\.."), "got: {message}");
+    }
+
+    #[test]
+    fn describe_spawn_failure_surfaces_a_missing_engine_root_in_every_branch() {
+        // resolved_working_dir()'s fallback warning went to stderr only, which
+        // nobody sees in a bundled app — yet it is the clearest evidence that
+        // the shell was installed without the engine.
+        for tail in [
+            Some("ModuleNotFoundError: No module named 'opencohost'\n"),
+            Some("ModuleNotFoundError: No module named 'uvicorn'\n"),
+            Some("RuntimeError: something else entirely\n"),
+            None,
+        ] {
+            let message = describe_spawn_failure(&shell_only_install_facts(tail));
+            assert!(message.contains("No engine folder"), "got: {message}");
+        }
+    }
+
+    #[test]
+    fn describe_spawn_failure_omits_the_root_note_when_the_engine_root_was_found() {
+        let mut facts = shell_only_install_facts(Some("ModuleNotFoundError: No module named 'opencohost'\n"));
+        facts.engine_root_found = true;
+        facts.working_dir = Path::new("C:\\Users\\bob\\OpenCohost");
+
+        let message = describe_spawn_failure(&facts);
+
+        assert!(!message.contains("No engine folder"), "got: {message}");
+        assert!(message.contains("engine is not installed"), "got: {message}");
+    }
+
+    #[test]
+    fn read_log_tail_returns_none_for_a_missing_log() {
+        let missing = env::temp_dir().join("opencohost-test-missing-backend-log.log");
+        let _ = fs::remove_file(&missing);
+        assert_eq!(read_log_tail(&missing), None);
+    }
+
+    #[test]
+    fn read_log_tail_returns_none_for_an_empty_log() {
+        let empty = env::temp_dir().join("opencohost-test-empty-backend-log.log");
+        fs::write(&empty, "").expect("test setup: write must succeed");
+        assert_eq!(read_log_tail(&empty), None);
+        let _ = fs::remove_file(&empty);
+    }
+
+    #[test]
+    fn read_log_tail_reads_only_the_last_few_kb_of_a_large_log() {
+        let path = env::temp_dir().join("opencohost-test-large-backend-log.log");
+        let filler = "x".repeat(LOG_TAIL_BYTES as usize * 2);
+        fs::write(&path, format!("HEAD-MARKER\n{filler}\nTAIL-MARKER"))
+            .expect("test setup: write must succeed");
+
+        let tail = read_log_tail(&path).expect("a non-empty log must produce a tail");
+
+        assert!(tail.len() as u64 <= LOG_TAIL_BYTES, "read must stay bounded, got {} bytes", tail.len());
+        assert!(tail.contains("TAIL-MARKER"), "the tail is the part that matters");
+        assert!(!tail.contains("HEAD-MARKER"), "the head must not be read back");
+        let _ = fs::remove_file(&path);
     }
 
     // --- decide_action: pure decision logic, no IO involved (WU-E M1) ---
