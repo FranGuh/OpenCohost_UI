@@ -7,6 +7,7 @@ import { Slider } from "../../ui/Slider.js";
 import { useMockCommand } from "../../api/mock/useMockCommand.js";
 import {
   useDeleteMusicTrackMutation,
+  useMusicImportMutation,
   useMusicLibraryQuery,
   useMusicMoodMutation,
   type MusicMoodResponse,
@@ -14,6 +15,7 @@ import {
 } from "../../api/music.js";
 import { MUSIC_FIXTURE } from "../../api/mock/fixtures.js";
 import { pickRotationTrack } from "../../lib/musicRotation.js";
+import { pickFile } from "../../lib/pickFile.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
@@ -27,11 +29,9 @@ import { useT, type TKey } from "../../i18n/t.js";
 // live directly inside this component, so switching Sidebar sections
 // unmounted it and killed playback mid-track; it now lives in
 // PlaybackProvider, mounted above the section-switched subtree (AppLayout),
-// so playback survives this panel unmounting. Importar stays disabled: POST
-// /api/music/import exists and is wired at the api layer (src/api/music.ts)
-// with its own tests, but a browser/webview <input type=file> cannot surface
-// a real filesystem path without the Tauri dialog plugin, which is not
-// installed in this slice — see the role="status" note on the button.
+// so playback survives this panel unmounting. Importar is now live: the Tauri
+// dialog plugin returns a real absolute path, which POST /api/music/import
+// takes directly (no upload endpoint — client and server share a filesystem).
 // Limpiar faltantes has no backing endpoint yet (no bulk-cleanup route in
 // main.py) and stays the pre-existing local-only mock.
 //
@@ -58,6 +58,30 @@ const TRACK_STATUS_BADGE: Record<MusicTrackOut["status"], { tone: BadgeTone; lab
   ok: { tone: "ok", labelKey: "musica.library.status.ok" },
   faltante: { tone: "warn", labelKey: "musica.library.status.faltante" },
   invalido: { tone: "danger", labelKey: "musica.library.status.invalido" }
+};
+
+/** Mood an import is filed under before the owner has picked one. "normal" is
+ * a KNOWN_MOODS member and the backend's own fallback bucket, so it can never
+ * be the cause of a 422 `unknown mood`. */
+const DEFAULT_IMPORT_MOOD = "normal";
+
+/** Machine-readable `detail` tokens POST /api/music/import can answer with
+ * (opencohost/api/routers/music.py::post_music_import, plus
+ * music_library.stage_copy's `music_unsupported_format`), mapped to copy the
+ * owner can act on. The raw token is never rendered: an unmapped one falls
+ * back to `...error.generic` so a backend change surfaces as a vague message
+ * rather than as leaked internals. */
+const IMPORT_ERROR_KEYS: Record<string, TKey> = {
+  "only .mp3/.wav files": "musica.library.import.error.unsupported",
+  music_unsupported_format: "musica.library.import.error.unsupported",
+  "file not found": "musica.library.import.error.notFound",
+  "file too large": "musica.library.import.error.tooLarge",
+  "file not readable": "musica.library.import.error.notReadable",
+  "path must be absolute": "musica.library.import.error.notAbsolute",
+  "invalid path": "musica.library.import.error.invalidPath",
+  "unknown mood": "musica.library.import.error.unknownMood",
+  music_unavailable: "musica.library.import.error.unavailable",
+  music_write_failed: "musica.library.import.error.writeFailed"
 };
 
 interface MoodCardProps {
@@ -166,6 +190,10 @@ interface LibraryCardProps {
   isPlaying: boolean;
   onPlayTrack: (id: string) => void;
   onTogglePlay: () => void;
+  importMood: string;
+  onImport: () => void;
+  importPending: boolean;
+  importError: string | null;
 }
 
 function LibraryCard({
@@ -180,7 +208,11 @@ function LibraryCard({
   playingTrackId,
   isPlaying,
   onPlayTrack,
-  onTogglePlay
+  onTogglePlay,
+  importMood,
+  onImport,
+  importPending,
+  importError
 }: LibraryCardProps) {
   const t = useT();
   const hasMissing = tracks.some((track) => track.status === "faltante");
@@ -208,7 +240,9 @@ function LibraryCard({
               ? t("musica.library.trackCount.one")
               : t("musica.library.trackCount.many", { n: tracks.length })}
           </Badge>
-          {(deletePending || cleanupPending) && <Badge tone="info">{t("musica.library.status.applying")}</Badge>}
+          {(deletePending || cleanupPending || importPending) && (
+            <Badge tone="info">{t("musica.library.status.applying")}</Badge>
+          )}
         </div>
       </div>
 
@@ -228,19 +262,18 @@ function LibraryCard({
             <section aria-labelledby="music-import-label" className="space-y-2">
               {sectionLabel("music-import-label", t("musica.library.import.eyebrow"))}
               <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <span className="text-[13px] text-muted-foreground">{t("musica.library.import.hint")}</span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled
-                  title={t("musica.library.import.disabled.title")}
-                >
+                <span className="text-[13px] text-muted-foreground">
+                  {t("musica.library.import.hint", { mood: moodLabel(importMood) })}
+                </span>
+                <Button type="button" variant="outline" disabled={importPending} onClick={onImport}>
                   {t("musica.library.import.action")}
                 </Button>
               </div>
-              <p role="status" className="text-xs leading-relaxed text-dim">
-                <span className="mono">POST /api/music/import</span> {t("musica.library.import.notice")}
-              </p>
+              {importError && (
+                <p role="alert" className="text-xs leading-relaxed text-danger">
+                  {importError}
+                </p>
+              )}
             </section>
 
             {!isLoading && tracks.length > 0 && (
@@ -335,14 +368,16 @@ function LibraryCard({
  * hydrates from the live GET /api/music/library. MoodCard's quick-test grid
  * is wired to the real POST /api/music/mood and plays the suggested track
  * client-side; LibraryCard's Quitar is wired to the real DELETE
- * /api/music/track/{id}. See the module note above for exactly what's wired
- * vs. deferred (Importar, Limpiar faltantes).
+ * /api/music/track/{id}, and Importar to POST /api/music/import through the
+ * native file dialog. See the module note above for exactly what's wired vs.
+ * deferred (Limpiar faltantes).
  */
 export function MusicPanel() {
   const t = useT();
   const { data, isLoading, isError } = useMusicLibraryQuery();
   const moodMutation = useMusicMoodMutation();
   const deleteMutation = useDeleteMusicTrackMutation();
+  const importMutation = useMusicImportMutation();
   const cleanupCommand = useMockCommand<void>();
   const playback = usePlaybackContext();
 
@@ -389,6 +424,24 @@ export function MusicPanel() {
     void cleanupCommand.run();
   }
 
+  const importMood = activeMood ?? DEFAULT_IMPORT_MOOD;
+
+  async function handleImport() {
+    const path = await pickFile({
+      name: t("musica.library.import.filter.name"),
+      extensions: ["mp3", "wav"]
+    });
+    // Cancelled (or no native picker) — leave the previous error, if any,
+    // alone and do nothing. A cancel is not a failure.
+    if (path === null) return;
+    importMutation.mutate({ path, mood: importMood });
+  }
+
+  // The backend answers with machine-readable tokens; never render one.
+  const importError = importMutation.isError
+    ? t(IMPORT_ERROR_KEYS[importMutation.error?.message ?? ""] ?? "musica.library.import.error.generic")
+    : null;
+
   const nowPlaying = tracks.find((track) => track.id === playingTrackId) ?? null;
 
   return (
@@ -420,6 +473,10 @@ export function MusicPanel() {
         isPlaying={isPlaying}
         onPlayTrack={playTrack}
         onTogglePlay={togglePlay}
+        importMood={importMood}
+        onImport={() => void handleImport()}
+        importPending={importMutation.isPending}
+        importError={importError}
       />
     </>
   );

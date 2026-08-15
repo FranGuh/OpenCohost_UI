@@ -242,6 +242,14 @@ export function PTTCard() {
             LiveAudio (WhisperLive)
           </span>
 
+          {/* LiveAudio is a separate download, not something OpenCohost ships or
+              starts. Without that note the URL field reads like an optional
+              tuning knob, and the owner is left wondering why Kira can't hear
+              them. */}
+          <p role="status" className="text-xs leading-relaxed text-muted-foreground">
+            {t("controles.ptt.liveAudio.separateApp.hint")}
+          </p>
+
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <span className="text-[13px] text-foreground">{t("controles.ptt.wsUrl.active.label")}</span>
             <span className="mono text-[11px] text-dim">{activeWsUrl ?? t("controles.ptt.wsUrl.unset")}</span>

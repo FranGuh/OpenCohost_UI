@@ -1,9 +1,13 @@
+import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import {
+  API_BASE_URL,
+  musicImportErrorHandler,
+  musicImportValidationHandler,
   musicLibraryDeleteFlowHandlers,
   musicLibraryGetErrorHandler,
   musicLibraryGetHandler,
@@ -13,6 +17,16 @@ import {
   musicTrackDeleteErrorHandler
 } from "../../test/handlers.js";
 import { PlaybackProvider, usePlaybackContext } from "../../state/PlaybackProvider.js";
+
+// Module-scope spy read lazily inside the factory (the repo's
+// @tauri-apps/api/core mock convention) — the native picker never exists in
+// jsdom, so every import test drives it from here.
+const openDialog = vi.fn<(options?: unknown) => Promise<string | null>>();
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (options?: unknown) => openDialog(options)
+}));
+
 import { MusicPanel } from "./MusicPanel.js";
 
 function renderPanel() {
@@ -109,12 +123,113 @@ describe("MusicPanel library hydrates from GET /api/music/library", () => {
     expect(screen.queryByRole("list", { name: "Tracks de la biblioteca" })).not.toBeInTheDocument();
   });
 
-  it("renders Importar as a disabled affordance requiring the desktop file dialog", async () => {
+  it("offers Importar as a live affordance now that the file dialog exists", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
-    const importButton = screen.getByRole("button", { name: "Importar" });
-    expect(importButton).toBeDisabled();
-    expect(screen.getByText(/selector de archivos de escritorio/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Importar" })).not.toBeDisabled();
+  });
+});
+
+describe("MusicPanel Importar is wired to the native dialog + POST /api/music/import", () => {
+  beforeEach(() => openDialog.mockReset());
+
+  async function clickImport() {
+    renderPanel();
+    await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+  }
+
+  it("filters the dialog to .mp3/.wav and POSTs the absolute path it returns", async () => {
+    openDialog.mockResolvedValue("C:\\music\\intro.wav");
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/music/import`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ track: { id: "t-new", label: "intro.wav", mood: "normal", status: "ok" } });
+      })
+    );
+
+    await clickImport();
+
+    await waitFor(() => expect(capturedBody).toEqual({ path: "C:\\music\\intro.wav", mood: "normal" }));
+    expect(openDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        multiple: false,
+        directory: false,
+        filters: [expect.objectContaining({ extensions: ["mp3", "wav"] })]
+      })
+    );
+  });
+
+  it("files the import under the mood the owner last selected, not the default", async () => {
+    openDialog.mockResolvedValue("C:\\music\\tense.mp3");
+    let capturedBody: unknown;
+    server.use(
+      musicMoodHandler({ active_mood: "tension", tracks: [], suggested_track_id: null }),
+      http.post(`${API_BASE_URL}/api/music/import`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ track: { id: "t-new", label: "tense.mp3", mood: "tension", status: "ok" } });
+      })
+    );
+    renderPanel();
+    await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
+
+    fireEvent.click(screen.getByRole("button", { name: "Tension" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tension" })).toHaveAttribute("aria-pressed", "true"));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+
+    await waitFor(() => expect(capturedBody).toEqual({ path: "C:\\music\\tense.mp3", mood: "tension" }));
+  });
+
+  it("treats a cancelled dialog as a no-op, not an error", async () => {
+    openDialog.mockResolvedValue(null);
+    let posted = false;
+    server.use(
+      http.post(`${API_BASE_URL}/api/music/import`, () => {
+        posted = true;
+        return HttpResponse.json({ track: { id: "t-new", label: "x.wav", mood: "normal", status: "ok" } });
+      })
+    );
+
+    await clickImport();
+
+    await waitFor(() => expect(openDialog).toHaveBeenCalled());
+    expect(posted).toBe(false);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("translates a 422 detail token instead of printing it raw", async () => {
+    openDialog.mockResolvedValue("C:\\music\\notes.txt");
+    server.use(musicImportValidationHandler("only .mp3/.wav files"));
+
+    await clickImport();
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Solo se pueden importar archivos .mp3 o .wav.")
+    );
+    expect(screen.queryByText(/only \.mp3/)).not.toBeInTheDocument();
+  });
+
+  it("translates a 503 music_unavailable instead of printing it raw", async () => {
+    openDialog.mockResolvedValue("C:\\music\\intro.wav");
+    server.use(musicImportErrorHandler("music_unavailable"));
+
+    await clickImport();
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("La biblioteca de música no está disponible ahora mismo.")
+    );
+    expect(screen.queryByText(/music_unavailable/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to a generic message on an unmapped detail, never the token", async () => {
+    openDialog.mockResolvedValue("C:\\music\\intro.wav");
+    server.use(musicImportValidationHandler("some_future_backend_token"));
+
+    await clickImport();
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("No se pudo importar el archivo."));
+    expect(screen.queryByText(/some_future_backend_token/)).not.toBeInTheDocument();
   });
 });
 

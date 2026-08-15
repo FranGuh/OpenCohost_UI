@@ -4,6 +4,7 @@ import { Badge } from "../../ui/Badge.js";
 import { Select } from "../../ui/Select.js";
 import { Button } from "../../ui/Button.js";
 import { useAvatarConfigQuery, useUpdateAvatarConfigMutation } from "../../api/avatar.js";
+import { pickFile } from "../../lib/pickFile.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
 const MODE_OPTIONS = [
@@ -24,18 +25,27 @@ const STATE_LABELS = [
   ["error", "controles.avatar.state.error"]
 ] as const satisfies ReadonlyArray<readonly [string, TKey]>;
 
+/** Extensions offered by the "Cambiar" picker. `state_images` is a plain path
+ * map with no server-side extension check (routers/avatar.py only validates
+ * the STATE names), so this filter is the only thing steering the owner at an
+ * image file — keep it to what OBS/the avatar renderer can actually show. */
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
 /**
  * Avatar card — wired to GET/PUT /api/avatar/config (opencohost/api/main.py
  * ~705-729). Mode select PUTs on change; per-state rows render whatever
  * `state_images` path the config actually has (missing state -> "sin
  * imagen", honest instead of a fake fixture path).
  *
- * "Cambiar" (per-state image upload) stays permanently disabled — no
- * `POST /api/avatar/upload` endpoint exists (browser multipart vs desktop
- * file picker is an owner decision), a role="status" note discloses why.
+ * "Cambiar" opens the native file dialog (Tauri's dialog plugin) and PUTs the
+ * chosen absolute path into `state_images`. No upload endpoint is involved and
+ * none is needed: `state_images` IS a path map and client and server share a
+ * filesystem.
  *
- * "Probar" previews a configured state's image locally (swatch) — still
- * never sent to OBS/stream, just reads the real path out of `state_images`.
+ * "Probar" previews a configured state's image locally (swatch) — still never
+ * sent to OBS/stream, just reads the real path out of `state_images`. Because
+ * the PUT response is written straight back into the query cache, the preview
+ * picks up a freshly chosen path with no extra wiring.
  */
 export function AvatarCard() {
   const t = useT();
@@ -46,6 +56,16 @@ export function AvatarCard() {
 
   function applyMode(value: string) {
     updateConfig.mutate({ mode: value });
+  }
+
+  async function changeStateImage(state: string) {
+    const path = await pickFile({ name: t("controles.avatar.stateImage.filter.name"), extensions: IMAGE_EXTENSIONS });
+    // Cancelled (or no native picker) — do nothing, never an error.
+    if (path === null) return;
+    // Spread the whole current map, not just the touched state: every other
+    // state has to survive the write. (The backend merges too, but sending the
+    // full map keeps the wire contract self-evident and independent of that.)
+    updateConfig.mutate({ state_images: { ...data?.state_images, [state]: path } });
   }
 
   const previewImage = previewShown ? data?.state_images[previewState] : undefined;
@@ -108,9 +128,10 @@ export function AvatarCard() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled
+                      disabled={updateConfig.isPending}
                       aria-label={t("controles.avatar.stateImage.change.aria", { label: t(labelKey) })}
                       title={t("controles.avatar.stateImage.change.hint")}
+                      onClick={() => void changeStateImage(state)}
                     >
                       {t("controles.avatar.stateImage.change.action")}
                     </Button>
@@ -118,9 +139,7 @@ export function AvatarCard() {
                 ))}
               </div>
               <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-                {t("controles.avatar.stateImages.hint.prefix")}{" "}
-                <span className="mono">POST /api/avatar/upload</span>
-                {t("controles.avatar.stateImages.hint.suffix")}
+                {t("controles.avatar.stateImages.hint")}
               </p>
             </section>
 
@@ -144,6 +163,12 @@ export function AvatarCard() {
               </div>
               {previewImage && (
                 <>
+                  {/* ponytail: the swatch renders the configured path as-is, so
+                      an absolute local path only paints once the webview is
+                      allowed to read it (Tauri's asset protocol + a read scope).
+                      Enabling that is a real permission widening, not a
+                      one-liner, so the path text below the row stays the honest
+                      confirmation that the change landed. */}
                   <img
                     src={previewImage}
                     alt={t("controles.avatar.preview.image.alt", { label: previewLabel ?? "" })}

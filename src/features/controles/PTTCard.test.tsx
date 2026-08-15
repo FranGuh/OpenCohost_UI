@@ -38,7 +38,9 @@ describe("PTTCard: idle defaults", () => {
     expect(screen.getByText("PTT · Push-to-Talk")).toBeInTheDocument();
     const mapButton = screen.getByRole("button", { name: "Mapear atajo" });
     expect(mapButton).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent(/app de escritorio/);
+    // Named, not "the only role=status in the card" — the LiveAudio section
+    // carries its own note now, and this one is about the hotkey.
+    expect(screen.getByText(/Mapear atajo requiere la app de escritorio/)).toBeInTheDocument();
   });
 });
 
@@ -207,6 +209,14 @@ describe("PTTCard: reply arrives via the existing last-reply poll", () => {
 });
 
 describe("PTTCard: LiveAudio (WhisperLive) URL configuration", () => {
+  it("tells the owner LiveAudio is a separate program they have to run", async () => {
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText(/es un programa aparte/i)).toBeInTheDocument();
+    expect(screen.getByText(/dejarlo corriendo/i)).toBeInTheDocument();
+  });
+
   it("renders the currently active URL from GET /api/ptt/state", async () => {
     renderCard();
     await act(() => vi.advanceTimersByTimeAsync(0));

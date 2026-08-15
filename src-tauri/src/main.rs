@@ -16,6 +16,9 @@ const WINDOW_SHOW_FALLBACK_SECS: u64 = 4;
 
 fn main() {
     tauri::Builder::default()
+        // Native file picker — the only way the webview can hand the API a
+        // real absolute path (music import, avatar per-state images).
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![backend::backend_info, backend::api_token])
         // Show the window only once the page has actually painted, so WebView2
         // never flashes its black default surface while Vite transforms the
