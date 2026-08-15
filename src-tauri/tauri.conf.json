@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenCohost Shell Prototype",
-  "version": "0.0.0",
-  "identifier": "com.opencohost.shell.prototype",
+  "productName": "OpenCohost",
+  "version": "0.1.1",
+  "identifier": "com.opencohost.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "OpenCohost Shell Prototype",
+        "title": "OpenCohost",
         "width": 1440,
         "height": 950,
         "minWidth": 1280,
