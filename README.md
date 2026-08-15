@@ -2,7 +2,7 @@
 
 > ### 🧪 This is an open beta
 >
-> OpenCohost is built by one developer, in the open, and this is the first
+> OpenCohost is built by one developer orchestrating AI agents, in the open, and this is the first
 > release anyone outside can run. Things will break. Some panels are further
 > along than others, and a few rough edges are known and not yet fixed.
 >
@@ -96,6 +96,22 @@ Tauri will reuse that backend rather than spawn its own — which means
 For front-end-only work against a backend you started yourself, `pnpm dev` serves
 the React app on its own at `:1420`.
 
+## Building an installer
+
+`pnpm tauri build` writes an NSIS installer to
+`src-tauri/target/release/bundle/nsis/`, but it packages **the desktop shell
+only** — no Python engine, no `opencohost` package, no `pyproject.toml`. Install
+that output on a machine without the engine and the app comes up, fails to spawn
+`python -m uvicorn opencohost.api.main:app`, and tells you the engine is missing
+along with the interpreter and working directory it tried; fix it by installing
+the engine and pointing `backend.config.json` at it.
+
+The end-user installer is `OpenCohost-Setup-<version>.exe`, published on the
+[engine repository's](https://github.com/plynte-labs/OpenCohost) releases. It is
+a bootstrapper: it provisions a virtualenv, installs the `opencohost` wheel, and
+starts the engine's own `opencohost` entry point — which today is still the
+legacy CustomTkinter shell, so it does not yet ship this front end.
+
 ## Surfaces
 
 One folder per product surface under `src/features/`:
@@ -143,4 +159,4 @@ for — open an issue or a PR. Two things to keep in mind:
 
 ## License
 
-MIT — see the engine repository for the full text.
+MIT — see [`LICENSE`](LICENSE).
