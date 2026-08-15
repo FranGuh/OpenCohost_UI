@@ -1,10 +1,23 @@
 # OpenCohost UI — Tauri + React front end
 
+> ### 🧪 This is an open beta
+>
+> OpenCohost is built by one developer, in the open, and this is the first
+> release anyone outside can run. Things will break. Some panels are further
+> along than others, and a few rough edges are known and not yet fixed.
+>
+> That is exactly why it is out here: **bug reports, questions and feature
+> ideas are wanted**, not tolerated. If something breaks, misbehaves, or just
+> feels wrong to use, [open an issue](../../issues) — a screenshot and what you
+> were doing is plenty. Front-end contributions are welcome too (see below).
+
+![Opencohost App](pictures/Interface.png)
 This is **the** OpenCohost user interface: a Tauri 2 desktop shell wrapping a
 React app, and the surface the product actually ships on. It is not a mockup and
 not an alternative to anything — the older CustomTkinter shell in the Python repo
 was frozen as legacy on 2026-08-13 and is no longer maintained.
 
+![Agenda Panel](pictures/AgendaPanel.png)
 It lives in its own repository on purpose. The Python engine is a separate
 concern; front-end work — styling, layout, accessibility, component structure,
 bug fixes — can happen here without touching the core. **Contributions of that
@@ -15,7 +28,7 @@ The Python backend is wired in as a submodule consumer: this repo is embedded at
 which holds the engine, the HTTP API, and the product documentation.
 
 ## How it fits together
-
+![Alternative theme](pictures/AlternativeTheme.png)
 The React app never talks to a model. It drives the engine entirely over a local
 HTTP API, and the Tauri shell is what puts that API there:
 
