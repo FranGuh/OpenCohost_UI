@@ -93,7 +93,7 @@ describe("bootstrapBackend", () => {
 
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(result).toEqual({ backendError: "Unable to resolve the local backend." });
+    expect(result).toEqual({ backendError: "ipc_unavailable" });
     expect(settledAt).toBeGreaterThanOrEqual(startedAt + 2000);
     expect(mocks.invoke).toHaveBeenCalledTimes(2);
   });
@@ -165,7 +165,12 @@ describe("bootstrapBackend", () => {
           ? {
               base_url: "http://127.0.0.1:9876",
               managed: false,
-              error: "Managed backend unavailable; using an existing local engine."
+              error: {
+                code: "backend_launch_failed",
+                stage: "launch",
+                action: "retry",
+                message_key: "backend_launch_failed"
+              }
             }
           : null
       )
@@ -173,11 +178,11 @@ describe("bootstrapBackend", () => {
     const { bootstrapBackend, getBackendBootstrapError } = await loadBootstrap();
 
     await expect(bootstrapBackend()).resolves.toEqual({
-      backendError: "Managed backend unavailable; using an existing local engine."
+      backendError: "backend_launch_failed"
     });
     expect(mocks.setApiBaseUrl).toHaveBeenCalledWith("http://127.0.0.1:9876");
     expect(getBackendBootstrapError()).toBe(
-      "Managed backend unavailable; using an existing local engine."
+      "backend_launch_failed"
     );
   });
 
@@ -192,8 +197,29 @@ describe("bootstrapBackend", () => {
     const { bootstrapBackend } = await loadBootstrap();
 
     await expect(bootstrapBackend()).resolves.toEqual({
-      backendError: "Unable to resolve the local backend."
+      backendError: "ipc_unavailable"
     });
     expect(mocks.setApiBaseUrl).not.toHaveBeenCalled();
+  });
+
+  it("maps an unknown diagnostic envelope to a safe stable code", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "backend_info"
+          ? {
+              base_url: "http://127.0.0.1:8765",
+              managed: false,
+              error: {
+                code: "SECRET_CANARY C:/private?token=leak",
+                stage: "C:/private",
+                action: "--token=leak",
+                message_key: "raw-error"
+              }
+            }
+          : null
+      )
+    );
+    const { bootstrapBackend } = await loadBootstrap();
+    await expect(bootstrapBackend()).resolves.toEqual({ backendError: "generic", runtimeRequired: true });
   });
 });

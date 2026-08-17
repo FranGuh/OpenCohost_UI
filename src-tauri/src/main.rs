@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
+mod first_run;
+mod provisioner;
+mod runtime_manifest;
 
 use std::time::Duration;
 
@@ -19,7 +22,16 @@ fn main() {
         // Native file picker — the only way the webview can hand the API a
         // real absolute path (music import, avatar per-state images).
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![backend::backend_info, backend::api_token])
+        .invoke_handler(tauri::generate_handler![
+            backend::backend_info,
+            backend::reload_backend_command,
+            backend::api_token,
+            first_run::first_run_status,
+            first_run::provision_status,
+            first_run::provision_start,
+            first_run::provision_cancel,
+            first_run::provision_retry
+        ])
         // Show the window only once the page has actually painted, so WebView2
         // never flashes its black default surface while Vite transforms the
         // module graph cold in dev.
@@ -32,6 +44,7 @@ fn main() {
         })
         .setup(|app| {
             backend::setup_backend(app)?;
+            first_run::setup(app);
 
             // Fallback: a broken/blank frontend must not leave the app
             // invisible with no way to reach it. Show it after a grace period

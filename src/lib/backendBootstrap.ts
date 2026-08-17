@@ -8,15 +8,31 @@ import { bootstrapApiToken, setApiBaseUrl } from "../api/client.js";
 export interface BackendInfo {
   base_url: string;
   managed: boolean;
-  error?: string | null;
+  error?: BackendDiagnostic | null;
+}
+
+export interface BackendDiagnostic {
+  code: string;
+  stage: string;
+  action: string;
+  message_key: string;
 }
 
 export interface BootstrapResult {
   backendError: string | null;
+  runtimeRequired?: boolean;
 }
 
 const BOOTSTRAP_TIMEOUT_MS = 2000;
-const BACKEND_RESOLUTION_ERROR = "Unable to resolve the local backend.";
+const BACKEND_RESOLUTION_ERROR = "ipc_unavailable";
+const SAFE_BACKEND_CODES = new Set([
+  "runtime_not_ready",
+  "backend_state_unavailable",
+  "backend_launch_failed",
+  "backend_ports_busy",
+  "ipc_unavailable",
+  "generic"
+]);
 
 let backendBootstrapError: string | null = null;
 let bootstrapPromise: Promise<BootstrapResult> | null = null;
@@ -46,7 +62,16 @@ function normalizeBackendInfo(value: BackendInfo): { baseUrl: string; error: str
     }
     return {
       baseUrl: url.toString().replace(/\/$/, ""),
-      error: typeof value.error === "string" && value.error.trim() ? value.error.trim() : null
+      error:
+        value.error &&
+        typeof value.error.code === "string" &&
+        typeof value.error.stage === "string" &&
+        typeof value.error.action === "string" &&
+        typeof value.error.message_key === "string"
+          ? SAFE_BACKEND_CODES.has(value.error.code)
+            ? value.error.code
+            : "generic"
+          : null
     };
   } catch {
     return null;
@@ -72,7 +97,12 @@ function resolveBackendResult(
     if (backendInfo) {
       setApiBaseUrl(backendInfo.baseUrl);
       backendBootstrapError = backendInfo.error;
-      return { backendError: backendBootstrapError };
+      return {
+        backendError: backendBootstrapError,
+        ...(backendBootstrapError && backendBootstrapError !== "backend_launch_failed"
+          ? { runtimeRequired: true }
+          : {})
+      };
     }
   }
 
@@ -106,4 +136,10 @@ async function runBootstrap(): Promise<BootstrapResult> {
 export function bootstrapBackend(): Promise<BootstrapResult> {
   bootstrapPromise ??= runBootstrap();
   return bootstrapPromise;
+}
+
+/** Allows the first-run controller to re-run the validated IPC bootstrap after
+ * it atomically activates a runtime and reloads the backend child. */
+export function resetBackendBootstrap(): void {
+  bootstrapPromise = null;
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query";
 import { getApiBaseUrl } from "../../api/client.js";
 import { cn } from "../../lib/cn.js";
-import { bootstrapBackend, type BootstrapResult } from "../../lib/backendBootstrap.js";
+import { bootstrapBackend, resetBackendBootstrap, type BootstrapResult } from "../../lib/backendBootstrap.js";
 import { BootLoader } from "../../ui/BootLoader.js";
 import { useT } from "../../i18n/t.js";
 
@@ -16,7 +16,7 @@ const DEFAULT_HEALTH_TIMEOUT_MS = 2000;
 // teardown.
 const SPLASH_FADE_MS = 360;
 
-export type BootstrapPhase = "bootstrapping" | "probing" | "ready" | "error";
+export type BootstrapPhase = "bootstrapping" | "probing" | "setup" | "ready" | "error";
 
 function isReadyHealth(value: unknown): value is { engine_alive: true } {
   return (
@@ -68,6 +68,8 @@ async function fetchHealth(querySignal: AbortSignal, timeoutMs: number): Promise
 
 export interface BackendGateProps {
   children: ReactNode;
+  /** First-run/degraded runtime surface shown before health polling. */
+  runtimeSetup?: (onReady: () => void, backendError: string | null) => ReactNode;
   /** Poll interval in ms — overridable for tests, defaults to 1s. */
   pollIntervalMs?: number;
   /** Consecutive failures before showing the error copy — defaults to 20. */
@@ -85,6 +87,7 @@ export interface BackendGateProps {
  */
 export function BackendGate({
   children,
+  runtimeSetup,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   failureThreshold = DEFAULT_FAILURE_THRESHOLD,
   healthTimeoutMs = DEFAULT_HEALTH_TIMEOUT_MS,
@@ -92,6 +95,7 @@ export function BackendGate({
 }: BackendGateProps) {
   const t = useT();
   const [phase, setPhase] = useState<BootstrapPhase>("bootstrapping");
+  const [bootstrapEpoch, setBootstrapEpoch] = useState(0);
   const failureCount = useRef(0);
   const [errorDetail, setErrorDetail] = useState<string | null>(backendError ?? null);
   // Splash lifetime, decoupled from `phase`: the app mounts the instant the gate
@@ -106,12 +110,12 @@ export function BackendGate({
       if (backendError === undefined) {
         setErrorDetail(result.backendError);
       }
-      setPhase("probing");
+      setPhase(result.runtimeRequired ? "setup" : "probing");
     });
     return () => {
       active = false;
     };
-  }, [backendError]);
+  }, [backendError, bootstrapEpoch]);
 
   const query = useQuery({
     queryKey: HEALTH_QUERY_KEY,
@@ -152,6 +156,14 @@ export function BackendGate({
 
   // Error branch: informative, unchanged — the state machine, retry, and copy
   // are exactly as before. The error card never carries the boot splash/collage.
+  if (phase === "setup") {
+    return runtimeSetup ? runtimeSetup(() => {
+      resetBackendBootstrap();
+      setBootstrapEpoch((epoch) => epoch + 1);
+      setPhase("bootstrapping");
+    }, errorDetail) : null;
+  }
+
   if (phase === "error") {
     return (
       <div
@@ -160,11 +172,7 @@ export function BackendGate({
       >
         <h1 className="mono text-2xl font-bold text-[var(--kira-cyan)]">OpenCohost</h1>
         <p className="text-sm text-muted-foreground">{t("shell.backendGate.error.message")}</p>
-        {errorDetail ? (
-          <p className="text-xs text-muted-foreground">
-            {t("shell.backendGate.error.detail", { detail: errorDetail })}
-          </p>
-        ) : null}
+        {errorDetail ? <p className="text-xs text-muted-foreground">{t("shell.firstRun.error")}</p> : null}
         <button
           type="button"
           autoFocus

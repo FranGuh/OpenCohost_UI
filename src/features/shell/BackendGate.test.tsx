@@ -198,7 +198,7 @@ describe("BackendGate terminal failure and retry", () => {
     await waitFor(() => expect(screen.getByText("app content")).toBeInTheDocument());
   });
 
-  it("shows only the supplied degraded bootstrap detail", async () => {
+  it("shows localized safe degraded copy without the supplied raw detail", async () => {
     server.use(http.get(`${API_BASE_URL}/api/health`, () => HttpResponse.json({ engine_alive: false })));
 
     renderGate({
@@ -207,7 +207,8 @@ describe("BackendGate terminal failure and retry", () => {
     });
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Detalle: Failed to spawn the managed local backend.");
+    expect(alert).toHaveTextContent("No se pudo preparar el runtime privado.");
+    expect(alert).not.toHaveTextContent("Failed to spawn the managed local backend.");
     expect(alert).not.toHaveTextContent("engine_alive");
   });
 

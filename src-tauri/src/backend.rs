@@ -16,6 +16,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+#[cfg(test)]
+use crate::runtime_manifest::RuntimeManifest;
+#[cfg(all(not(debug_assertions), windows))]
+use crate::runtime_manifest::WindowsRegistryHandoff;
+#[cfg(not(debug_assertions))]
+use crate::runtime_manifest::{launch_config, LaunchMode, RuntimeLocator, RuntimeManifest};
+
 fn default_app_module() -> String {
     "opencohost.api.main:app".to_string()
 }
@@ -48,6 +55,8 @@ pub struct BackendConfig {
     pub spawn: bool,
     #[serde(default)]
     pub log_file: Option<String>,
+    #[serde(default)]
+    pub data_root: Option<PathBuf>,
 }
 
 /// Compiled-in fallback — this crate's tracked `backend.config.default.json`,
@@ -64,9 +73,8 @@ const DEV_DEFAULT_CONFIG_JSON: &str = include_str!("../backend.config.default.js
 /// `env!("CARGO_MANIFEST_DIR")` is resolved at compile time, so this bakes in a
 /// *path* to the machine that built the binary — never the file's contents, and
 /// never anything that survives into a release build (`debug_assertions` is off
-/// there). Needed because `tauri.conf.json`'s `resources` copies the portable
-/// default next to the exe under the name `backend.config.json` in dev too, so
-/// the exe-adjacent candidate can no longer stand in for a developer's config.
+/// there). The development source candidate remains explicit because the
+/// editable backend config is intentionally not bundled.
 #[cfg(debug_assertions)]
 const DEV_SOURCE_CONFIG_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/backend.config.json");
 
@@ -80,18 +88,11 @@ impl BackendConfig {
     ///     how a developer with a real local `backend.config.json` (gitignored,
     ///     never committed) points the app at their own python_path/working_dir.
     /// (b) DEV BUILDS ONLY: this crate's source-tree `backend.config.json`
-    ///     (`DEV_SOURCE_CONFIG_PATH`). Deliberately ahead of (c): Tauri copies
-    ///     the portable default next to the exe under that same filename during
-    ///     `tauri dev`, so without this a developer's real config would be
-    ///     shadowed by `python_path: "python"` and the app would silently spawn
-    ///     the backend under whatever interpreter PATH happens to point at.
-    /// (c) `backend.config.json` next to the running exe (or, for a bundled
-    ///     NSIS install, inside its `resources/` subfolder — Tauri's
-    ///     bundle.resources may land there instead of directly beside the
-    ///     exe depending on the target). `tauri.conf.json` bundles the
-    ///     PORTABLE `backend.config.default.json` under this name by default,
-    ///     so an unconfigured build still resolves here with portable values
-    ///     — not a per-developer real config.
+    ///     (`DEV_SOURCE_CONFIG_PATH`). Deliberately ahead of (c) so a developer's
+    ///     real config cannot be shadowed by a portable exe-adjacent file.
+    /// (c) `backend.config.json` next to the running exe or in its `resources/`
+    ///     subfolder when a developer supplies that file explicitly. The
+    ///     installed release path never uses this fallback.
     /// (d) the compiled-in default (this crate's tracked
     ///     backend.config.default.json) — same portable values as (c), used
     ///     only if no file is found next to the exe at all.
@@ -216,6 +217,42 @@ fn find_repo_root(start: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Closed, IPC-safe degraded diagnostic. Low-level spawn errors, paths,
+/// commands and log tails never cross this boundary.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BackendDiagnostic {
+    pub code: String,
+    pub stage: String,
+    pub action: String,
+    pub message_key: String,
+}
+
+fn backend_diagnostic(code: &str) -> BackendDiagnostic {
+    let (stage, action, message_key) = match code {
+        "runtime_not_ready" => ("runtime", "provision_or_repair", "runtime_not_ready"),
+        "backend_state_unavailable" => ("startup", "restart", "ipc_unavailable"),
+        "backend_launch_failed" => ("launch", "retry", "backend_launch_failed"),
+        "backend_ports_busy" => ("launch", "retry", "backend_ports_busy"),
+        _ => ("startup", "retry", "generic"),
+    };
+    BackendDiagnostic {
+        code: code.to_owned(),
+        stage: stage.to_owned(),
+        action: action.to_owned(),
+        message_key: message_key.to_owned(),
+    }
+}
+
+fn classify_backend_error(error: &str) -> BackendDiagnostic {
+    if error.contains("runtime_not_ready") || error.contains("Provision or Repair") {
+        backend_diagnostic("runtime_not_ready")
+    } else if error.contains("both in use") {
+        backend_diagnostic("backend_ports_busy")
+    } else {
+        backend_diagnostic("backend_launch_failed")
+    }
+}
+
 /// Response of the `backend_info` command — mirrors
 /// `src/lib/backendBootstrap.ts::BackendInfo` on the frontend. Kept in sync
 /// manually, same pattern as the hand-typed API response shapes.
@@ -223,19 +260,15 @@ fn find_repo_root(start: &Path) -> Option<PathBuf> {
 pub struct BackendInfo {
     pub base_url: String,
     pub managed: bool,
-    /// Populated on every degraded resolution path (spawn IO error, child
-    /// exited immediately after spawn, both primary and fallback ports
-    /// busy with unhealthy processes) so the frontend can surface the
-    /// concrete failure instead of a generic "not reachable" message.
-    /// `None` on the healthy/managed-success paths.
-    pub error: Option<String>,
+    /// Populated on degraded resolution paths; always an allowlisted envelope.
+    pub error: Option<BackendDiagnostic>,
 }
 
 /// Tauri-managed state: the resolved `BackendInfo` (immutable after
 /// `setup_backend`) plus the spawned child (if any), so `shutdown_backend`
 /// can kill it on app exit.
 pub struct BackendState {
-    pub info: BackendInfo,
+    pub info: Mutex<BackendInfo>,
     pub child: Mutex<Option<Child>>,
     /// Windows Job Object holding the spawned child (if any) with
     /// kill-on-close semantics — see `job_object` module below. Always
@@ -245,7 +278,7 @@ pub struct BackendState {
     /// backend gets killed by the OS if this process dies without running
     /// `shutdown_backend`.
     pub job: Mutex<Option<job_object::JobObject>>,
-    /// The global F10 push-to-talk bridge child (`ptt_f10_bridge.py`), if it
+    /// The global F10 push-to-talk bridge child (`opencohost-ptt`), if it
     /// was spawned — killed in `shutdown_backend` regardless of `info.managed`
     /// (the bridge is always ours, even when the backend was a reused one).
     pub ptt_child: Mutex<Option<Child>>,
@@ -258,7 +291,15 @@ pub struct BackendState {
 
 #[tauri::command]
 pub fn backend_info(state: tauri::State<BackendState>) -> BackendInfo {
-    state.info.clone()
+    state
+        .info
+        .lock()
+        .map(|info| info.clone())
+        .unwrap_or_else(|_| BackendInfo {
+            base_url: format!("http://127.0.0.1:{}", default_port()),
+            managed: false,
+            error: Some(backend_diagnostic("backend_state_unavailable")),
+        })
 }
 
 /// Operator token handoff (agent_context_gateway Phase 4, design ADR-5): the
@@ -292,11 +333,16 @@ fn token_file_path(appdata: Option<&str>, userprofile: Option<&str>) -> PathBuf 
         .map(PathBuf::from)
         .or_else(|| userprofile.map(|home| Path::new(home).join("AppData").join("Roaming")))
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("OpenCohost").join("config").join("api_tokens.json")
+    base.join("OpenCohost")
+        .join("config")
+        .join("api_tokens.json")
 }
 
 fn resolve_token_file_path() -> PathBuf {
-    token_file_path(env::var("APPDATA").ok().as_deref(), env::var("USERPROFILE").ok().as_deref())
+    token_file_path(
+        env::var("APPDATA").ok().as_deref(),
+        env::var("USERPROFILE").ok().as_deref(),
+    )
 }
 
 /// Non-frozen / source-run token path: `opencohost/config/storage.py::get_user_data_dir`
@@ -320,7 +366,9 @@ fn resolve_token_file_candidates(working_dir: impl AsRef<Path>) -> Vec<PathBuf> 
 /// `None` on any malformed/missing-field JSON — mirrors `auth.py::load_tokens`
 /// treating a bad file as unusable rather than panicking.
 fn parse_operator_token(contents: &str) -> Option<String> {
-    serde_json::from_str::<ApiTokens>(contents).ok().map(|tokens| tokens.operator)
+    serde_json::from_str::<ApiTokens>(contents)
+        .ok()
+        .map(|tokens| tokens.operator)
 }
 
 fn read_operator_token(path: &Path) -> Option<String> {
@@ -344,7 +392,11 @@ const TOKEN_READ_RETRY_DELAY: Duration = Duration::from_millis(300);
 /// exist.
 /// `# ponytail: fixed retry count, revisit only if a slow machine proves
 /// this insufficient in practice.`
-fn read_operator_token_with_retry(paths: &[PathBuf], attempts: u32, delay: Duration) -> Option<String> {
+fn read_operator_token_with_retry(
+    paths: &[PathBuf],
+    attempts: u32,
+    delay: Duration,
+) -> Option<String> {
     for attempt in 0..attempts.max(1) {
         for path in paths {
             if let Some(token) = read_operator_token(path) {
@@ -372,7 +424,7 @@ fn read_operator_token_with_retry(paths: &[PathBuf], attempts: u32, delay: Durat
 /// marking it async moves that wait off the main/UI thread.
 #[tauri::command(async)]
 pub fn api_token() -> Option<String> {
-    let config = BackendConfig::load();
+    let config = load_backend_config().ok()?;
     let candidates = resolve_token_file_candidates(config.resolved_working_dir());
     read_operator_token_with_retry(&candidates, TOKEN_READ_ATTEMPTS, TOKEN_READ_RETRY_DELAY)
 }
@@ -500,8 +552,7 @@ const ENGINE_MISSING_MARKER: &str = "No module named 'opencohost'";
 /// Two spellings, both real: `python -m uvicorn` prints the unquoted form when
 /// uvicorn is not installed at all, while a failure inside uvicorn's own
 /// import chain raises the quoted `ModuleNotFoundError` form.
-const UVICORN_MISSING_MARKERS: [&str; 2] =
-    ["No module named uvicorn", "No module named 'uvicorn'"];
+const UVICORN_MISSING_MARKERS: [&str; 2] = ["No module named uvicorn", "No module named 'uvicorn'"];
 
 /// Turns "the backend exited immediately" into something a stranger can act
 /// on. Pure over its inputs — no IO, no spawning — so every classification is
@@ -537,7 +588,10 @@ fn describe_spawn_failure(facts: &SpawnFailureFacts) -> String {
         );
     }
 
-    if UVICORN_MISSING_MARKERS.iter().any(|marker| tail.contains(marker)) {
+    if UVICORN_MISSING_MARKERS
+        .iter()
+        .any(|marker| tail.contains(marker))
+    {
         return format!(
             "uvicorn is missing from the interpreter this app used, so the API server could not \
              start. Install the engine's \"api\" extra there. {context}"
@@ -610,6 +664,10 @@ fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
+
+    if let Some(data_root) = &config.data_root {
+        command.env("OPENCOHOST_DATA_ROOT", data_root);
+    }
 
     #[cfg(windows)]
     {
@@ -690,7 +748,9 @@ fn decide_action(
             match fallback {
                 Some(HealthProbe::Healthy) => ResolveAction::ReuseHealthy(PortChoice::Fallback),
                 Some(HealthProbe::ListeningNotHealthy) => ResolveAction::BothBusy,
-                Some(HealthProbe::NotListening) | None => ResolveAction::Spawn(PortChoice::Fallback),
+                Some(HealthProbe::NotListening) | None => {
+                    ResolveAction::Spawn(PortChoice::Fallback)
+                }
             }
         }
     }
@@ -701,6 +761,46 @@ struct SpawnOutcome {
     info: BackendInfo,
     child: Option<Child>,
     job: Option<job_object::JobObject>,
+}
+
+fn degraded_outcome(error: impl Into<String>, port: u16) -> SpawnOutcome {
+    SpawnOutcome {
+        info: BackendInfo {
+            base_url: base_url_for(port),
+            managed: false,
+            error: Some(classify_backend_error(&error.into())),
+        },
+        child: None,
+        job: None,
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn missing_installed_runtime_becomes_degraded_backend_state() {
+    let outcome = degraded_outcome("runtime_not_ready: run Provision or Repair", 8765);
+    assert!(!outcome.info.managed);
+    assert_eq!(outcome.info.base_url, "http://127.0.0.1:8765");
+    assert_eq!(
+        outcome.info.error.as_ref().map(|error| error.code.as_str()),
+        Some("runtime_not_ready")
+    );
+    assert!(outcome.child.is_none());
+    assert!(outcome.job.is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn backend_info_serializes_only_closed_diagnostic_fields() {
+    let outcome = degraded_outcome(
+        "SECRET_CANARY C:\\Users\\alice\\AppData\\Local\\backend.log --token=hidden",
+        8765,
+    );
+    let serialized = serde_json::to_string(&outcome.info).unwrap();
+    assert!(!serialized.contains("SECRET_CANARY"));
+    assert!(!serialized.contains("alice"));
+    assert!(!serialized.contains("hidden"));
+    assert!(serialized.contains("backend_launch_failed"));
 }
 
 /// Spawns the backend on `port`, then gives the process ~700ms to settle
@@ -721,10 +821,7 @@ fn spawn_and_verify(config: &BackendConfig, port: u16) -> SpawnOutcome {
                 info: BackendInfo {
                     base_url: base_url_for(port),
                     managed: false,
-                    error: Some(format!(
-                        "Failed to spawn backend on port {port}: {err}. See log: {}",
-                        log_path.display()
-                    )),
+                    error: Some(backend_diagnostic("backend_launch_failed")),
                 },
                 child: None,
                 job: None,
@@ -756,7 +853,7 @@ fn spawn_and_verify(config: &BackendConfig, port: u16) -> SpawnOutcome {
                 info: BackendInfo {
                     base_url: base_url_for(port),
                     managed: false,
-                    error: Some(message),
+                    error: Some(backend_diagnostic("backend_launch_failed")),
                 },
                 child: None,
                 job: None,
@@ -790,6 +887,69 @@ fn spawn_and_verify(config: &BackendConfig, port: u16) -> SpawnOutcome {
             }
         }
     }
+}
+
+/// Test-only executable seam: consume the same committed manifest fields as
+/// release reload, spawn the real backend, and wait for the production health
+/// marker before handing the child to the caller for cleanup.
+#[cfg(test)]
+pub(crate) fn launch_committed_manifest_for_probe(
+    manifest: &RuntimeManifest,
+) -> Result<(BackendInfo, Child), String> {
+    let python = manifest
+        .engine
+        .python_executable
+        .as_ref()
+        .ok_or_else(|| "manifest missing interpreter".to_owned())?;
+    let project = manifest
+        .engine
+        .project_dir
+        .as_ref()
+        .ok_or_else(|| "manifest missing project".to_owned())?;
+    let config = BackendConfig {
+        python_path: python.to_string_lossy().into_owned(),
+        working_dir: project.to_string_lossy().into_owned(),
+        app_module: manifest.engine.app_module.clone(),
+        port: manifest.engine.preferred_port,
+        fallback_port: manifest.engine.fallback_port,
+        spawn: true,
+        log_file: Some(
+            manifest
+                .data_root
+                .join("state")
+                .join("probe-backend.log")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        data_root: Some(manifest.data_root.clone()),
+    };
+    let outcome = resolve_backend(&config);
+    let error_code = outcome
+        .info
+        .error
+        .as_ref()
+        .map(|error| error.code.clone())
+        .unwrap_or_else(|| "backend_launch_failed".into());
+    let mut child = outcome.child.ok_or(error_code)?;
+    let launched_port = outcome
+        .info
+        .base_url
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(config.port);
+    for _ in 0..120 {
+        if probe_health(launched_port, Duration::from_millis(250)) == HealthProbe::Healthy {
+            return Ok((outcome.info, child));
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            return Err("backend exited before health gate".into());
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    Err("backend health deadline exceeded".into())
 }
 
 fn resolve_backend(config: &BackendConfig) -> SpawnOutcome {
@@ -837,10 +997,7 @@ fn resolve_backend(config: &BackendConfig) -> SpawnOutcome {
                 info: BackendInfo {
                     base_url: base_url_for(config.port),
                     managed: false,
-                    error: Some(format!(
-                        "Port {} and fallback port {} are both in use by processes that did not respond as a healthy OpenCohost backend.",
-                        config.port, config.fallback_port
-                    )),
+                    error: Some(backend_diagnostic("backend_ports_busy")),
                 },
                 child: None,
                 job: None,
@@ -867,18 +1024,21 @@ struct PttBridge {
     job: Option<job_object::JobObject>,
 }
 
-/// Spawns the standalone global push-to-talk bridge (`ptt_f10_bridge.py` at
-/// `config.working_dir`) as a second managed child, mirroring `spawn_backend`'s
-/// process setup: the same resolved `python_path`, run from `working_dir` with
-/// `PYTHONPATH=working_dir`, `CREATE_NO_WINDOW`, and stdout/stderr truncated
-/// into `%TEMP%\opencohost-ptt-bridge.log`.
+/// Spawns the standalone global push-to-talk bridge (`python -m
+/// opencohost.api.ptt_f10_bridge`) as a second managed child, mirroring
+/// `spawn_backend`'s process setup: the same resolved `python_path`, run from
+/// `working_dir` with `PYTHONPATH=working_dir`, `CREATE_NO_WINDOW`, and
+/// stdout/stderr truncated into `%TEMP%\opencohost-ptt-bridge.log`.
 ///
 /// Best-effort by contract: the bridge is a convenience (global F10 hold-to-
 /// talk while any other app is focused), never load-bearing for the shell. Any
 /// failure — missing script, spawn IO error — is logged and swallowed so the
 /// app always comes up.
 ///
-/// Guards: only spawns when `config.spawn == true` AND the script file exists.
+/// Guards: only spawns when `config.spawn == true` AND the packaged module
+/// source exists under the engine root. Python still owns import/runtime
+/// errors so an incomplete package produces the same actionable child log as
+/// the API process.
 ///
 /// Job Object: assigned to the backend's existing kill-on-close job when we
 /// have one (backend was spawned by us), so it dies with the app exactly like
@@ -894,19 +1054,23 @@ fn spawn_ptt_bridge(
         return PttBridge::default();
     }
 
-    let script = config.resolved_working_dir().join("ptt_f10_bridge.py");
-    if !script.exists() {
+    let module = config
+        .resolved_working_dir()
+        .join("opencohost")
+        .join("api")
+        .join("ptt_f10_bridge.py");
+    if !module.exists() {
         eprintln!(
-            "backend.rs: PTT bridge script not found at {script:?} — skipping global F10 push-to-talk"
+            "backend.rs: packaged PTT bridge module not found at {module:?} — skipping global F10 push-to-talk"
         );
         return PttBridge::default();
     }
 
-    let child = match spawn_ptt_bridge_process(config, &script, token) {
+    let child = match spawn_ptt_bridge_process(config, token) {
         Ok(child) => child,
         Err(err) => {
             eprintln!(
-                "backend.rs: failed to spawn PTT bridge from {script:?}: {err} — continuing without global F10 push-to-talk"
+                "backend.rs: failed to spawn packaged PTT bridge: {err} — continuing without global F10 push-to-talk"
             );
             return PttBridge::default();
         }
@@ -922,26 +1086,27 @@ fn spawn_ptt_bridge(
         None => job_object::JobObject::assign(&child),
     };
 
-    PttBridge { child: Some(child), job: own_job }
+    PttBridge {
+        child: Some(child),
+        job: own_job,
+    }
 }
 
-/// Spawns `python <script>` from `config.working_dir`, mirroring
-/// `spawn_backend` (shared `log_stdio`, `PYTHONPATH`, `CREATE_NO_WINDOW`).
+/// Spawns `python -m opencohost.api.ptt_f10_bridge` from
+/// `config.working_dir`, mirroring `spawn_backend` (shared `log_stdio`,
+/// `PYTHONPATH`, `CREATE_NO_WINDOW`).
 /// Passes the operator token through as `OPENCOHOST_API_TOKEN` when one was
 /// resolved — otherwise the bridge inherits the parent env and degrades to
 /// sending no Authorization header, exactly like the frontend does today.
-fn spawn_ptt_bridge_process(
-    config: &BackendConfig,
-    script: &Path,
-    token: Option<&str>,
-) -> std::io::Result<Child> {
+fn spawn_ptt_bridge_process(config: &BackendConfig, token: Option<&str>) -> std::io::Result<Child> {
     let log_path = env::temp_dir().join("opencohost-ptt-bridge.log");
     let (stdout, stderr) = log_stdio(&log_path);
     let working_dir = config.resolved_working_dir();
 
     let mut command = Command::new(&config.python_path);
     command
-        .arg(script)
+        .arg("-m")
+        .arg("opencohost.api.ptt_f10_bridge")
         .env("PYTHONPATH", &working_dir)
         .env("PYTHONUNBUFFERED", "1")
         .current_dir(&working_dir)
@@ -951,6 +1116,9 @@ fn spawn_ptt_bridge_process(
 
     if let Some(token) = token {
         command.env("OPENCOHOST_API_TOKEN", token);
+    }
+    if let Some(data_root) = &config.data_root {
+        command.env("OPENCOHOST_DATA_ROOT", data_root);
     }
 
     #[cfg(windows)]
@@ -968,8 +1136,19 @@ fn spawn_ptt_bridge_process(
 /// global PTT bridge, and registers `BackendState` so `backend_info` and
 /// `shutdown_backend` can reach both.
 pub fn setup_backend(app: &tauri::App) -> tauri::Result<()> {
-    let config = BackendConfig::load();
-    let outcome = resolve_backend(&config);
+    let (outcome, config) = match load_backend_config() {
+        Ok(config) => {
+            let outcome = resolve_backend(&config);
+            (outcome, Some(config))
+        }
+        Err(error) => {
+            eprintln!("backend.rs: installed runtime is unavailable: {error}");
+            // Keep the shell alive in a degraded state so BackendGate can
+            // render the actionable Provision/Repair detail and remain
+            // retryable. No backend or PTT child is spawned on this path.
+            (degraded_outcome(error, default_port()), None)
+        }
+    };
 
     // Best-effort operator token handoff for the bridge: a single, non-blocking
     // sweep of the same candidates `api_token` reads. The token file may not be
@@ -977,19 +1156,58 @@ pub fn setup_backend(app: &tauri::App) -> tauri::Result<()> {
     // enforcement is off (D2): the bridge sends no header, same as the frontend.
     // ponytail: single sweep, no retry — revisit (read the token inside the
     // bridge, or delay its spawn) only when API auth enforcement is switched on.
-    let token_candidates = resolve_token_file_candidates(config.resolved_working_dir());
-    let token = read_operator_token_with_retry(&token_candidates, 1, Duration::from_millis(0));
-
-    let bridge = spawn_ptt_bridge(&config, outcome.job.as_ref(), token.as_deref());
+    let bridge = if let Some(config) = config.as_ref() {
+        let token_candidates = resolve_token_file_candidates(config.resolved_working_dir());
+        let token = read_operator_token_with_retry(&token_candidates, 1, Duration::from_millis(0));
+        spawn_ptt_bridge(config, outcome.job.as_ref(), token.as_deref())
+    } else {
+        PttBridge::default()
+    };
 
     app.manage(BackendState {
-        info: outcome.info,
+        info: Mutex::new(outcome.info),
         child: Mutex::new(outcome.child),
         job: Mutex::new(outcome.job),
         ptt_child: Mutex::new(bridge.child),
         ptt_job: Mutex::new(bridge.job),
     });
     Ok(())
+}
+
+/// Re-resolves the validated runtime manifest after first-run provisioning and
+/// replaces the managed backend child without restarting the Tauri shell.
+pub fn reload_backend(app_handle: &tauri::AppHandle) -> Result<BackendInfo, String> {
+    let state = app_handle.state::<BackendState>();
+    kill_child(&state.child);
+    if let Ok(mut job) = state.job.lock() {
+        job.take();
+    }
+    let config = load_backend_config().map_err(|_| "backend_launch_failed".to_owned())?;
+    let outcome = resolve_backend(&config);
+    if !outcome.info.managed {
+        return Err(outcome
+            .info
+            .error
+            .as_ref()
+            .map(|error| error.code.clone())
+            .unwrap_or_else(|| "backend_launch_failed".into()));
+    }
+    let info = outcome.info.clone();
+    if let Ok(mut current) = state.info.lock() {
+        *current = outcome.info;
+    }
+    if let Ok(mut child) = state.child.lock() {
+        *child = outcome.child;
+    }
+    if let Ok(mut job) = state.job.lock() {
+        *job = outcome.job;
+    }
+    Ok(info)
+}
+
+#[tauri::command]
+pub fn reload_backend_command(app_handle: tauri::AppHandle) -> Result<BackendInfo, String> {
+    reload_backend(&app_handle)
 }
 
 /// Called from `main.rs`'s `RunEvent::ExitRequested` / `RunEvent::Exit`
@@ -1010,7 +1228,8 @@ pub fn shutdown_backend(app_handle: &tauri::AppHandle) {
         job_guard.take();
     }
 
-    if !state.info.managed {
+    let managed = state.info.lock().map(|info| info.managed).unwrap_or(false);
+    if !managed {
         return;
     }
     kill_child(&state.child);
@@ -1023,6 +1242,49 @@ pub fn shutdown_backend(app_handle: &tauri::AppHandle) {
     if let Ok(mut job_guard) = state.job.lock() {
         job_guard.take();
     };
+}
+
+/// Development builds retain the source-tree configuration escape hatch. A
+/// release build has no fallback to `backend.config.json`, repo walking, or
+/// PATH: the HKCU handoff and validated runtime manifest are authoritative.
+fn load_backend_config() -> Result<BackendConfig, String> {
+    #[cfg(debug_assertions)]
+    {
+        return Ok(BackendConfig::load());
+    }
+
+    #[cfg(all(not(debug_assertions), windows))]
+    {
+        let handoff = WindowsRegistryHandoff;
+        let locator = RuntimeLocator::from_handoff(&handoff)
+            .map_err(|error| format!("{error}; run Repair or provision the backend runtime"))?;
+        let manifest_path = locator
+            .data_root
+            .join("state")
+            .join("runtime-manifest.json");
+        let manifest = RuntimeManifest::read_recovery(&manifest_path, Some(&locator.install_id))
+            .map_err(|error| format!("{error}; run Repair or provision the backend runtime"))?;
+        locator
+            .validate_manifest(&manifest)
+            .map_err(|error| format!("{error}; run Repair or provision the backend runtime"))?;
+        let seed = BackendConfig {
+            python_path: String::new(),
+            working_dir: String::new(),
+            app_module: String::new(),
+            port: 0,
+            fallback_port: 0,
+            spawn: true,
+            log_file: None,
+            data_root: None,
+        };
+        return launch_config(LaunchMode::Installed, seed, &manifest)
+            .map_err(|error| format!("{error}; run Repair or provision the backend runtime"));
+    }
+
+    #[cfg(all(not(debug_assertions), not(windows)))]
+    {
+        Err("installed OpenCohost runtime is supported only on Windows".to_string())
+    }
 }
 
 /// Kills and reaps the child held in `slot`, if any. Poisoned-lock tolerant —
@@ -1209,7 +1471,10 @@ mod tests {
 
         let result = BackendConfig::from_json(json);
 
-        assert!(result.is_err(), "python_path/working_dir have no #[serde(default)], must fail to parse without them");
+        assert!(
+            result.is_err(),
+            "python_path/working_dir have no #[serde(default)], must fail to parse without them"
+        );
     }
 
     #[test]
@@ -1233,19 +1498,22 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn dev_source_config_path_anchors_to_this_crate_root() {
-        // Regression: `tauri.conf.json`'s `resources` copies the portable
-        // default next to the exe as `backend.config.json` during `tauri dev`,
-        // which shadowed the developer's real config and spawned the backend
-        // under PATH's `python` — a different interpreter, so the engine died on
-        // a missing dependency and the shell reported "no local engine".
+        // Regression: an exe-adjacent portable config must not shadow the
+        // developer's explicit source-tree config and spawn under PATH's
+        // `python` interpreter.
         //
         // The file itself is gitignored (it holds per-machine paths) so its
         // existence can't be asserted here; what must hold is that the constant
         // points at THIS crate's directory rather than anywhere near the exe.
         let path = Path::new(DEV_SOURCE_CONFIG_PATH);
-        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("backend.config.json"));
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("backend.config.json")
+        );
 
-        let crate_dir = path.parent().expect("the constant must have a parent directory");
+        let crate_dir = path
+            .parent()
+            .expect("the constant must have a parent directory");
         assert!(
             crate_dir.join("Cargo.toml").is_file(),
             "expected the src-tauri crate root at {crate_dir:?}"
@@ -1266,8 +1534,11 @@ mod tests {
     fn make_repo_root_marker(root: &Path) {
         fs::create_dir_all(root.join("opencohost"))
             .expect("test setup: mkdir opencohost/ must succeed");
-        fs::write(root.join("pyproject.toml"), "[project]\nname = \"opencohost\"\n")
-            .expect("test setup: write pyproject.toml must succeed");
+        fs::write(
+            root.join("pyproject.toml"),
+            "[project]\nname = \"opencohost\"\n",
+        )
+        .expect("test setup: write pyproject.toml must succeed");
     }
 
     #[test]
@@ -1277,7 +1548,11 @@ mod tests {
         make_repo_root_marker(&root);
         // Mirrors a real dev build's nesting under the repo root, several
         // levels deep — proves the walk isn't hardcoded to a fixed hop count.
-        let start = root.join("OpenCohost_UI").join("src-tauri").join("target").join("debug");
+        let start = root
+            .join("OpenCohost_UI")
+            .join("src-tauri")
+            .join("target")
+            .join("debug");
         fs::create_dir_all(&start).expect("test setup: mkdir nested start dir must succeed");
 
         assert_eq!(find_repo_root(&start), Some(root.clone()));
@@ -1309,7 +1584,10 @@ mod tests {
 
         // Must return the input as-is, no filesystem walk — the override
         // escape hatch, unaffected by whether that path exists at all.
-        assert_eq!(config.resolved_working_dir(), PathBuf::from("C:\\Some\\Absolute\\Path"));
+        assert_eq!(
+            config.resolved_working_dir(),
+            PathBuf::from("C:\\Some\\Absolute\\Path")
+        );
     }
 
     // --- immediate-exit diagnosis: the log tail turned into something a
@@ -1338,19 +1616,34 @@ mod tests {
 
         let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
 
-        assert!(message.contains("engine is not installed"), "got: {message}");
-        assert!(message.contains("backend.config.json"), "must name the file to fix: {message}");
+        assert!(
+            message.contains("engine is not installed"),
+            "got: {message}"
+        );
+        assert!(
+            message.contains("backend.config.json"),
+            "must name the file to fix: {message}"
+        );
         // The two values the user actually has to change.
         assert!(message.contains("Interpreter: 'python'"), "got: {message}");
-        assert!(message.contains("C:\\Users\\bob\\OpenCohost\\.."), "got: {message}");
-        assert!(!message.contains("importlib"), "the traceback body must not leak into the UI: {message}");
+        assert!(
+            message.contains("C:\\Users\\bob\\OpenCohost\\.."),
+            "got: {message}"
+        );
+        assert!(
+            !message.contains("importlib"),
+            "the traceback body must not leak into the UI: {message}"
+        );
     }
 
     #[test]
     fn describe_spawn_failure_points_at_the_api_extra_for_both_uvicorn_spellings() {
         // `python -m uvicorn` prints the unquoted form; an import failure
         // inside uvicorn itself raises the quoted ModuleNotFoundError form.
-        for tail in ["C:\\Python313\\python.exe: No module named uvicorn\n", "ModuleNotFoundError: No module named 'uvicorn'\n"] {
+        for tail in [
+            "C:\\Python313\\python.exe: No module named uvicorn\n",
+            "ModuleNotFoundError: No module named 'uvicorn'\n",
+        ] {
             let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
 
             assert!(message.contains("uvicorn is missing"), "got: {message}");
@@ -1366,8 +1659,14 @@ mod tests {
 
         let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
 
-        assert!(!message.contains("engine is not installed"), "got: {message}");
-        assert!(message.contains("No module named 'opencohost.api'"), "got: {message}");
+        assert!(
+            !message.contains("engine is not installed"),
+            "got: {message}"
+        );
+        assert!(
+            message.contains("No module named 'opencohost.api'"),
+            "got: {message}"
+        );
     }
 
     #[test]
@@ -1376,10 +1675,19 @@ mod tests {
 
         let message = describe_spawn_failure(&shell_only_install_facts(Some(tail)));
 
-        assert!(message.contains("exited immediately after spawn (exit code: 1)"), "got: {message}");
-        assert!(message.contains("Last log line: OSError: [Errno 98] Address already in use"), "trailing blank lines must be skipped: {message}");
+        assert!(
+            message.contains("exited immediately after spawn (exit code: 1)"),
+            "got: {message}"
+        );
+        assert!(
+            message.contains("Last log line: OSError: [Errno 98] Address already in use"),
+            "trailing blank lines must be skipped: {message}"
+        );
         assert!(message.contains("Interpreter: 'python'"), "got: {message}");
-        assert!(message.contains("C:\\Users\\bob\\AppData\\Local\\Temp\\opencohost-backend.log"), "got: {message}");
+        assert!(
+            message.contains("C:\\Users\\bob\\AppData\\Local\\Temp\\opencohost-backend.log"),
+            "got: {message}"
+        );
     }
 
     #[test]
@@ -1388,9 +1696,15 @@ mod tests {
         // neither may swallow the interpreter/working-dir facts.
         let message = describe_spawn_failure(&shell_only_install_facts(None));
 
-        assert!(message.contains("Last log line: (no log output)"), "got: {message}");
+        assert!(
+            message.contains("Last log line: (no log output)"),
+            "got: {message}"
+        );
         assert!(message.contains("Interpreter: 'python'"), "got: {message}");
-        assert!(message.contains("C:\\Users\\bob\\OpenCohost\\.."), "got: {message}");
+        assert!(
+            message.contains("C:\\Users\\bob\\OpenCohost\\.."),
+            "got: {message}"
+        );
     }
 
     #[test]
@@ -1411,14 +1725,18 @@ mod tests {
 
     #[test]
     fn describe_spawn_failure_omits_the_root_note_when_the_engine_root_was_found() {
-        let mut facts = shell_only_install_facts(Some("ModuleNotFoundError: No module named 'opencohost'\n"));
+        let mut facts =
+            shell_only_install_facts(Some("ModuleNotFoundError: No module named 'opencohost'\n"));
         facts.engine_root_found = true;
         facts.working_dir = Path::new("C:\\Users\\bob\\OpenCohost");
 
         let message = describe_spawn_failure(&facts);
 
         assert!(!message.contains("No engine folder"), "got: {message}");
-        assert!(message.contains("engine is not installed"), "got: {message}");
+        assert!(
+            message.contains("engine is not installed"),
+            "got: {message}"
+        );
     }
 
     #[test]
@@ -1445,9 +1763,19 @@ mod tests {
 
         let tail = read_log_tail(&path).expect("a non-empty log must produce a tail");
 
-        assert!(tail.len() as u64 <= LOG_TAIL_BYTES, "read must stay bounded, got {} bytes", tail.len());
-        assert!(tail.contains("TAIL-MARKER"), "the tail is the part that matters");
-        assert!(!tail.contains("HEAD-MARKER"), "the head must not be read back");
+        assert!(
+            tail.len() as u64 <= LOG_TAIL_BYTES,
+            "read must stay bounded, got {} bytes",
+            tail.len()
+        );
+        assert!(
+            tail.contains("TAIL-MARKER"),
+            "the tail is the part that matters"
+        );
+        assert!(
+            !tail.contains("HEAD-MARKER"),
+            "the head must not be read back"
+        );
         let _ = fs::remove_file(&path);
     }
 
@@ -1601,8 +1929,11 @@ mod tests {
         let write_path = path.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(5));
-            fs::write(&write_path, r#"{"version": 1, "operator": "late-token", "agent": "x"}"#)
-                .expect("test setup: write must succeed");
+            fs::write(
+                &write_path,
+                r#"{"version": 1, "operator": "late-token", "agent": "x"}"#,
+            )
+            .expect("test setup: write must succeed");
         });
 
         let token = read_operator_token_with_retry(&[path.clone()], 10, Duration::from_millis(5));
@@ -1615,7 +1946,10 @@ mod tests {
     fn read_operator_token_with_retry_gives_up_after_exhausting_attempts() {
         let missing = env::temp_dir().join("opencohost-test-never-appears-token-file.json");
         let _ = fs::remove_file(&missing);
-        assert_eq!(read_operator_token_with_retry(&[missing], 2, Duration::from_millis(2)), None);
+        assert_eq!(
+            read_operator_token_with_retry(&[missing], 2, Duration::from_millis(2)),
+            None
+        );
     }
 
     // --- dev-mode (non-frozen) token path fix — critical finding: the
@@ -1636,12 +1970,20 @@ mod tests {
         // frozen-build-only %APPDATA% candidate.
         let candidates = resolve_token_file_candidates("C:\\App");
         assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0], PathBuf::from("C:\\App\\config\\api_tokens.json"));
-        assert!(candidates[1].ends_with(Path::new("OpenCohost").join("config").join("api_tokens.json")));
+        assert_eq!(
+            candidates[0],
+            PathBuf::from("C:\\App\\config\\api_tokens.json")
+        );
+        assert!(candidates[1].ends_with(
+            Path::new("OpenCohost")
+                .join("config")
+                .join("api_tokens.json")
+        ));
     }
 
     #[test]
-    fn read_operator_token_with_retry_finds_token_at_a_later_candidate_when_an_earlier_one_is_missing() {
+    fn read_operator_token_with_retry_finds_token_at_a_later_candidate_when_an_earlier_one_is_missing(
+    ) {
         // Root-cause regression for the critical finding: with the old
         // single-path lookup this scenario (only the second candidate
         // exists — exactly today's real dev-mode deployment) always
@@ -1649,11 +1991,17 @@ mod tests {
         let missing = env::temp_dir().join("opencohost-test-multi-candidate-missing.json");
         let present = env::temp_dir().join("opencohost-test-multi-candidate-present.json");
         let _ = fs::remove_file(&missing);
-        fs::write(&present, r#"{"version": 1, "operator": "dev-mode-token", "agent": "x"}"#)
-            .expect("test setup: write must succeed");
+        fs::write(
+            &present,
+            r#"{"version": 1, "operator": "dev-mode-token", "agent": "x"}"#,
+        )
+        .expect("test setup: write must succeed");
 
-        let token =
-            read_operator_token_with_retry(&[missing, present.clone()], 1, Duration::from_millis(1));
+        let token = read_operator_token_with_retry(
+            &[missing, present.clone()],
+            1,
+            Duration::from_millis(1),
+        );
 
         assert_eq!(token, Some("dev-mode-token".to_string()));
         let _ = fs::remove_file(&present);

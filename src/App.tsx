@@ -1,6 +1,7 @@
 import { AppLayout } from "./features/shell/AppLayout.js";
 import { BackendGate } from "./features/shell/BackendGate.js";
 import { EventBridge } from "./features/shell/EventBridge.js";
+import { FirstRunGate } from "./features/shell/FirstRunGate.js";
 import { TitleBar } from "./features/shell/TitleBar.js";
 import { ToastProvider } from "./ui/Toast.js";
 
@@ -16,7 +17,7 @@ export function App() {
       <div className="oc-root-shell flex flex-col">
         <TitleBar />
         <div className="oc-app-body">
-          <BackendGate>
+          <BackendGate runtimeSetup={(onReady, backendError) => <FirstRunGate onReady={onReady} backendError={backendError} />}>
             <EventBridge />
             <AppLayout />
           </BackendGate>
