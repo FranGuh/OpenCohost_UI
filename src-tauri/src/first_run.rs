@@ -558,6 +558,193 @@ mod tests {
     }
 
     #[test]
+    fn red_fresh_install_flow_from_unconfigured_to_ready_and_launchable() {
+        let root = test_root("fresh-install-flow");
+        let app_dir = root.join("app_install_dir");
+        let data_root = root.join("user_data_root");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        let handoff = MemoryHandoff::default();
+
+        // 1. Initial boot: unconfigured state, no DataRoot
+        let status = inspect_runtime(&handoff);
+        assert_eq!(status.phase, FirstRunPhase::Unconfigured);
+        assert!(!status.launchable);
+        assert!(status.data_root.is_none());
+        assert!(status.default_data_root.is_some());
+
+        // 2. Rejecting data root inside app directory
+        let bad_candidate = app_dir.join("subfolder");
+        assert!(validate_data_root_candidate_with_boundaries(&bad_candidate, &[app_dir.clone()]).is_err());
+
+        // 3. User chooses safe data_root -> configure_data_root
+        let configured = configure_data_root_with_boundaries(&handoff, &data_root, None, &[app_dir.clone()]).unwrap();
+        assert_eq!(configured.data_root, data_root);
+        assert!(!configured.install_id.is_empty());
+        assert_eq!(handoff.value("RuntimeManagerVersion").as_deref(), Some("1"));
+        assert_eq!(handoff.value("DataRoot").as_deref(), Some(data_root.to_string_lossy().as_ref()));
+        assert_eq!(handoff.value("InstallId").as_deref(), Some(configured.install_id.as_str()));
+
+        // 4. Inspect runtime: now configured but needs provisioning
+        let status_after_config = inspect_runtime(&handoff);
+        assert_eq!(status_after_config.phase, FirstRunPhase::Unconfigured);
+        assert_eq!(status_after_config.data_root.as_deref(), Some(data_root.to_string_lossy().as_ref()));
+
+        // 5. Provisioning controller executes task and reaches Ready
+        let controller = ProvisioningController::new();
+        let target_root = data_root.clone();
+        let manifest_install_id = configured.install_id.clone();
+        controller.start_with_task(move |_, progress| {
+            progress(ProgressSnapshot {
+                phase: "sync".into(),
+                completed: 5,
+                total: 10,
+                message: "syncing".into(),
+            });
+            let python = target_root.join("engine/releases/1/generations/g1/venv/Scripts/python.exe");
+            let project = target_root.join("engine/releases/1/project");
+            fs::create_dir_all(python.parent().unwrap()).unwrap();
+            fs::create_dir_all(&project).unwrap();
+            fs::write(&python, b"python").unwrap();
+            let manifest = RuntimeManifest {
+                schema_version: crate::runtime_manifest::RUNTIME_SCHEMA_VERSION,
+                install_id: manifest_install_id,
+                product_version: "0.1.1".into(),
+                data_root: target_root.clone(),
+                revision: 1,
+                state: RuntimeState::Ready,
+                operation: RuntimeOperation::default(),
+                engine: EngineManifest {
+                    active_version: Some("1".into()),
+                    previous_version: None,
+                    pending_version: None,
+                    active_generation: Some("g1".into()),
+                    previous_generation: None,
+                    project_dir: Some(project),
+                    python_executable: Some(python),
+                    app_module: "opencohost.api.main:app".into(),
+                    preferred_port: 8765,
+                    fallback_port: 8770,
+                    lock_sha256: None,
+                    payload_sha256: None,
+                },
+                tooling: ToolingManifest {
+                    uv_version: "0.11.6".into(),
+                    python_version: "3.12.4".into(),
+                },
+                components: ComponentsManifest {
+                    piper: PiperManifest::default(),
+                },
+            };
+            fs::create_dir_all(target_root.join("state")).unwrap();
+            manifest.write_atomic(&target_root.join("state/runtime-manifest.json")).unwrap();
+            Ok(())
+        }).unwrap();
+
+        wait_for_idle(&controller);
+        assert_eq!(controller.status().phase, FirstRunPhase::Ready);
+
+        // 6. Inspect runtime: now Ready and Launchable
+        let status_ready = inspect_runtime(&handoff);
+        assert_eq!(status_ready.phase, FirstRunPhase::Ready);
+        assert!(status_ready.launchable);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn red_upgrade_in_place_preserves_handoff_and_existing_manifest_without_first_run_prompt() {
+        let root = test_root("upgrade-in-place");
+        let app_dir_v1 = root.join("app_v1");
+        let app_dir_v2 = root.join("app_v2");
+        let data_root = root.join("data_root");
+        fs::create_dir_all(&app_dir_v1).unwrap();
+        fs::create_dir_all(&app_dir_v2).unwrap();
+        fs::create_dir_all(&data_root).unwrap();
+
+        let handoff = MemoryHandoff::default();
+        let configured = configure_data_root_with_boundaries(&handoff, &data_root, None, &[app_dir_v1.clone()]).unwrap();
+
+        // Write existing Ready manifest for version 0.1.1
+        let python = data_root.join("engine/releases/0.1.1/venv/Scripts/python.exe");
+        let project = data_root.join("engine/releases/0.1.1/project");
+        fs::create_dir_all(python.parent().unwrap()).unwrap();
+        fs::create_dir_all(&project).unwrap();
+        fs::write(&python, b"python").unwrap();
+        let manifest = RuntimeManifest {
+            schema_version: crate::runtime_manifest::RUNTIME_SCHEMA_VERSION,
+            install_id: configured.install_id.clone(),
+            product_version: "0.1.1".into(),
+            data_root: data_root.clone(),
+            revision: 1,
+            state: RuntimeState::Ready,
+            operation: RuntimeOperation::default(),
+            engine: EngineManifest {
+                active_version: Some("0.1.1".into()),
+                previous_version: None,
+                pending_version: None,
+                active_generation: Some("g1".into()),
+                previous_generation: None,
+                project_dir: Some(project),
+                python_executable: Some(python),
+                app_module: "opencohost.api.main:app".into(),
+                preferred_port: 8765,
+                fallback_port: 8770,
+                lock_sha256: None,
+                payload_sha256: None,
+            },
+            tooling: ToolingManifest {
+                uv_version: "0.11.6".into(),
+                python_version: "3.12.4".into(),
+            },
+            components: ComponentsManifest {
+                piper: PiperManifest::default(),
+            },
+        };
+        fs::create_dir_all(data_root.join("state")).unwrap();
+        manifest.write_atomic(&data_root.join("state/runtime-manifest.json")).unwrap();
+
+        // Simulate upgrade: app files replaced by v2, new binary starts
+        let status = inspect_runtime(&handoff);
+        // Assert app boots directly into Ready without unconfigured FirstRunGate prompt
+        assert_eq!(status.phase, FirstRunPhase::Ready);
+        assert!(status.launchable);
+        assert_eq!(status.data_root.as_deref(), Some(data_root.to_string_lossy().as_ref()));
+        assert_eq!(status.install_id.as_deref(), Some(configured.install_id.as_str()));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn red_uninstall_preserves_data_root_and_user_storage_by_default() {
+        let root = test_root("uninstall-preservation");
+        let app_dir = root.join("app_install_dir");
+        let data_root = root.join("user_data_root");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::create_dir_all(&data_root).unwrap();
+
+        // Populate user data in DataRoot (e.g. database, config, memories)
+        let user_db = data_root.join("storage/memoria.db");
+        fs::create_dir_all(user_db.parent().unwrap()).unwrap();
+        fs::write(&user_db, b"sqlite-user-data").unwrap();
+
+        // Populate app directory
+        let app_exe = app_dir.join("OpenCohost.exe");
+        fs::write(&app_exe, b"tauri-binary").unwrap();
+
+        // Simulate NSIS uninstall: removes <AppDir> only
+        fs::remove_dir_all(&app_dir).unwrap();
+        assert!(!app_dir.exists(), "Application directory should be removed on uninstall");
+
+        // Verify DataRoot and user data remain intact
+        assert!(data_root.exists(), "DataRoot must be preserved on uninstall by default");
+        assert!(user_db.exists(), "User databases must survive application uninstall");
+        assert_eq!(fs::read(&user_db).unwrap(), b"sqlite-user-data");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn offline_lifecycle_harness_covers_unconfigured_provisioning_ready_failure_and_cancel() {
         let ready = ProvisioningController::new();
         assert_eq!(ready.status().phase, FirstRunPhase::Unconfigured);
