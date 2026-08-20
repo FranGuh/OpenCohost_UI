@@ -179,7 +179,10 @@ impl BackendConfig {
     /// `describe_spawn_failure` surfaces it in the error the user reads.
     fn resolve_working_dir(&self) -> (PathBuf, bool) {
         let raw = Path::new(&self.working_dir);
-        if raw.is_absolute() {
+        let is_win_abs = self.working_dir.len() >= 3
+            && self.working_dir.as_bytes()[1] == b':'
+            && (self.working_dir.as_bytes()[2] == b'\\' || self.working_dir.as_bytes()[2] == b'/');
+        if raw.is_absolute() || is_win_abs {
             return (raw.to_path_buf(), true);
         }
 
@@ -638,6 +641,41 @@ fn log_stdio(log_path: &Path) -> (Stdio, Stdio) {
     }
 }
 
+fn resolve_python_binary(config: &BackendConfig, working_dir: &Path) -> PathBuf {
+    let raw = Path::new(&config.python_path);
+    if raw.is_absolute() && raw.exists() {
+        return raw.to_path_buf();
+    }
+    let candidate = working_dir.join(raw);
+    if candidate.exists() {
+        return candidate;
+    }
+    if raw.exists() {
+        return raw.to_path_buf();
+    }
+    #[cfg(windows)]
+    let venv_candidate = working_dir.join(".venv").join("Scripts").join("python.exe");
+    #[cfg(not(windows))]
+    let venv_candidate = working_dir.join(".venv").join("bin").join("python3");
+    if venv_candidate.exists() {
+        return venv_candidate;
+    }
+    #[cfg(not(windows))]
+    {
+        if config.python_path == "python" {
+            if let Some(path_val) = env::var_os("PATH") {
+                for dir in env::split_paths(&path_val) {
+                    let full = dir.join("python3");
+                    if full.is_file() {
+                        return full;
+                    }
+                }
+            }
+        }
+    }
+    raw.to_path_buf()
+}
+
 /// Spawns `python -m uvicorn {app_module} --host 127.0.0.1 --port {port}
 /// --workers 1` exactly like run-api.bat, with PYTHONPATH=working_dir,
 /// stdout/stderr truncated into the log file, and no inherited console
@@ -646,8 +684,9 @@ fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
     let log_path = resolve_log_path(config);
     let (stdout, stderr) = log_stdio(&log_path);
     let working_dir = config.resolved_working_dir();
+    let python_bin = resolve_python_binary(config, &working_dir);
 
-    let mut command = Command::new(&config.python_path);
+    let mut command = Command::new(&python_bin);
     command
         .arg("-m")
         .arg("uvicorn")
@@ -1102,8 +1141,9 @@ fn spawn_ptt_bridge_process(config: &BackendConfig, token: Option<&str>) -> std:
     let log_path = env::temp_dir().join("opencohost-ptt-bridge.log");
     let (stdout, stderr) = log_stdio(&log_path);
     let working_dir = config.resolved_working_dir();
+    let python_bin = resolve_python_binary(config, &working_dir);
 
-    let mut command = Command::new(&config.python_path);
+    let mut command = Command::new(&python_bin);
     command
         .arg("-m")
         .arg("opencohost.api.ptt_f10_bridge")
@@ -1877,7 +1917,7 @@ mod tests {
         let path = token_file_path(Some("C:\\Users\\bob\\AppData\\Roaming"), None);
         assert_eq!(
             path,
-            PathBuf::from("C:\\Users\\bob\\AppData\\Roaming\\OpenCohost\\config\\api_tokens.json")
+            Path::new("C:\\Users\\bob\\AppData\\Roaming").join("OpenCohost").join("config").join("api_tokens.json")
         );
     }
 
@@ -1887,7 +1927,7 @@ mod tests {
         let path = token_file_path(None, Some("C:\\Users\\bob"));
         assert_eq!(
             path,
-            PathBuf::from("C:\\Users\\bob\\AppData\\Roaming\\OpenCohost\\config\\api_tokens.json")
+            Path::new("C:\\Users\\bob").join("AppData").join("Roaming").join("OpenCohost").join("config").join("api_tokens.json")
         );
     }
 
@@ -1960,7 +2000,7 @@ mod tests {
     #[test]
     fn dev_token_file_path_joins_working_dir_config_api_tokens_json() {
         let path = dev_token_file_path("C:\\App");
-        assert_eq!(path, PathBuf::from("C:\\App\\config\\api_tokens.json"));
+        assert_eq!(path, Path::new("C:\\App").join("config").join("api_tokens.json"));
     }
 
     #[test]
@@ -1972,7 +2012,7 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         assert_eq!(
             candidates[0],
-            PathBuf::from("C:\\App\\config\\api_tokens.json")
+            Path::new("C:\\App").join("config").join("api_tokens.json")
         );
         assert!(candidates[1].ends_with(
             Path::new("OpenCohost")
