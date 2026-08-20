@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "product_version": "0.1.1",
+  "product_version": "0.2.0-alpha.1",
   "python_version": "3.12.4",
   "allowed_hosts": [
     "github.com",
@@ -21,8 +21,8 @@
   },
   "engine": {
     "name": "engine",
-    "version": "0.1.1",
-    "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.1.1/engine-0.1.1.zip",
+    "version": "0.2.0-alpha.1",
+    "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.2.0-alpha.1/engine-0.2.0-alpha.1.zip",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "kind": "zip",
     "expected_size": 0,
