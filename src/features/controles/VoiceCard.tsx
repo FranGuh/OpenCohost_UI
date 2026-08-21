@@ -13,8 +13,8 @@ import { useT, type TKey } from "../../i18n/t.js";
 // SELECTED piper_voice key), so the option list is hand-kept in sync here.
 // ponytail: keep in sync manually if PIPER_VOICES changes.
 const VOICE_OPTIONS = [
-  { id: "argentina", labelKey: "controles.voice.language.argentina" },
-  { id: "neutral", labelKey: "controles.voice.language.neutral" }
+  { id: "neutral", labelKey: "controles.voice.language.neutral" },
+  { id: "english", labelKey: "controles.voice.language.english" }
 ] as const satisfies ReadonlyArray<{ id: string; labelKey: TKey }>;
 
 // Piper speed presets mirrored from opencohost/ui/tts_speed_control.py::SPEED_PRESETS

@@ -29,7 +29,7 @@ describe("VoiceCard populates from GET /api/tts/config", () => {
   it("shows the live piper_voice, local-only, closest speed preset, and engine", async () => {
     renderCard();
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveTextContent("🇦🇷 Argentina")
+      expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveTextContent("🌎 Neutral")
     );
     expect(screen.getByRole("switch", { name: "Solo TTS local (Piper)" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("button", { name: "Media" })).toHaveAttribute("aria-pressed", "true");

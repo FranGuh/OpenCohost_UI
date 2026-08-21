@@ -177,7 +177,7 @@ export const cloudModels: ModelsResponse = {
 };
 
 export const defaultTtsConfig: TtsConfigResponse = {
-  piper_voice: "argentina",
+  piper_voice: "neutral",
   local_only: true,
   speed: 1.15,
   engine: "ligero",
