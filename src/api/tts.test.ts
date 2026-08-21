@@ -15,9 +15,11 @@ function createWrapper() {
 }
 
 describe("useTtsConfigQuery", () => {
-  it("parses piper_voice/local_only/speed/engine/heavy_available from GET /api/tts/config", async () => {
+  it("parses piper_voice/local_only/speed/engine/heavy_available/piper_available/edge_tts_offline from GET /api/tts/config", async () => {
     const { result } = renderHook(() => useTtsConfigQuery(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.data).toEqual(defaultTtsConfig));
+    expect(result.current.data?.piper_available).toBe(true);
+    expect(result.current.data?.edge_tts_offline).toBe(false);
   });
 
   it("surfaces an error state honestly when the request fails", async () => {

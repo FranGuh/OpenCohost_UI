@@ -181,3 +181,64 @@ describe("VoiceCard heavy-TTS disclosure", () => {
     expect(screen.getByText(/EXPERIMENTAL_HEAVY_TTS_ENABLED/)).toBeInTheDocument();
   });
 });
+
+describe("VoiceCard Piper & Edge-TTS status alerts", () => {
+  it("renders a warning Alert when local_only is true and piper_available is false", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/tts/config`, () =>
+        HttpResponse.json({
+          ...defaultTtsConfig,
+          local_only: true,
+          piper_available: false
+        })
+      )
+    );
+    renderCard();
+    await waitFor(() =>
+      expect(
+        screen.getByText("Voz local (Piper) no disponible. Instala piper-tts o desactiva Solo TTS local.")
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByText("Voz local no disponible")).toBeInTheDocument();
+  });
+
+  it("renders an info Alert when local_only is false and edge_tts_offline is true", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/tts/config`, () =>
+        HttpResponse.json({
+          ...defaultTtsConfig,
+          local_only: false,
+          edge_tts_offline: true
+        })
+      )
+    );
+    renderCard();
+    await waitFor(() =>
+      expect(
+        screen.getByText("Edge-TTS sin conexión; usando Piper local como respaldo.")
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByText("Edge-TTS sin conexión")).toBeInTheDocument();
+  });
+
+  it("does not render status alerts when Piper is available in local mode", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/tts/config`, () =>
+        HttpResponse.json({
+          ...defaultTtsConfig,
+          local_only: true,
+          piper_available: true,
+          edge_tts_offline: false
+        })
+      )
+    );
+    renderCard();
+    await screen.findByRole("combobox", { name: "Idioma" });
+    expect(
+      screen.queryByText("Voz local (Piper) no disponible. Instala piper-tts o desactiva Solo TTS local.")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Edge-TTS sin conexión; usando Piper local como respaldo.")
+    ).not.toBeInTheDocument();
+  });
+});

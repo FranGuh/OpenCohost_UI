@@ -77,7 +77,11 @@ export type StatusResponse = GeneratedStatusResponse & {
 };
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
-export type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
+type GeneratedTtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
+export type TtsConfigResponse = GeneratedTtsConfigResponse & {
+  piper_available?: boolean;
+  edge_tts_offline?: boolean;
+};
 type GeneratedMemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
 /**
  * FIX-A: `saved_memorias`/`pinned` are per-profile counts when the request

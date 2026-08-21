@@ -61,7 +61,10 @@ type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["
 };
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
-type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
+type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"] & {
+  piper_available?: boolean;
+  edge_tts_offline?: boolean;
+};
 // saved_memorias_total / pinned_total mirror src/api/client.ts's hand-added
 // MemoriaStatsResponse fields (FIX-A, snapshot lag). ponytail: keep in sync.
 type MemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"] & {
@@ -181,7 +184,9 @@ export const defaultTtsConfig: TtsConfigResponse = {
   local_only: true,
   speed: 1.15,
   engine: "ligero",
-  heavy_available: false
+  heavy_available: false,
+  piper_available: true,
+  edge_tts_offline: false
 };
 
 export const defaultLastReply: LastReplyResponse = {

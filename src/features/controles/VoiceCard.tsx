@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card } from "../../ui/Card.js";
+import { Alert } from "../../ui/Alert.js";
 import { Badge } from "../../ui/Badge.js";
 import { Segmented } from "../../ui/Segmented.js";
 import { Select } from "../../ui/Select.js";
@@ -120,6 +121,18 @@ export function VoiceCard() {
           <p role="alert" className="text-xs leading-relaxed text-danger">
             {errorMessage ?? t("controles.voice.error.load")}
           </p>
+        )}
+
+        {data?.local_only && data?.piper_available === false && (
+          <Alert tone="warn" title={t("controles.voice.alert.piperUnavailable.title")}>
+            {t("controles.voice.alert.piperUnavailable.body")}
+          </Alert>
+        )}
+
+        {!data?.local_only && data?.edge_tts_offline && (
+          <Alert tone="info" title={t("controles.voice.alert.edgeOffline.title")}>
+            {t("controles.voice.alert.edgeOffline.body")}
+          </Alert>
         )}
 
         <section aria-labelledby="voice-select-label" className="space-y-2">

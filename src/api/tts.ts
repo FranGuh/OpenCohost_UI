@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { getTtsConfig } from "./client.js";
+import { getTtsConfig, type TtsConfigResponse } from "./client.js";
+
+export type TtsConfig = TtsConfigResponse;
 
 export const TTS_CONFIG_QUERY_KEY = ["tts-config"] as const;
 
