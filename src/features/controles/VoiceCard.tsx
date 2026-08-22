@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "../../ui/Card.js";
 import { Alert } from "../../ui/Alert.js";
 import { Badge } from "../../ui/Badge.js";
 import { Segmented } from "../../ui/Segmented.js";
 import { Select } from "../../ui/Select.js";
 import { Switch } from "../../ui/Switch.js";
-import { useTtsConfigQuery } from "../../api/tts.js";
+import { TTS_CONFIG_QUERY_KEY, useTtsConfigQuery, type TtsConfig } from "../../api/tts.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
@@ -54,6 +55,7 @@ const ENGINE_OPTIONS = [
  */
 export function VoiceCard() {
   const t = useT();
+  const queryClient = useQueryClient();
   const { data, isError: configError } = useTtsConfigQuery();
   const voiceCommand = useEngineCommand<string>();
   const localOnlyCommand = useEngineCommand<boolean>();
@@ -91,21 +93,33 @@ export function VoiceCard() {
 
   function applyVoice(value: string) {
     setOptimisticVoice(value);
+    queryClient.setQueryData(TTS_CONFIG_QUERY_KEY, (old: TtsConfig | undefined) =>
+      old ? { ...old, piper_voice: value } : old
+    );
     void voiceCommand.run("set_piper_voice", value);
   }
 
   function applyLocalOnly(value: boolean) {
     setOptimisticLocalOnly(value);
+    queryClient.setQueryData(TTS_CONFIG_QUERY_KEY, (old: TtsConfig | undefined) =>
+      old ? { ...old, local_only: value } : old
+    );
     void localOnlyCommand.run("set_tts_local_only", value);
   }
 
   function applySpeed(value: SpeedOption) {
     setOptimisticSpeed(value);
+    queryClient.setQueryData(TTS_CONFIG_QUERY_KEY, (old: TtsConfig | undefined) =>
+      old ? { ...old, speed: SPEED_SCALE[value] } : old
+    );
     void speedCommand.run("set_tts_speed", SPEED_SCALE[value]);
   }
 
   function applyEngine(value: string) {
     setOptimisticEngine(value);
+    queryClient.setQueryData(TTS_CONFIG_QUERY_KEY, (old: TtsConfig | undefined) =>
+      old ? { ...old, engine: value } : old
+    );
     void engineCommand.run("set_motor_tts", value);
   }
 

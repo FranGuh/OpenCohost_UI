@@ -10,6 +10,7 @@ import {
 } from "./client.js";
 import { STATUS_QUERY_KEY, useStatusQuery } from "./status.js";
 import { MODELS_QUERY_KEY } from "./models.js";
+import { TTS_CONFIG_QUERY_KEY } from "./tts.js";
 
 interface PendingCommand {
   intentKey: string;
@@ -91,6 +92,7 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
       // directly, but also profile-driven commands) — ModelCard's
       // useModelsQuery must not stay stale.
       void queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: TTS_CONFIG_QUERY_KEY });
     }
   });
 

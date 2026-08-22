@@ -21,6 +21,7 @@ import { useLastReply, useSendChatTurn } from "../../api/chat.js";
 import { useLiveTranscript } from "../../api/liveTranscript.js";
 import { usePttHold, type PttUiState } from "../../api/ptt.js";
 import { useStatusQuery } from "../../api/status.js";
+import { useTtsConfigQuery } from "../../api/tts.js";
 import { errorCopy } from "./pttCopy.js";
 import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
@@ -350,6 +351,7 @@ export function ConversationPanel() {
   const [transcript, setTranscript] = useState<Turn[]>([]);
   const { send, pending, isError, error } = useSendChatTurn();
   const lastReply = useLastReply();
+  const { data: ttsConfig } = useTtsConfigQuery();
   // D3b receipt: while the engine is busy (speaking/processing — most often
   // an agenda block), a direct question does NOT interrupt (D3) — it answers
   // on the next turn boundary. Reused below to swap the generic "pensando"
@@ -839,6 +841,21 @@ export function ConversationPanel() {
               {/* sesión en vivo */}
             </span>
           </div>
+
+          {feedActive && ttsConfig?.local_only && ttsConfig?.piper_available === false && (
+            <div className="px-3 pb-2">
+              <Alert tone="warn" title={t("controles.voice.alert.piperUnavailable.title")}>
+                {t("controles.voice.alert.piperUnavailable.body")}
+              </Alert>
+            </div>
+          )}
+          {feedActive && !ttsConfig?.local_only && ttsConfig?.edge_tts_offline && (
+            <div className="px-3 pb-2">
+              <Alert tone="info" title={t("controles.voice.alert.edgeOffline.title")}>
+                {t("controles.voice.alert.edgeOffline.body")}
+              </Alert>
+            </div>
+          )}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div
