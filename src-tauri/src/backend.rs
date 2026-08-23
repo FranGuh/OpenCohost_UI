@@ -650,6 +650,21 @@ fn resolve_python_binary(config: &BackendConfig, working_dir: &Path) -> PathBuf 
     if candidate.exists() {
         return candidate;
     }
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            for candidate in [
+                exe_dir.join("resources").join("runtime").join("venv").join("Scripts").join("python.exe"),
+                exe_dir.join("resources").join("runtime").join("python").join("python.exe"),
+                exe_dir.join("runtime").join("venv").join("Scripts").join("python.exe"),
+                exe_dir.join("runtime").join("python").join("python.exe"),
+                exe_dir.join("python").join("python.exe"),
+            ] {
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+    }
     if raw.exists() {
         return raw.to_path_buf();
     }
@@ -683,8 +698,25 @@ fn resolve_python_binary(config: &BackendConfig, working_dir: &Path) -> PathBuf 
 fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child> {
     let log_path = resolve_log_path(config);
     let (stdout, stderr) = log_stdio(&log_path);
-    let working_dir = config.resolved_working_dir();
+    let mut working_dir = config.resolved_working_dir();
     let python_bin = resolve_python_binary(config, &working_dir);
+
+    if !working_dir.join("opencohost").is_dir() {
+        if let Ok(exe_path) = env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                for candidate in [
+                    exe_dir.join("resources").join("runtime"),
+                    exe_dir.join("runtime"),
+                    exe_dir.to_path_buf(),
+                ] {
+                    if candidate.join("opencohost").is_dir() {
+                        working_dir = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     let mut command = Command::new(&python_bin);
     command
@@ -1288,6 +1320,34 @@ pub fn shutdown_backend(app_handle: &tauri::AppHandle) {
 /// release build has no fallback to `backend.config.json`, repo walking, or
 /// PATH: the HKCU handoff and validated runtime manifest are authoritative.
 fn load_backend_config() -> Result<BackendConfig, String> {
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            for candidate in [
+                exe_dir.join("resources").join("runtime"),
+                exe_dir.join("runtime"),
+                exe_dir.to_path_buf(),
+            ] {
+                for py in [
+                    candidate.join("python").join("python.exe"),
+                    candidate.join("venv").join("Scripts").join("python.exe"),
+                ] {
+                    if py.is_file() && candidate.join("opencohost").is_dir() {
+                        return Ok(BackendConfig {
+                            python_path: py.to_string_lossy().into_owned(),
+                            working_dir: candidate.to_string_lossy().into_owned(),
+                            app_module: default_app_module(),
+                            port: default_port(),
+                            fallback_port: default_fallback_port(),
+                            spawn: true,
+                            log_file: None,
+                            data_root: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     #[cfg(debug_assertions)]
     {
         return Ok(BackendConfig::load());

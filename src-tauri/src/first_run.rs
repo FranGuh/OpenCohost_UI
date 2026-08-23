@@ -1300,6 +1300,29 @@ fn new_install_id() -> String {
 }
 
 pub fn inspect_runtime(store: &impl HandoffStore) -> FirstRunStatus {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            for candidate in [
+                exe_dir.join("resources").join("runtime").join("venv").join("Scripts").join("python.exe"),
+                exe_dir.join("resources").join("runtime").join("python").join("python.exe"),
+                exe_dir.join("runtime").join("venv").join("Scripts").join("python.exe"),
+                exe_dir.join("python").join("python.exe"),
+            ] {
+                if candidate.is_file() {
+                    let runtime_root = candidate.parent().and_then(|p| p.parent()).unwrap_or(exe_dir);
+                    return status(
+                        FirstRunPhase::Ready,
+                        Some(runtime_root.to_string_lossy().into_owned()),
+                        Some("embedded-install".into()),
+                        "Embedded runtime ready",
+                        true,
+                        None,
+                        None,
+                    );
+                }
+            }
+        }
+    }
     let data_root = store.value("DataRoot");
     let install_id = store.value("InstallId");
     let Some(data_root_value) = data_root.clone() else {
@@ -1661,6 +1684,64 @@ impl CurlArtifactSource {
             DOWNLOAD_NONCE.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = fs::remove_file(&temporary);
+
+        let bundled_candidates = [
+            format!("{}-{}.zip", artifact.name, artifact.version),
+            format!("{}.zip", artifact.name),
+            format!("{}-{}.tar.gz", artifact.name, artifact.version),
+            format!("{}.tar.gz", artifact.name),
+        ];
+        let mut found_bundled = None;
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                for dir in [exe_dir.join("resources"), exe_dir.to_path_buf()] {
+                    for candidate in &bundled_candidates {
+                        let path = dir.join(candidate);
+                        if path.is_file() {
+                            found_bundled = Some(path);
+                            break;
+                        }
+                    }
+                    if found_bundled.is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(bundled_path) = found_bundled {
+            if fs::copy(&bundled_path, &temporary).is_ok() {
+                before_publish()?;
+                let Some(commit) = cancel.try_begin_commit() else {
+                    let _ = fs::remove_file(&temporary);
+                    return Err(ProvisionError::new(
+                        ProvisionErrorCode::Cancelled,
+                        "operation cancelled",
+                        true,
+                    ));
+                };
+                after_commit(&commit)?;
+                if commit.check_deadline(deadline).is_err() {
+                    let _ = fs::remove_file(&temporary);
+                    return Err(ProvisionError::new(
+                        ProvisionErrorCode::DeadlineExceeded,
+                        "download deadline exceeded",
+                        true,
+                    ));
+                }
+                if destination.exists() {
+                    let _ = fs::remove_file(&temporary);
+                    return Err(ProvisionError::new(
+                        ProvisionErrorCode::DownloadFailed,
+                        "download artifact destination already exists",
+                        true,
+                    ));
+                }
+                fs::rename(&temporary, destination)?;
+                return Ok(());
+            }
+        }
+
         let mut child = Command::new(executable)
             .args([
                 "--fail",

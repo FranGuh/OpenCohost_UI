@@ -1743,11 +1743,17 @@ where
                 fs::write(payload, bytes)?;
             }
         }
-        let uv_stage = staging.join("tools").join("uv.exe");
+        let tools_dir = staging.join("tools");
+        let uv_stage = tools_dir.join("uv.exe");
         validate_missing_boundary(&self.config.data_root, &uv_stage)?;
-        fs::create_dir_all(uv_stage.parent().unwrap())?;
+        fs::create_dir_all(&tools_dir)?;
         validate_write_boundary(&self.config.data_root, staging, &uv_stage)?;
-        fs::copy(uv, &uv_stage)?;
+        let uv_bytes = fs::read(&uv)?;
+        if uv_bytes.starts_with(b"PK") {
+            extract_zip_safely_under_root(&uv_bytes, &self.config.data_root, &tools_dir)?;
+        } else {
+            fs::copy(uv, &uv_stage)?;
+        }
         let generation_stage = engine_stage.join("generations").join(operation_id);
         let python_stage = generation_stage.join("python");
         let venv_stage = generation_stage.join("venv");

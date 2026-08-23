@@ -14,18 +14,18 @@
     "name": "uv",
     "version": "0.11.6",
     "source": "https://github.com/astral-sh/uv/releases/download/0.11.6/uv-x86_64-pc-windows-msvc.zip",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sha256": "99aa60edd017a256dbf378f372d1cff3292dbc6696e0ea01716d9158d773ab77",
     "kind": "file",
-    "expected_size": 0,
+    "expected_size": 23498773,
     "max_size": 50000000
   },
   "engine": {
     "name": "engine",
     "version": "0.2.0-alpha.1",
     "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.2.0-alpha.1/engine-0.2.0-alpha.1.zip",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sha256": "66bdc7356226344a1e5826b5e442107232dd3f90799c6f460d776072af142eee",
     "kind": "zip",
-    "expected_size": 0,
+    "expected_size": 3182795,
     "max_size": 200000000
   }
 }
