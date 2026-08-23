@@ -321,20 +321,26 @@ export function usePttHold(): UsePttHoldResult {
       keepaliveRef.current = setInterval(() => {
         postPttKeepalive(sessionId)
           .then((res) => {
-            if (res.state !== "listening") return goIdle(); // server moved on without us
+            if (res.state !== "listening") {
+              clearKeepalive();
+              return;
+            }
             // Heartbeat for the shared avatar signal: re-stamping it every beat
             // is what lets a hold outlive the freshness window in KiraCover.
             useAvatarLiveState.getState().setListening(true);
           })
           .catch((err: unknown) => {
-            // 409 = server guillotined us (missed 3 beats); anything else =
-            // network/connection loss. Either way: stop polling locally, the
-            // server-side watchdog/grace already finishes the job.
-            goIdle(err instanceof ApiError && err.status === 409 ? "session_not_active" : "stt_lost");
+            // Keepalive error (409 session moved on or network lag):
+            // Stop polling locally, but keep the session ref so the physical
+            // pointer-up / key-up still sends an explicit POST /api/ptt/stop.
+            clearKeepalive();
+            if (mountedRef.current) {
+              setError(err instanceof ApiError && err.status === 409 ? "session_not_active" : "stt_lost");
+            }
           });
       }, KEEPALIVE_MS);
     },
-    [clearKeepalive, goIdle]
+    [clearKeepalive]
   );
 
   const start = useCallback(() => {
@@ -347,7 +353,7 @@ export function usePttHold(): UsePttHoldResult {
           // stop() (or unmount) already fired while start() was still in
           // flight (a very fast tap) — don't resurrect a session nobody is
           // holding; cut it immediately instead of waiting out the server's
-          // 3s keepalive watchdog.
+          // 8s keepalive watchdog.
           void postPttStop(data.session_id);
           return;
         }
