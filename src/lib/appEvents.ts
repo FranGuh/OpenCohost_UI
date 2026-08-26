@@ -238,6 +238,7 @@ export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?:
     id: id ?? `evt-${++manualSeq}-${Date.now()}`,
     ts: opts?.ts ?? Date.now(),
     source: input.source,
+    action: input.action,
     label,
     // Guardrail refusals always warn-tint regardless of caller — a refused
     // prefetch is a notable-but-not-fatal event (I2).

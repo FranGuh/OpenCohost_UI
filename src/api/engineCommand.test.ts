@@ -18,6 +18,7 @@ import {
 import { useEngineCommand } from "./engineCommand.js";
 import { MODELS_QUERY_KEY } from "./models.js";
 import type { StatusResponse } from "./client.js";
+import { useEventStore } from "../store/eventStore.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -241,5 +242,43 @@ describe("useEngineCommand idempotency key registry reuse", () => {
     });
 
     expect(capturedBody).toEqual({ command: "clear_history", payload: {} });
+  });
+});
+
+describe("useEngineCommand immediate failure event resolution (model_switch_failed, llm_tier_switch_failed)", () => {
+  it("resolves pending to false immediately and sets isFailed: true without waiting for timeout when failure event is received", async () => {
+    vi.useFakeTimers();
+    server.use(neverConvergesStatusHandler());
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-failed", status: "queued", state_version: 1 })
+      )
+    );
+
+    const matches = (status: StatusResponse, value: unknown) => status.current_model === value;
+    const { result } = renderHook(() => useEngineCommand(matches), { wrapper: createWrapper() });
+
+    await act(async () => {
+      await result.current.run("switch_model", "gemma4:e4b");
+    });
+    expect(result.current.pending).toBe(true);
+    expect(result.current.isFailed).toBe(false);
+    expect(result.current.isTimeout).toBe(false);
+
+    // Emit failure event via useEventStore using protocol action
+    act(() => {
+      useEventStore.getState().append({
+        id: "evt-failed-1",
+        ts: Date.now(),
+        source: "motor",
+        action: "model_switch_failed",
+        label: "Fallo al cambiar modelo",
+        tone: "danger"
+      });
+    });
+
+    expect(result.current.pending).toBe(false);
+    expect(result.current.isFailed).toBe(true);
+    expect(result.current.isTimeout).toBe(false);
   });
 });

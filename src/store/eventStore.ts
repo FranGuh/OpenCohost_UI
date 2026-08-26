@@ -8,6 +8,7 @@ export interface AppEvent {
   id: string; // dedup key — `mut-${mutationId}` for mutation events, manual otherwise
   ts: number; // Date.now() at emit time — the interleave key ConversationPanel already sorts on
   source: AppEventSource;
+  action?: string;
   label: string; // ALWAYS template-built in appEvents.ts — never free text
   tone: AppEventTone;
 }

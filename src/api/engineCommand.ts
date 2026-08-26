@@ -11,6 +11,7 @@ import {
 import { STATUS_QUERY_KEY, useStatusQuery } from "./status.js";
 import { MODELS_QUERY_KEY } from "./models.js";
 import { TTS_CONFIG_QUERY_KEY } from "./tts.js";
+import { useEventStore } from "../store/eventStore.js";
 
 interface PendingCommand {
   intentKey: string;
@@ -65,6 +66,7 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [convergeValue, setConvergeValue] = useState<TValue | undefined>(undefined);
   const [timedOut, setTimedOut] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const mutation = useMutation({
     mutationFn: async ({ command, value }: { command: EngineCommand; value?: TValue }) => {
@@ -85,6 +87,7 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
     },
     onSuccess: (result: { accepted: CommandAccepted; intentKey: string }, variables) => {
       setTimedOut(false);
+      setFailed(false);
       setConvergeValue(variables.value);
       setPendingCommand({ intentKey: result.intentKey });
       void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
@@ -105,6 +108,8 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
     if (matches(statusQuery.data, convergeValue as TValue)) {
       rotateIdempotencyKey(pendingCommand.intentKey);
       setPendingCommand(null);
+      setFailed(false);
+      setTimedOut(false);
     }
   }, [matches, pendingCommand, statusQuery.data, convergeValue]);
 
@@ -116,9 +121,31 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
     const timer = setTimeout(() => {
       rotateIdempotencyKey(pendingCommand.intentKey);
       setPendingCommand(null);
+      setFailed(false);
+      setTimedOut(false);
     }, OPTIMISTIC_APPLY_DELAY_MS);
     return () => clearTimeout(timer);
   }, [matches, pendingCommand]);
+
+  // Immediate failure resolution: when the backend fires a failure event
+  // (model_switch_failed, llm_tier_switch_failed), clear pending immediately
+  // instead of holding the control disabled until the 15s timeout ceiling.
+  useEffect(() => {
+    if (!pendingCommand) {
+      return;
+    }
+    return useEventStore.subscribe((state) => {
+      const latest = state.events[state.events.length - 1];
+      if (!latest) return;
+      if (
+        latest.source === "motor" &&
+        (latest.action === "model_switch_failed" || latest.action === "llm_tier_switch_failed")
+      ) {
+        setPendingCommand(null);
+        setFailed(true);
+      }
+    });
+  }, [pendingCommand]);
 
   // Soft timeout ceiling for both strategies above — never rotates the
   // Idempotency-Key (unlike genuine convergence) since we don't know
@@ -139,24 +166,30 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
   // reactively, so callers (cards) can `void run(...)` without every call
   // site needing its own .catch() to avoid an unhandled rejection.
   const run = useCallback(
-    (command: EngineCommand, value?: TValue) => mutation.mutateAsync({ command, value }).catch(() => undefined),
+    (command: EngineCommand, value?: TValue) => {
+      setTimedOut(false);
+      setFailed(false);
+      return mutation.mutateAsync({ command, value }).catch(() => undefined);
+    },
     [mutation]
   );
 
   const reset = useCallback(() => {
     mutation.reset();
     setTimedOut(false);
+    setFailed(false);
   }, [mutation]);
 
   return {
     run,
     pending: mutation.isPending || pendingCommand !== null,
-    isError: mutation.isError,
+    isError: mutation.isError || failed,
     error: mutation.error,
     // Terminal "still applying, try again" state (design D6) — surfaced
     // once APPLY_TIMEOUT_MS elapses without convergence; NOT a permanent
     // disable, `pending` is false again once this is true.
     isTimeout: timedOut,
+    isFailed: failed,
     reset
   };
 }

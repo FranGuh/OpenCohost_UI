@@ -69,6 +69,43 @@ impl BackendConfig {
         serde_json::from_str(contents)
     }
 
+    fn load_explicit() -> Option<Self> {
+        if let Ok(path) = env::var("OPENCOHOST_BACKEND_CONFIG") {
+            match Self::load_from_path(Path::new(&path)) {
+                Some(cfg) => return Some(cfg),
+                None => {
+                    eprintln!(
+                        "backend config: OPENCOHOST_BACKEND_CONFIG={path} could not be read/parsed, trying next candidate"
+                    );
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(debug_assertions)]
+    fn load_source() -> Option<Self> {
+        Self::load_from_path(Path::new(DEV_SOURCE_CONFIG_PATH))
+    }
+
+    fn load_portable() -> Self {
+        if let Ok(exe_path) = env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                for candidate in [
+                    exe_dir.join("backend.config.json"),
+                    exe_dir.join("resources").join("backend.config.json"),
+                ] {
+                    if let Some(cfg) = Self::load_from_path(&candidate) {
+                        return cfg;
+                    }
+                }
+            }
+        }
+
+        Self::from_json(DEV_DEFAULT_CONFIG_JSON)
+            .expect("backend config: compiled-in backend.config.default.json must be valid JSON")
+    }
+
     /// Resolution order:
     /// (a) `OPENCOHOST_BACKEND_CONFIG` env var — path to a JSON file. This is
     ///     how a developer with a real local `backend.config.json` (gitignored,
@@ -90,39 +127,18 @@ impl BackendConfig {
     /// exe location to the real backend root, NOT interpreted against
     /// whatever the calling process's current directory happens to be).
     pub fn load() -> Self {
-        if let Ok(path) = env::var("OPENCOHOST_BACKEND_CONFIG") {
-            match Self::load_from_path(Path::new(&path)) {
-                Some(cfg) => return cfg,
-                None => {
-                    eprintln!(
-                        "backend config: OPENCOHOST_BACKEND_CONFIG={path} could not be read/parsed, trying next candidate"
-                    );
-                }
-            }
+        if let Some(cfg) = Self::load_explicit() {
+            return cfg;
         }
 
         #[cfg(debug_assertions)]
         {
-            if let Some(cfg) = Self::load_from_path(Path::new(DEV_SOURCE_CONFIG_PATH)) {
+            if let Some(cfg) = Self::load_source() {
                 return cfg;
             }
         }
 
-        if let Ok(exe_path) = env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                for candidate in [
-                    exe_dir.join("backend.config.json"),
-                    exe_dir.join("resources").join("backend.config.json"),
-                ] {
-                    if let Some(cfg) = Self::load_from_path(&candidate) {
-                        return cfg;
-                    }
-                }
-            }
-        }
-
-        Self::from_json(DEV_DEFAULT_CONFIG_JSON)
-            .expect("backend config: compiled-in backend.config.default.json must be valid JSON")
+        Self::load_portable()
     }
 
     pub fn load_from_path(path: &Path) -> Option<Self> {
@@ -257,41 +273,78 @@ pub fn resolve_log_path(config: &BackendConfig) -> PathBuf {
     env::temp_dir().join("opencohost-backend.log")
 }
 
+fn select_backend_config_with<T, Explicit, Source, Packaged>(
+    debug_build: bool,
+    explicit: Explicit,
+    source: Source,
+    packaged: Packaged,
+) -> Option<T>
+where
+    Explicit: FnOnce() -> Option<T>,
+    Source: FnOnce() -> Option<T>,
+    Packaged: FnOnce() -> Option<T>,
+{
+    if debug_build {
+        explicit().or_else(source).or_else(packaged)
+    } else {
+        packaged()
+    }
+}
+
+fn discover_packaged_backend_config() -> Option<BackendConfig> {
+    let exe_path = env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+    for candidate in [
+        exe_dir.join("resources").join("runtime"),
+        exe_dir.join("runtime"),
+        exe_dir.to_path_buf(),
+    ] {
+        for py in [
+            candidate.join("python").join("python.exe"),
+            candidate.join("venv").join("Scripts").join("python.exe"),
+        ] {
+            if py.is_file() && candidate.join("opencohost").is_dir() {
+                return Some(BackendConfig {
+                    python_path: py.to_string_lossy().into_owned(),
+                    working_dir: candidate.to_string_lossy().into_owned(),
+                    app_module: default_app_module(),
+                    port: default_port(),
+                    fallback_port: default_fallback_port(),
+                    spawn: true,
+                    log_file: None,
+                    data_root: None,
+                });
+            }
+        }
+    }
+    None
+}
+
 /// Development builds retain the source-tree configuration escape hatch. A
 /// release build has no fallback to `backend.config.json`, repo walking, or
 /// PATH: the HKCU handoff and validated runtime manifest are authoritative.
 pub fn load_backend_config() -> Result<BackendConfig, String> {
-    if let Ok(exe_path) = env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            for candidate in [
-                exe_dir.join("resources").join("runtime"),
-                exe_dir.join("runtime"),
-                exe_dir.to_path_buf(),
-            ] {
-                for py in [
-                    candidate.join("python").join("python.exe"),
-                    candidate.join("venv").join("Scripts").join("python.exe"),
-                ] {
-                    if py.is_file() && candidate.join("opencohost").is_dir() {
-                        return Ok(BackendConfig {
-                            python_path: py.to_string_lossy().into_owned(),
-                            working_dir: candidate.to_string_lossy().into_owned(),
-                            app_module: default_app_module(),
-                            port: default_port(),
-                            fallback_port: default_fallback_port(),
-                            spawn: true,
-                            log_file: None,
-                            data_root: None,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
     #[cfg(debug_assertions)]
     {
-        Ok(BackendConfig::load())
+        if let Some(config) = select_backend_config_with(
+            true,
+            BackendConfig::load_explicit,
+            BackendConfig::load_source,
+            discover_packaged_backend_config,
+        ) {
+            return Ok(config);
+        }
+        return Ok(BackendConfig::load_portable());
+    }
+
+    #[cfg(not(debug_assertions))]
+    if let Some(config) = select_backend_config_with(
+        false,
+        || None::<BackendConfig>,
+        || None::<BackendConfig>,
+        discover_packaged_backend_config,
+    ) {
+        return Ok(config);
     }
 
     #[cfg(all(not(debug_assertions), windows))]
@@ -325,5 +378,69 @@ pub fn load_backend_config() -> Result<BackendConfig, String> {
     #[cfg(all(not(debug_assertions), not(windows)))]
     {
         Err("installed OpenCohost runtime is supported only on Windows".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{select_backend_config_with, BackendConfig};
+
+    #[test]
+    fn debug_source_config_precedes_packaged_runtime() {
+        let resolved =
+            select_backend_config_with(true, || None, || Some("source"), || Some("packaged"));
+
+        assert_eq!(resolved, Some("source"));
+    }
+
+    #[test]
+    fn debug_absent_or_invalid_config_uses_packaged_runtime() {
+        let invalid_explicit = BackendConfig::from_json("{").ok();
+        let invalid_source = BackendConfig::from_json(r#"{"python_path":"python"}"#).ok();
+        assert!(invalid_explicit.is_none());
+        assert!(invalid_source.is_none());
+
+        for (explicit, source) in [(None, None), (invalid_explicit, invalid_source)] {
+            let resolved = select_backend_config_with(
+                true,
+                || explicit.map(|_| "explicit"),
+                || source.map(|_| "source"),
+                || Some("packaged"),
+            );
+            assert_eq!(resolved, Some("packaged"));
+        }
+    }
+
+    #[test]
+    fn release_packaged_runtime_precedes_development_config() {
+        let resolved = select_backend_config_with(
+            false,
+            || Some("explicit"),
+            || Some("source"),
+            || Some("packaged"),
+        );
+
+        assert_eq!(resolved, Some("packaged"));
+    }
+
+    #[test]
+    fn debug_explicit_config_precedes_source_and_packaged_runtime() {
+        let resolved = select_backend_config_with(
+            true,
+            || Some("explicit"),
+            || Some("source"),
+            || Some("packaged"),
+        );
+
+        assert_eq!(resolved, Some("explicit"));
+    }
+
+    #[test]
+    fn no_candidate_delegates_to_existing_build_fallback() {
+        let debug_fallback = select_backend_config_with(true, || None, || None, || None);
+        assert_eq!(debug_fallback, None::<&str>);
+
+        let release_fallback = select_backend_config_with(false, || None, || None, || None);
+        assert_eq!(release_fallback, None::<&str>);
     }
 }

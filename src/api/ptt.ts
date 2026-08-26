@@ -331,11 +331,11 @@ export function usePttHold(): UsePttHoldResult {
           })
           .catch((err: unknown) => {
             // Keepalive error (409 session moved on or network lag):
-            // Stop polling locally, but keep the session ref so the physical
-            // pointer-up / key-up still sends an explicit POST /api/ptt/stop.
+            // Stop polling locally, drop to idle, and surface the error.
             clearKeepalive();
             if (mountedRef.current) {
               setError(err instanceof ApiError && err.status === 409 ? "session_not_active" : "stt_lost");
+              setUiState("idle");
             }
           });
       }, KEEPALIVE_MS);

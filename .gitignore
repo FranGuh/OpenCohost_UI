@@ -21,3 +21,5 @@ public/avatar/
 # Real per-developer backend config (python_path, working_dir). The portable
 # compile-time/bundle fallback is the tracked sibling backend.config.default.json.
 src-tauri/backend.config.json
+
+.codegraph/
