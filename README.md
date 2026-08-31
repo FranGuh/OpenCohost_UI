@@ -10,6 +10,8 @@
 > ideas are wanted**, not tolerated. If something breaks, misbehaves, or just
 > feels wrong to use, [open an issue](../../issues) — a screenshot and what you
 > were doing is plenty. Front-end contributions are welcome too (see below).
+>
+> Please contact me, if you have any problem or bugs.
 
 ![Opencohost App](pictures/Interface.png)
 This is **the** OpenCohost user interface: a Tauri 2 desktop shell wrapping a
