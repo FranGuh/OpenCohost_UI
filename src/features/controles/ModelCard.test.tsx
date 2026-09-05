@@ -11,6 +11,7 @@ import {
   commandNetworkErrorHandler,
   commandValidationHandler,
   defaultModels,
+  defaultReadiness,
   evolvingCurrentModelHandler,
   frozenStatusHandler
 } from "../../test/handlers.js";
@@ -145,15 +146,22 @@ describe("ModelCard never downloads models — Ollama does (owner decision)", ()
     renderCard();
     await screen.findByRole("combobox", { name: "Modelo Activo" });
 
-    expect(screen.getByText(/Ollama/)).toBeInTheDocument();
+    expect(screen.getByText(/Los modelos se instalan y eliminan con Ollama/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Descargar" })).not.toBeInTheDocument();
   });
 });
 
-describe("ModelCard availability marking from `discovered` (fail-open per settings.py)", () => {
+describe("ModelCard availability marking from `discovered` and readiness", () => {
   it("marks a not-installed catalog entry as disabled and refuses to select it", async () => {
     server.use(
-      http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: ["qwen3:1.7b"] }))
+      http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: ["qwen3:1.7b"] })),
+      http.get(`${API_BASE_URL}/api/llm/readiness`, () =>
+        HttpResponse.json({
+          ...defaultReadiness,
+          state: "LOCAL_MODEL_MISSING",
+          ollama: { ...defaultReadiness.ollama, installed_models: ["qwen3:1.7b"] }
+        })
+      )
     );
     renderCard();
 
@@ -171,17 +179,93 @@ describe("ModelCard availability marking from `discovered` (fail-open per settin
     expect(screen.queryByText("aplicando…")).not.toBeInTheDocument();
   });
 
-  it("marks NO option as unavailable when discovery is empty — cannot verify, not 'nothing installed'", async () => {
-    server.use(http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: [] })));
+  it("marks all catalog options as not installed and warns when Ollama is running with zero models", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: [] })),
+      http.get(`${API_BASE_URL}/api/llm/readiness`, () =>
+        HttpResponse.json({
+          ...defaultReadiness,
+          state: "LOCAL_NO_MODELS",
+          can_chat: false,
+          ollama: { ...defaultReadiness.ollama, reachable: true, installed_models: [], model_installed: false }
+        })
+      )
+    );
     renderCard();
 
+    await waitFor(() =>
+      expect(screen.getByText(/Ollama está activo pero no hay modelos descargados/i)).toBeInTheDocument()
+    );
+    expect(screen.getByText("sin modelos")).toBeInTheDocument();
+
     const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
-    await waitFor(() => expect(trigger).toHaveTextContent("Qwen 3 (1.7B) ⚡"));
+    await waitFor(() => expect(trigger).toHaveTextContent(/Qwen 3/));
     fireEvent.click(trigger);
 
     const options = screen.getAllByRole("option");
     expect(options.length).toBeGreaterThan(0);
-    options.forEach((option) => expect(option).not.toHaveAttribute("aria-disabled", "true"));
+    options.forEach((option) => {
+      expect(option).toHaveAttribute("aria-disabled", "true");
+      expect(option).toHaveTextContent(/no instalado/);
+    });
+  });
+
+  it("surfaces connection alert and disables options when Ollama is offline", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: [] })),
+      http.get(`${API_BASE_URL}/api/llm/readiness`, () =>
+        HttpResponse.json({
+          ...defaultReadiness,
+          state: "LOCAL_OLLAMA_MISSING",
+          can_chat: false,
+          ollama: { reachable: false, installed_models: [], selected_model: null, model_installed: false, error: "offline" }
+        })
+      )
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Ollama no responde o no está en ejecución/i)).toBeInTheDocument()
+    );
+    expect(screen.getByText("sin conexión")).toBeInTheDocument();
+
+    const trigger = screen.getByRole("combobox", { name: "Modelo Activo" });
+    fireEvent.click(trigger);
+
+    const options = screen.getAllByRole("option");
+    expect(options.length).toBeGreaterThan(0);
+    options.forEach((option) => {
+      expect(option).toHaveAttribute("aria-disabled", "true");
+    });
+  });
+
+  it("toggles the embedded setup assistant card when Ollama is offline", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json({ ...defaultModels, discovered: [] })),
+      http.get(`${API_BASE_URL}/api/llm/readiness`, () =>
+        HttpResponse.json({
+          ...defaultReadiness,
+          state: "LOCAL_OLLAMA_MISSING",
+          can_chat: false,
+          ollama: { reachable: false, installed_models: [], selected_model: null, model_installed: false, error: "offline" }
+        })
+      )
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Ollama no responde o no está en ejecución/i)).toBeInTheDocument()
+    );
+
+    const openBtn = screen.getByRole("button", { name: /abrir asistente de configuración/i });
+    expect(openBtn).toBeInTheDocument();
+
+    fireEvent.click(openBtn);
+    expect(screen.getByText("Asistente de Preparación LLM")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ocultar asistente/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /ocultar asistente/i }));
+    expect(screen.queryByText("Asistente de Preparación LLM")).not.toBeInTheDocument();
   });
 
   it("lists an owner-pulled tag outside the curated catalog as a plain selectable option", async () => {

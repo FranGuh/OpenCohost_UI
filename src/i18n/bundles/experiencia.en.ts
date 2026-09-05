@@ -29,6 +29,8 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.conversationPanel.mic.state.listening": "Listening… release to send",
   "experiencia.conversationPanel.mic.unavailable.hint":
     "PTT unavailable — WhisperLive isn't running.",
+  "experiencia.conversationPanel.pending.cancel": "Cancel and restore text",
+  "experiencia.conversationPanel.pending.waiting": "Message waiting for LLM engine:",
   "experiencia.conversationPanel.send.error": "Couldn't send the message.",
   "experiencia.conversationPanel.tabs.alertas": "Alerts",
   "experiencia.conversationPanel.tabs.aria": "Conversation",
@@ -38,8 +40,9 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.conversationPanel.tabs.stream": "Stream chat",
   "experiencia.conversationPanel.tabs.todo": "All",
   "experiencia.conversationPanel.turn.agendaBadge": "KIRA · AGENDA",
-  "experiencia.conversationPanel.turn.operator": "You",
-  "experiencia.conversationPanel.turn.operatorVoice": "You · voice",
+  "experiencia.conversationPanel.turn.anonymous": "Anonymous",
+  "experiencia.conversationPanel.turn.operator": "Anonymous",
+  "experiencia.conversationPanel.turn.operatorVoice": "{name} · voice",
   "experiencia.conversationPanel.turn.pending": "Kira is thinking…",
   "experiencia.conversationPanel.turn.pendingBusy":
     "Kira heard you — she'll answer after the current block",

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useModelsQuery } from "../../api/models.js";
+import { useLlmReadiness } from "../shared/useLlmReadiness.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
 import type { StatusResponse } from "../../api/client.js";
 import { Card } from "../../ui/Card.js";
-import { Badge } from "../../ui/Badge.js";
+import { Badge, type BadgeTone } from "../../ui/Badge.js";
+import { Button } from "../../ui/Button.js";
 import { Select } from "../../ui/Select.js";
+import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
 import { cn } from "../../lib/cn.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
@@ -30,25 +33,22 @@ function matchesCurrentModel(status: StatusResponse, target: string): boolean {
  * `pending ?? serverValue` pattern as ProfileSwitcher's
  * `selectValue = pendingSwitch?.name ?? activeProfile`.
  *
- * OpenCohost does not download models — Ollama does (owner decision). Local
- * mode is discovery + selection only: `discovered` (the tags Ollama actually
- * reports) marks catalog entries as not-installed, it never removes them
- * from the list. An EMPTY `discovered` means "cannot verify" (Ollama
- * discovery timed out/errored), never "nothing installed" — mirrors the
- * backend's own fail-open rule (settings.py::resolve_startup_model, ~:799)
- * — so nothing is marked missing in that case. Cloud mode
- * (`active_tier === "cloud"`) has no catalog/tiers to pick from; the card
- * becomes a read-only pointer to the ProviderCard.
+ * OpenCohost does not download models — Ollama does (owner decision).
+ * Curated catalog entries are metadata only: an uninstalled model is marked
+ * disabled and not selectable. When Ollama is offline or uninstalled,
+ * no local model can be run, and clear connection warnings are surfaced.
  */
 export function ModelCard() {
   const t = useT();
   const { data, isError: modelsError } = useModelsQuery();
+  const { readiness } = useLlmReadiness();
   const modelCommand = useEngineCommand<string>(matchesCurrentModel);
   const tierCommand = useEngineCommand<string>();
   const isCloud = data?.active_tier === "cloud";
 
   const [optimisticModel, setOptimisticModel] = useState<string | null>(null);
   const [optimisticTier, setOptimisticTier] = useState<string | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
     if (!modelCommand.pending) setOptimisticModel(null);
@@ -65,25 +65,48 @@ export function ModelCard() {
   const pending = modelCommand.pending || tierCommand.pending;
   const errorMessage = modelCommand.error?.message ?? tierCommand.error?.message;
 
-  const installed = new Set(data?.discovered ?? []);
-  // Empty discovery = "cannot verify", NOT "nothing installed" — mirrors
-  // settings.py's own rule (resolve_startup_model, ~:799).
-  const canVerify = installed.size > 0;
+  const ollamaOffline = !isCloud && Boolean(readiness && !readiness.ollama?.reachable);
+  const installed = new Set(
+    data?.discovered ?? readiness?.ollama?.installed_models ?? []
+  );
+  const hasNoModels = !isCloud && !ollamaOffline && installed.size === 0;
+
+  const canVerify = !ollamaOffline;
   const modelOptions = [
     ...catalogEntries.map(([id, entry]) => {
-      const missing = canVerify && !installed.has(id);
+      const missing = ollamaOffline || (canVerify && !installed.has(id));
       return {
         value: id,
         label: missing ? `${entry.display} — ${t("controles.model.select.notInstalled")}` : entry.display,
         disabled: missing
       };
     }),
-    // Owner-pulled tags outside the curated catalog are selectable too; the
-    // backend already accepts them ("saved_runtime", settings.py:803).
-    ...(data?.discovered ?? [])
-      .filter((tag) => !(tag in (data?.catalog ?? {})))
-      .map((tag) => ({ value: tag, label: tag }))
+    ...(!ollamaOffline
+      ? (data?.discovered ?? [])
+          .filter((tag) => !(tag in (data?.catalog ?? {})))
+          .map((tag) => ({ value: tag, label: tag }))
+      : [])
   ];
+
+  let badgeTone: BadgeTone = "ok";
+  let badgeLabel = t("controles.model.card.installed");
+
+  if (pending) {
+    badgeTone = "info";
+    badgeLabel = t("controles.model.card.pending");
+  } else if (isCloud) {
+    badgeTone = "info";
+    badgeLabel = t("controles.model.card.cloudBadge");
+  } else if (ollamaOffline) {
+    badgeTone = "danger";
+    badgeLabel = t("controles.model.card.offline");
+  } else if (installed.size === 0) {
+    badgeTone = "warn";
+    badgeLabel = t("controles.model.card.noModels");
+  } else if (!installed.has(selectedModelId)) {
+    badgeTone = "warn";
+    badgeLabel = t("controles.model.card.notInstalled");
+  }
 
   function handleModelChange(id: string) {
     setOptimisticModel(id);
@@ -99,12 +122,8 @@ export function ModelCard() {
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">{t("controles.model.card.title")}</h2>
-        <Badge tone={pending || isCloud ? "info" : "ok"}>
-          {pending
-            ? t("controles.model.card.pending")
-            : isCloud
-              ? t("controles.model.card.cloudBadge")
-              : t("controles.model.card.installed")}
+        <Badge tone={badgeTone}>
+          {badgeLabel}
         </Badge>
       </div>
 
@@ -113,6 +132,37 @@ export function ModelCard() {
           <p role="alert" className="text-xs leading-relaxed text-danger">
             {errorMessage ?? t("controles.model.error.load")}
           </p>
+        )}
+
+        {ollamaOffline && (
+          <p role="alert" className="text-xs leading-relaxed text-danger bg-danger-bg border border-danger-bd rounded p-2.5">
+            {t("controles.model.warning.ollamaOffline")}
+          </p>
+        )}
+
+        {hasNoModels && (
+          <p role="alert" className="text-xs leading-relaxed text-warn bg-warn-bg border border-warn-bd rounded p-2.5">
+            {t("controles.model.warning.noModels")}
+          </p>
+        )}
+
+        {(ollamaOffline || hasNoModels) && (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setShowSetup((prev) => !prev)}
+            >
+              {showSetup ? t("controles.readiness.hideSetup") : t("controles.readiness.openSetup")}
+            </Button>
+          </div>
+        )}
+
+        {showSetup && (
+          <div className="mt-1">
+            <LlmReadinessCard onClose={() => setShowSetup(false)} showDismiss />
+          </div>
         )}
 
         <p className="text-xs text-muted-foreground mb-2">

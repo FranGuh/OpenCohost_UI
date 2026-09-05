@@ -141,7 +141,7 @@ export function SettingsPopover({ onShowWelcome }: SettingsPopoverProps) {
       {open && (
         <div
           id="settings-popover-panel"
-          className="absolute right-0 top-11 z-10 flex w-72 flex-col gap-3.5 rounded-md border border-border-soft bg-card p-4 shadow-panel"
+          className="absolute right-0 top-11 z-50 flex w-72 flex-col gap-3.5 rounded-md border border-border-soft bg-card p-4 shadow-panel"
         >
           <section aria-labelledby="settings-theme-label" className="space-y-2">
             <span id="settings-theme-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
