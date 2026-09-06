@@ -21,6 +21,7 @@ import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
 import { pickRotationTrack } from "../../lib/musicRotation.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
+import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
 import { t, useT, type TKey } from "../../i18n/t.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";
@@ -643,6 +644,15 @@ export const COMMANDS: Command[] = [
     titleKey: "commands.musica.title",
     descriptionKey: "commands.musica.description",
     screen: MusicaScreen
+  },
+  {
+    id: "setup",
+    badge: "/setup",
+    titleKey: "commands.setup.title",
+    descriptionKey: "commands.setup.description",
+    summaryTitleKey: "commands.setup.summaryTitle",
+    aliases: ["config", "install", "ollama", "models"],
+    screen: ({ onClose }) => <LlmReadinessCard onClose={onClose} showDismiss />
   }
 ];
 

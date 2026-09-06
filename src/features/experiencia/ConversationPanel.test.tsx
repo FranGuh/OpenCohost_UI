@@ -13,6 +13,7 @@ import {
   chatTurnQueueFullHandler,
   chatTurnValidationHandler,
   defaultAgenda,
+  defaultPersonalization,
   evolvingAgendaHandler,
   evolvingLastReplyHandler,
   frozenStatusHandler,
@@ -532,9 +533,9 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     await waitFor(() => expect(capturedBody).toEqual({ text: "¿Cómo viene el stream hoy?" }));
     expect(capturedHeader).toBeTruthy();
 
-    // Operator's own message appears as a turn ("Vos").
+    // Operator's own message appears as a turn ("Anónimo" by default when no nickname).
     expect(screen.getAllByText("¿Cómo viene el stream hoy?").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Vos").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Anónimo").length).toBeGreaterThan(0);
 
     await waitFor(() => expect(input.value).toBe(""));
   });
@@ -859,19 +860,19 @@ describe("ConversationPanel — markdown only on Kira turns", () => {
 });
 
 describe("ConversationPanel — voice transcript echo (transcript-echo follow-up)", () => {
-  it("appends ONE operator turn with the spoken text and a 'Vos · voz' label above the bubble", () => {
+  it("appends ONE operator turn with the spoken text and an 'Anónimo · voz' label above the bubble by default", () => {
     renderPanel();
     expect(liveTranscriptCb).not.toBeNull(); // panel wired the echo hook
 
     echo("hola kira como andás");
 
     expect(screen.getAllByText("hola kira como andás")).toHaveLength(1);
-    expect(screen.getByText("Vos · voz")).toBeInTheDocument();
+    expect(screen.getByText("Anónimo · voz")).toBeInTheDocument();
     // A voice turn is a chat turn: the empty-state invitation must be gone.
     expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
   });
 
-  it("keeps typed turns labeled plain 'Vos' — the voice label never bleeds onto composer sends", async () => {
+  it("keeps typed turns labeled plain 'Anónimo' — the voice label never bleeds onto composer sends", async () => {
     renderPanel();
     echo("turno de voz previo");
 
@@ -881,8 +882,31 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     await screen.findByText("turno tipeado");
 
-    expect(screen.getByText("Vos · voz")).toBeInTheDocument();
-    expect(screen.getByText("Vos")).toBeInTheDocument(); // exact-match: the plain label exists separately
+    expect(screen.getByText("Anónimo · voz")).toBeInTheDocument();
+    expect(screen.getByText("Anónimo")).toBeInTheDocument(); // exact-match: the plain label exists separately
+  });
+
+  it("uses the personalization nickname when configured (e.g. 'Fran' and 'Fran · voz')", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/personalization`, () =>
+        HttpResponse.json({
+          ...defaultPersonalization,
+          nickname: "Fran",
+          enabled: true
+        })
+      )
+    );
+    renderPanel();
+    echo("saludo por voz");
+
+    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
+      target: { value: "saludo tipeado" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText("saludo tipeado");
+
+    await waitFor(() => expect(screen.getByText("Fran · voz")).toBeInTheDocument());
+    expect(screen.getByText("Fran")).toBeInTheDocument();
   });
 
   it("degraded path: no echo resolved -> timeline untouched, no crash, no alert spam", () => {
@@ -1437,7 +1461,7 @@ describe("ConversationPanel — feed ordering by real timestamps", () => {
     // Three row shapes: Kira bubble, operator bubble, alert line.
     const stamps = Array.from(timeline().querySelectorAll("time"));
     expect(stamps).toHaveLength(3);
-    const expected = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" }).format(at);
+    const expected = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(at);
     expect(stamps.map((node) => node.textContent)).toContain(expected);
     expect(stamps[0]).toHaveAttribute("datetime", new Date(at).toISOString());
   });

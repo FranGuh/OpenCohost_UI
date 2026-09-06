@@ -21,7 +21,11 @@ import { useLastReply, useSendChatTurn } from "../../api/chat.js";
 import { useLiveTranscript } from "../../api/liveTranscript.js";
 import { usePttHold, type PttUiState } from "../../api/ptt.js";
 import { useStatusQuery } from "../../api/status.js";
+import { usePersonalizationQuery } from "../../api/personalization.js";
 import { useTtsConfigQuery } from "../../api/tts.js";
+import { useLlmReadiness } from "../shared/useLlmReadiness.js";
+import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
+import { Button } from "../../ui/Button.js";
 import { errorCopy } from "./pttCopy.js";
 import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
@@ -160,9 +164,8 @@ function matchesTab(tab: TabValue, kind: TurnKind): boolean {
 // ONE formatter for the module — same reason LogsPanel hoists TS_FORMAT
 // (src/features/experiencia/LogsPanel.tsx): Date#toLocaleTimeString builds a
 // fresh locale formatter on every call, and this one is paid per ROW on every
-// parent render. Hour+minute only; the feed is a cockpit, LogsPanel is the log
-// viewer and keeps the seconds.
-const TURN_TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit" });
+// parent render. Hour+minute+second: allows observing turn response latency directly in chat.
+const TURN_TIME_FORMAT = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 interface TurnTimeProps {
   ts?: number;
@@ -191,8 +194,14 @@ function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
   );
 }
 
-function ConversationTurnImpl({ turn }: { turn: Turn }) {
+interface ConversationTurnProps {
+  turn: Turn;
+  operatorName?: string;
+}
+
+function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
   const t = useT();
+  const effectiveOperatorName = operatorName || t("experiencia.conversationPanel.turn.anonymous");
   if (turn.role === "kira" && turn.text === undefined) {
     return (
       <div className="flex flex-col gap-1.5">
@@ -246,10 +255,10 @@ function ConversationTurnImpl({ turn }: { turn: Turn }) {
           {turn.source === "voice" ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-dim">
               <Mic size={11} aria-hidden="true" />
-              {t("experiencia.conversationPanel.turn.operatorVoice")}
+              {t("experiencia.conversationPanel.turn.operatorVoice", { name: effectiveOperatorName })}
             </span>
           ) : (
-            <span className="text-[11px] font-semibold text-dim">{t("experiencia.conversationPanel.turn.operator")}</span>
+            <span className="text-[11px] font-semibold text-dim">{effectiveOperatorName}</span>
           )}
           <TurnTime ts={turn.ts} />
         </span>
@@ -302,6 +311,10 @@ const ConversationTurn = memo(ConversationTurnImpl);
  * visible immediately; there's no server echo to reconcile against. */
 export function ConversationPanel() {
   const t = useT();
+  const { data: personalization } = usePersonalizationQuery();
+  const rawNickname = personalization?.enabled !== false ? personalization?.nickname?.trim() : undefined;
+  const operatorName = rawNickname || t("experiencia.conversationPanel.turn.anonymous");
+
   // ONE unified tab strip (owner layout correction 2026-07-18): todo/chat/alertas
   // are feed filters; comandos and logs swap the panel. Default: the Todo feed.
   const [activeTab, setActiveTab] = useState<TabValue>("todo");
@@ -349,6 +362,14 @@ export function ConversationPanel() {
   // the previous one" bug — the old implementation only ever kept ONE Kira
   // turn around, replacing it on every poll instead of accumulating.
   const [transcript, setTranscript] = useState<Turn[]>([]);
+  const { readiness, canChat, isReady } = useLlmReadiness({ activePolling: true });
+  const isEngineUnready = Boolean(readiness && readiness.can_chat === false);
+  const [pendingMessage, setPendingMessage] = useState<{
+    id: string;
+    text: string;
+    status: "WAITING_FOR_ENGINE" | "SENDING";
+  } | null>(null);
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const { send, pending, isError, error } = useSendChatTurn();
   const lastReply = useLastReply();
   const { data: ttsConfig } = useTtsConfigQuery();
@@ -563,8 +584,46 @@ export function ConversationPanel() {
 
   const isThinking = pending || awaitingReply;
 
+  // Auto-resume buffered message when LLM engine becomes ready
+  useEffect(() => {
+    if (canChat && pendingMessage && pendingMessage.status === "WAITING_FOR_ENGINE") {
+      setPendingMessage((prev) => (prev ? { ...prev, status: "SENDING" } : null));
+      const text = pendingMessage.text;
+      const turnId = pendingMessage.id;
+      pendingTurnIdRef.current = turnId;
+      setTranscript((turns) => {
+        const existingIndex = turns.findIndex((turn) => turn.id === turnId);
+        if (existingIndex === -1) return capTurns([...turns, { id: turnId, kind: "chat", role: "operator", text, ts: Date.now() }]);
+        const next = [...turns];
+        next[existingIndex] = { ...next[existingIndex], text };
+        return next;
+      });
+
+      send(text)
+        .then(() => {
+          pendingTurnIdRef.current = null;
+          setAwaitingReply(true);
+          setAwaitingBaseline(currentTurnId);
+          setPendingMessage(null);
+          setShowRecoveryModal(false);
+        })
+        .catch(() => {
+          setPendingMessage(null);
+        });
+    }
+  }, [canChat, pendingMessage, send, currentTurnId]);
+
   function handleMessageChange(event: ChangeEvent<HTMLInputElement>) {
     setMessage(event.target.value);
+  }
+
+  function handleCancelPendingMessage() {
+    if (pendingMessage) {
+      setMessage(pendingMessage.text);
+      setPendingMessage(null);
+    }
+    setShowRecoveryModal(false);
+    focusComposerInput();
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -575,6 +634,17 @@ export function ConversationPanel() {
     // Slash/bang commands are owned by the command palette (mockup), never sent
     // as a chat turn. A normal message (no "/"/"!" prefix) submits as before.
     if (showCommandPanel) return;
+
+    if (isEngineUnready) {
+      setPendingMessage({
+        id: crypto.randomUUID(),
+        text,
+        status: "WAITING_FOR_ENGINE"
+      });
+      setMessage("");
+      setShowRecoveryModal(true);
+      return;
+    }
 
     const turnId = pendingTurnIdRef.current ?? crypto.randomUUID();
     pendingTurnIdRef.current = turnId;
@@ -592,7 +662,16 @@ export function ConversationPanel() {
       pendingTurnIdRef.current = null;
       setAwaitingReply(true);
       setAwaitingBaseline(currentTurnId);
-    } catch {
+    } catch (err: unknown) {
+      if (typeof err === "object" && err !== null && "status" in err && (err as { status: number }).status === 409) {
+        setPendingMessage({
+          id: turnId,
+          text,
+          status: "WAITING_FOR_ENGINE"
+        });
+        setMessage("");
+        setShowRecoveryModal(true);
+      }
       // isError/error below already carry this reactively — the message
       // stays in the input so the operator can retry without retyping it.
       // pendingTurnIdRef stays set so that retry reuses (and updates) the
@@ -868,16 +947,22 @@ export function ConversationPanel() {
               className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {visibleTurns.map((turn) => (
-                <ConversationTurn key={turn.id} turn={turn} />
+                <ConversationTurn key={turn.id} turn={turn} operatorName={operatorName} />
               ))}
               {showEmptyState && (
-                <div className="m-auto flex flex-col items-center gap-2 py-8 text-center animate-rise-in">
-                  <KiraFace size={40} aria-hidden />
-                  <p className="text-sm font-semibold text-foreground">{t("experiencia.conversationPanel.empty.title")}</p>
-                  <p className="max-w-[220px] text-xs text-muted-foreground">
-                    {t("experiencia.conversationPanel.empty.hint")}
-                  </p>
-                </div>
+                isEngineUnready ? (
+                  <div className="m-auto w-full max-w-md p-4 animate-rise-in">
+                    <LlmReadinessCard />
+                  </div>
+                ) : (
+                  <div className="m-auto flex flex-col items-center gap-2 py-8 text-center animate-rise-in">
+                    <KiraFace size={40} aria-hidden />
+                    <p className="text-sm font-semibold text-foreground">{t("experiencia.conversationPanel.empty.title")}</p>
+                    <p className="max-w-[220px] text-xs text-muted-foreground">
+                      {t("experiencia.conversationPanel.empty.hint")}
+                    </p>
+                  </div>
+                )
               )}
               {activeTab === "alertas" && visibleTurns.length === 0 && (
                 <p className="text-xs text-dim">{t("experiencia.conversationPanel.alertas.empty")}</p>
@@ -936,6 +1021,31 @@ export function ConversationPanel() {
                   onActiveIdChange={(id) => (id === null ? closeLauncherCommand() : setLauncherCommandId(id))}
                   onClose={closeLauncherCommand}
                 />
+              )}
+              {showRecoveryModal && isEngineUnready && !showEmptyState && (
+                <div className="absolute inset-x-0 bottom-full z-20 border-t border-border-soft bg-background/95 p-2 shadow-panel backdrop-blur-sm">
+                  <LlmReadinessCard
+                    showDismiss
+                    onClose={handleCancelPendingMessage}
+                  />
+                </div>
+              )}
+
+              {pendingMessage && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded bg-surface-2 p-2 text-xs">
+                  <span className="truncate text-muted-foreground">
+                    {t("experiencia.conversationPanel.pending.waiting")}{" "}
+                    <strong className="text-foreground">{pendingMessage.text}</strong>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={handleCancelPendingMessage}
+                  >
+                    {t("experiencia.conversationPanel.pending.cancel")}
+                  </Button>
+                </div>
               )}
               <div
                 className="mono flex h-7 items-center gap-2 text-[11px] text-dim"

@@ -17,6 +17,7 @@ import type {
 } from "../api/music.js";
 import type { EventLogResponse } from "../api/events.js";
 import type { PttConfigResponse, PttStartResponse, PttStateResponse, PttStopResponse, PttTestResponse } from "../api/ptt.js";
+import type { LlmReadinessResponse } from "../api/client.js";
 
 // Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
 // handlers always match whatever base URL the app under test actually uses —
@@ -60,7 +61,10 @@ type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["
   };
 };
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
-type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
+type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"] & {
+  is_reasoning_active?: boolean;
+  reasoning_config?: { enabled: boolean; budget_tokens: number };
+};
 type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"] & {
   piper_available?: boolean;
   edge_tts_offline?: boolean;
@@ -165,7 +169,9 @@ export const defaultModels: ModelsResponse = {
   discovered: ["qwen3:1.7b", "llama3.2:3b", "gemma4:e4b"],
   current_model: "qwen3:1.7b",
   tiers: { quality: "gemma4:e4b", balanced: "llama3.2:3b", fast: "qwen3:1.7b" },
-  active_tier: "fast"
+  active_tier: "fast",
+  is_reasoning_active: true,
+  reasoning_config: { enabled: false, budget_tokens: 512 }
 };
 
 /** Cloud mode GET /api/models — mirrors opencohost/api/routers/status.py's
@@ -177,6 +183,34 @@ export const cloudModels: ModelsResponse = {
   current_model: "gpt-4o-mini",
   tiers: {},
   active_tier: "cloud"
+};
+
+export const defaultReadiness: LlmReadinessResponse = {
+  state: "LOCAL_READY",
+  provider: "local",
+  can_chat: true,
+  selected_model: "qwen3:1.7b",
+  ollama: {
+    reachable: true,
+    installed_models: ["qwen3:1.7b", "llama3.2:3b", "gemma4:e4b"],
+    selected_model: "qwen3:1.7b",
+    model_installed: true,
+    error: null
+  },
+  cloud: {
+    configured: false,
+    validating: false,
+    selected_model: null,
+    error: null,
+    endpoint: "https://api.openai.com/v1"
+  },
+  hardware: {
+    gpu_name: "NVIDIA GeForce RTX 5060",
+    total_vram_mb: 8192,
+    free_vram_mb: 6144,
+    recommended_tier: "fast",
+    recommended_model: "qwen3:1.7b"
+  }
 };
 
 export const defaultTtsConfig: TtsConfigResponse = {
@@ -700,6 +734,24 @@ export const handlers = [
   }),
   http.delete(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ ok: true })),
   http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json(defaultModels)),
+  http.put(`${API_BASE_URL}/api/models/reasoning`, async ({ request }) => {
+    const body = (await request.json()) as { enabled?: boolean; budget_tokens?: number; model?: string };
+    if (defaultModels.reasoning_config) {
+      if (body.enabled !== undefined) {
+        defaultModels.reasoning_config.enabled = body.enabled;
+      }
+      if (body.budget_tokens !== undefined) {
+        defaultModels.reasoning_config.budget_tokens = body.budget_tokens;
+      }
+    } else {
+      defaultModels.reasoning_config = {
+        enabled: body.enabled ?? false,
+        budget_tokens: body.budget_tokens ?? 512
+      };
+    }
+    return HttpResponse.json(defaultModels.reasoning_config);
+  }),
+  http.get(`${API_BASE_URL}/api/llm/readiness`, () => HttpResponse.json(defaultReadiness)),
   http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json(defaultTtsConfig)),
   http.get(`${API_BASE_URL}/api/memoria/stats`, () => HttpResponse.json(defaultMemoriaStats)),
   http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json(defaultMemoriaList)),

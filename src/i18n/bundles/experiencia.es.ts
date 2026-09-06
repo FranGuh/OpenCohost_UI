@@ -27,6 +27,8 @@ export const experienciaEs = {
   "experiencia.conversationPanel.mic.state.listening": "Escuchando… soltá para enviar",
   "experiencia.conversationPanel.mic.unavailable.hint":
     "PTT no disponible — WhisperLive no está corriendo.",
+  "experiencia.conversationPanel.pending.cancel": "Cancelar y recuperar texto",
+  "experiencia.conversationPanel.pending.waiting": "Mensaje en espera del motor LLM:",
   "experiencia.conversationPanel.send.error": "No se pudo enviar el mensaje.",
   "experiencia.conversationPanel.tabs.alertas": "Alertas",
   "experiencia.conversationPanel.tabs.aria": "Conversación",
@@ -36,8 +38,9 @@ export const experienciaEs = {
   "experiencia.conversationPanel.tabs.stream": "Stream chat",
   "experiencia.conversationPanel.tabs.todo": "Todo",
   "experiencia.conversationPanel.turn.agendaBadge": "KIRA · AGENDA",
-  "experiencia.conversationPanel.turn.operator": "Vos",
-  "experiencia.conversationPanel.turn.operatorVoice": "Vos · voz",
+  "experiencia.conversationPanel.turn.anonymous": "Anónimo",
+  "experiencia.conversationPanel.turn.operator": "Anónimo",
+  "experiencia.conversationPanel.turn.operatorVoice": "{name} · voz",
   "experiencia.conversationPanel.turn.pending": "Kira está pensando…",
   "experiencia.conversationPanel.turn.pendingBusy":
     "Kira te escuchó — responderá después del bloque actual",

@@ -79,7 +79,7 @@ describe("CommandPalettePopover (emergent launcher)", () => {
   it("lists every command on a bare '/' and highlights the first by default", () => {
     renderLauncher("/");
     const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(7);
+    expect(options).toHaveLength(8);
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     expect(options[1]).toHaveAttribute("aria-selected", "false");
   });

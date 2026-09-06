@@ -76,7 +76,59 @@ export type StatusResponse = GeneratedStatusResponse & {
   };
 };
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
-export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
+
+export interface ModelReasoningConfig {
+  enabled: boolean;
+  budget_tokens: number;
+}
+
+export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"] & {
+  is_reasoning_active?: boolean;
+  reasoning_config?: ModelReasoningConfig;
+};
+
+export type LlmReadinessState =
+  | "LOCAL_READY"
+  | "LOCAL_OLLAMA_MISSING"
+  | "LOCAL_OLLAMA_OFFLINE"
+  | "LOCAL_NO_MODELS"
+  | "LOCAL_MODEL_MISSING"
+  | "CLOUD_READY"
+  | "CLOUD_UNCONFIGURED"
+  | "CLOUD_VALIDATING"
+  | "CLOUD_INVALID_CREDENTIALS"
+  | "CLOUD_UNREACHABLE";
+
+export type LlmReadinessResponse = {
+  state: LlmReadinessState | string;
+  provider: "local" | "cloud" | string;
+  can_chat: boolean;
+  selected_model?: string | null;
+  ollama: {
+    reachable: boolean;
+    installed_models: string[];
+    selected_model?: string | null;
+    model_installed?: boolean;
+    error?: string | null;
+    binary_found?: boolean;
+    binary_path?: string | null;
+    in_path?: boolean;
+  };
+  cloud: {
+    configured: boolean;
+    validating: boolean;
+    selected_model?: string | null;
+    error?: string | null;
+    endpoint?: string;
+  };
+  hardware: {
+    gpu_name?: string | null;
+    total_vram_mb?: number | null;
+    free_vram_mb?: number | null;
+    recommended_tier: string;
+    recommended_model: string;
+  };
+};
 type GeneratedTtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
 export type TtsConfigResponse = GeneratedTtsConfigResponse & {
   piper_available?: boolean;
@@ -447,6 +499,30 @@ export async function getModels(): Promise<ModelsResponse> {
     throw new ApiError(`GET /api/models failed with ${res.status}`, res.status);
   }
   return (await res.json()) as ModelsResponse;
+}
+
+export async function updateModelReasoning(body: {
+  enabled?: boolean;
+  budget_tokens?: number;
+  model?: string;
+}): Promise<ModelReasoningConfig> {
+  const res = await fetch(`${getApiBaseUrl()}/api/models/reasoning`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new ApiError(`PUT /api/models/reasoning failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ModelReasoningConfig;
+}
+
+export async function getLlmReadiness(): Promise<LlmReadinessResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/api/llm/readiness`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/llm/readiness failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as LlmReadinessResponse;
 }
 
 export async function getTtsConfig(): Promise<TtsConfigResponse> {
