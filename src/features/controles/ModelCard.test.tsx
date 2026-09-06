@@ -297,3 +297,70 @@ describe("ModelCard cloud mode — read-only pointer to Proveedor LLM (owner: Ol
     expect(screen.queryByText(/Ollama/)).not.toBeInTheDocument();
   });
 });
+
+describe("ModelCard reasoning mode controls", () => {
+  it("renders reasoning controls when active model is reasoning, allows toggle and budget selection", async () => {
+    let putPayload: any = null;
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () =>
+        HttpResponse.json({
+          ...defaultModels,
+          current_model: "qwen3:1.7b",
+          is_reasoning_active: true,
+          reasoning_config: { enabled: false, budget_tokens: 512 }
+        })
+      ),
+      http.put(`${API_BASE_URL}/api/models/reasoning`, async ({ request }) => {
+        putPayload = await request.json();
+        return HttpResponse.json({ enabled: putPayload.enabled, budget_tokens: putPayload.budget_tokens ?? 512 });
+      })
+    );
+
+    renderCard();
+
+    // Verify header and toggle
+    await waitFor(() => expect(screen.getByText("MODO RAZONAMIENTO")).toBeInTheDocument());
+    const toggle = screen.getByRole("switch", { name: /Pensamiento interno/i });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    // Fast hint is visible when thinking is disabled
+    expect(screen.getByText(/Pensamiento desactivado: respuestas instantáneas/i)).toBeInTheDocument();
+    expect(screen.queryByText("PRESUPUESTO DE TOKENS")).not.toBeInTheDocument();
+
+    // Toggle switch ON
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    expect(putPayload).toMatchObject({ enabled: true });
+
+    // When ON, budget eyebrow, segmented control, and budget hint are visible
+    expect(screen.getByText("PRESUPUESTO DE TOKENS")).toBeInTheDocument();
+    expect(screen.getByText(/Presupuesto de tokens: limita el tiempo de cómputo/i)).toBeInTheDocument();
+
+    const budget1024 = screen.getByRole("button", { name: "1024" });
+    expect(budget1024).toBeInTheDocument();
+
+    // Click 1024 token budget
+    fireEvent.click(budget1024);
+    await waitFor(() => expect(putPayload).toMatchObject({ budget_tokens: 1024 }));
+  });
+
+  it("does not render reasoning controls when model is non-reasoning and not marked active", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/models`, () =>
+        HttpResponse.json({
+          ...defaultModels,
+          current_model: "llama3.2:3b",
+          is_reasoning_active: false,
+          reasoning_config: { enabled: false, budget_tokens: 512 }
+        })
+      )
+    );
+
+    renderCard();
+
+    await waitFor(() => expect(screen.getAllByText("llama3.2:3b").length).toBeGreaterThan(0));
+    expect(screen.queryByText("MODO RAZONAMIENTO")).not.toBeInTheDocument();
+  });
+});

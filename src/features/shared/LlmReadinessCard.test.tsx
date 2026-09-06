@@ -27,7 +27,7 @@ describe("LlmReadinessCard component", () => {
   it("renders ready state with hardware details and recommended command", async () => {
     renderCard();
 
-    await waitFor(() => expect(screen.getByText("Listo")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("El motor LLM está listo para chatear.")).toBeInTheDocument());
 
     // Title and status
     expect(screen.getByText("Asistente de Preparación LLM")).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("LlmReadinessCard component", () => {
 
     renderCard();
 
-    await waitFor(() => expect(screen.getByText("Listo")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("El motor LLM está listo para chatear.")).toBeInTheDocument());
 
     const copyBtn = screen.getByRole("button", { name: /copiar comando/i });
     fireEvent.click(copyBtn);
@@ -113,7 +113,7 @@ describe("LlmReadinessCard component", () => {
   it("switches to cloud tab and displays API key inputs", async () => {
     renderCard();
 
-    await waitFor(() => expect(screen.getByText("Listo")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("El motor LLM está listo para chatear.")).toBeInTheDocument());
 
     const cloudTab = screen.getByRole("button", { name: "Modo Nube (API)" });
     fireEvent.click(cloudTab);
@@ -130,7 +130,7 @@ describe("LlmReadinessCard component", () => {
     const handleClose = vi.fn();
     renderCard({ showDismiss: true, onClose: handleClose });
 
-    await waitFor(() => expect(screen.getByText("Listo")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("El motor LLM está listo para chatear.")).toBeInTheDocument());
 
     const closeBtn = screen.getByRole("button", { name: "Cerrar" });
     fireEvent.click(closeBtn);
@@ -181,7 +181,7 @@ describe("LlmReadinessCard component", () => {
     );
 
     renderCard();
-    await waitFor(() => expect(screen.getByText("Listo")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("El motor LLM está listo para chatear.")).toBeInTheDocument());
 
     // Switch to Cloud tab
     fireEvent.click(screen.getByRole("button", { name: "Modo Nube (API)" }));

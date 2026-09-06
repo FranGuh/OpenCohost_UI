@@ -5,6 +5,7 @@ import { Badge, type BadgeTone } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
 import { Input } from "../../ui/Input.js";
 import { Segmented } from "../../ui/Segmented.js";
+import { Select } from "../../ui/Select.js";
 import { Alert } from "../../ui/Alert.js";
 import { useLlmReadiness } from "./useLlmReadiness.js";
 import {
@@ -109,7 +110,7 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
           <h2 className="text-sm font-bold text-foreground">{t("controles.readiness.title")}</h2>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone={badgeTone}>{badgeLabel}</Badge>
+          {!isReady && <Badge tone={badgeTone}>{badgeLabel}</Badge>}
           {showDismiss && onClose && (
             <Button
               variant="ghost"
@@ -410,26 +411,23 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
               </div>
 
               <div className="flex flex-col gap-2">
-                <label htmlFor="cloud-preset-select" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                <span id="cloud-preset-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
                   Proveedor Cloud
-                </label>
-                <select
-                  id="cloud-preset-select"
+                </span>
+                <Select
+                  options={Object.entries(LLM_PROVIDER_PRESETS).map(([id, preset]) => ({
+                    value: id,
+                    label: preset.label
+                  }))}
                   value={cloudPreset}
-                  onChange={(e) => {
-                    const nextPreset = e.target.value;
+                  onChange={(nextPreset) => {
                     setCloudPreset(nextPreset);
                     if (nextPreset === "openai") setModelInput("gpt-4o-mini");
                     else if (nextPreset === "nvidia_nim") setModelInput("meta/llama-3.1-70b-instruct");
                   }}
-                  className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground"
-                >
-                  {Object.entries(LLM_PROVIDER_PRESETS).map(([id, preset]) => (
-                    <option key={id} value={id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
+                  aria-label="Proveedor Cloud"
+                  aria-labelledby="cloud-preset-label"
+                />
               </div>
 
               <div className="flex flex-col gap-2">

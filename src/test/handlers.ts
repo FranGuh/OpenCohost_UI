@@ -61,7 +61,10 @@ type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["
   };
 };
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
-type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
+type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"] & {
+  is_reasoning_active?: boolean;
+  reasoning_config?: { enabled: boolean; budget_tokens: number };
+};
 type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"] & {
   piper_available?: boolean;
   edge_tts_offline?: boolean;
@@ -166,7 +169,9 @@ export const defaultModels: ModelsResponse = {
   discovered: ["qwen3:1.7b", "llama3.2:3b", "gemma4:e4b"],
   current_model: "qwen3:1.7b",
   tiers: { quality: "gemma4:e4b", balanced: "llama3.2:3b", fast: "qwen3:1.7b" },
-  active_tier: "fast"
+  active_tier: "fast",
+  is_reasoning_active: true,
+  reasoning_config: { enabled: false, budget_tokens: 512 }
 };
 
 /** Cloud mode GET /api/models — mirrors opencohost/api/routers/status.py's
@@ -729,6 +734,23 @@ export const handlers = [
   }),
   http.delete(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ ok: true })),
   http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json(defaultModels)),
+  http.put(`${API_BASE_URL}/api/models/reasoning`, async ({ request }) => {
+    const body = (await request.json()) as { enabled?: boolean; budget_tokens?: number; model?: string };
+    if (defaultModels.reasoning_config) {
+      if (body.enabled !== undefined) {
+        defaultModels.reasoning_config.enabled = body.enabled;
+      }
+      if (body.budget_tokens !== undefined) {
+        defaultModels.reasoning_config.budget_tokens = body.budget_tokens;
+      }
+    } else {
+      defaultModels.reasoning_config = {
+        enabled: body.enabled ?? false,
+        budget_tokens: body.budget_tokens ?? 512
+      };
+    }
+    return HttpResponse.json(defaultModels.reasoning_config);
+  }),
   http.get(`${API_BASE_URL}/api/llm/readiness`, () => HttpResponse.json(defaultReadiness)),
   http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json(defaultTtsConfig)),
   http.get(`${API_BASE_URL}/api/memoria/stats`, () => HttpResponse.json(defaultMemoriaStats)),

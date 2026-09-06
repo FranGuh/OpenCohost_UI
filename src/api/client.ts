@@ -76,7 +76,16 @@ export type StatusResponse = GeneratedStatusResponse & {
   };
 };
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
-export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"];
+
+export interface ModelReasoningConfig {
+  enabled: boolean;
+  budget_tokens: number;
+}
+
+export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"] & {
+  is_reasoning_active?: boolean;
+  reasoning_config?: ModelReasoningConfig;
+};
 
 export type LlmReadinessState =
   | "LOCAL_READY"
@@ -490,6 +499,22 @@ export async function getModels(): Promise<ModelsResponse> {
     throw new ApiError(`GET /api/models failed with ${res.status}`, res.status);
   }
   return (await res.json()) as ModelsResponse;
+}
+
+export async function updateModelReasoning(body: {
+  enabled?: boolean;
+  budget_tokens?: number;
+  model?: string;
+}): Promise<ModelReasoningConfig> {
+  const res = await fetch(`${getApiBaseUrl()}/api/models/reasoning`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new ApiError(`PUT /api/models/reasoning failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ModelReasoningConfig;
 }
 
 export async function getLlmReadiness(): Promise<LlmReadinessResponse> {
