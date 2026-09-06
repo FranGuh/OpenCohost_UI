@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "product_version": "0.2.0-alpha.1",
+  "product_version": "0.3.0-alpha.1",
   "python_version": "3.12.4",
   "allowed_hosts": [
     "github.com",
@@ -21,11 +21,11 @@
   },
   "engine": {
     "name": "engine",
-    "version": "0.2.0-alpha.1",
-    "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.2.0-alpha.1/engine-0.2.0-alpha.1.zip",
-    "sha256": "66bdc7356226344a1e5826b5e442107232dd3f90799c6f460d776072af142eee",
+    "version": "0.3.0-alpha.1",
+    "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.3.0-alpha.1/engine-0.3.0-alpha.1.zip",
+    "sha256": "6250ab6164d07f01cfb044e2c23751b321547b1f1d962aeee66ef4a3e87f09ce",
     "kind": "zip",
-    "expected_size": 3182795,
+    "expected_size": 3057752,
     "max_size": 200000000
   }
 }
