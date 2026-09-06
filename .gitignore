@@ -23,3 +23,9 @@ public/avatar/
 src-tauri/backend.config.json
 
 .codegraph/
+
+# Bundled installer resources (staged at build time)
+src-tauri/resources/*.zip
+src-tauri/resources/piper/
+src-tauri/resources/modelos_f5/
+src-tauri/resources/minilm_l12_onnx/

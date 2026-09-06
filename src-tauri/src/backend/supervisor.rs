@@ -140,6 +140,15 @@ pub fn spawn_backend(config: &BackendConfig, port: u16) -> std::io::Result<Child
         command.env("OPENCOHOST_DATA_ROOT", data_root);
     }
 
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let res_dir = exe_dir.join("resources");
+            if res_dir.is_dir() {
+                command.env("OPENCOHOST_RESOURCES_DIR", &res_dir);
+            }
+        }
+    }
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

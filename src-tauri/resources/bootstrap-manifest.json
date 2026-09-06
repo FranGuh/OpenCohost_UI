@@ -23,9 +23,9 @@
     "name": "engine",
     "version": "0.3.0-alpha.1",
     "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.3.0-alpha.1/engine-0.3.0-alpha.1.zip",
-    "sha256": "6250ab6164d07f01cfb044e2c23751b321547b1f1d962aeee66ef4a3e87f09ce",
+    "sha256": "07863256ffa2fe6d1c2ea17c529feddd6a26382130488b14d20a4d82ab5ee475",
     "kind": "zip",
-    "expected_size": 3057752,
+    "expected_size": 3065950,
     "max_size": 200000000
   }
 }
