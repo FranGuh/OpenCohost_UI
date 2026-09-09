@@ -116,10 +116,12 @@ export type LlmReadinessResponse = {
   };
   cloud: {
     configured: boolean;
-    validating: boolean;
+    validating?: boolean;
     selected_model?: string | null;
     error?: string | null;
     endpoint?: string;
+    provider_id?: string | null;
+    reachable?: boolean | null;
   };
   hardware: {
     gpu_name?: string | null;
