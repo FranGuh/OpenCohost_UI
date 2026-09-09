@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "product_version": "0.3.0-alpha.2",
+  "product_version": "0.3.0-alpha.3",
   "python_version": "3.12.4",
   "allowed_hosts": [
     "github.com",
@@ -21,8 +21,8 @@
   },
   "engine": {
     "name": "engine",
-    "version": "0.3.0-alpha.2",
-    "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.3.0-alpha.2/engine-0.3.0-alpha.2.zip",
+    "version": "0.3.0-alpha.3",
+    "source": "https://github.com/plynte-labs/OpenCohost/releases/download/v0.3.0-alpha.3/engine-0.3.0-alpha.3.zip",
     "sha256": "e8dd3c1b25a3324bee23a3f4be63e4d33077c6ab3d83e36de7632780e1a85134",
     "kind": "zip",
     "expected_size": 3070174,
