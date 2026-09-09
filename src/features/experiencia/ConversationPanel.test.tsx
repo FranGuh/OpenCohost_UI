@@ -213,7 +213,7 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
 
-    await waitFor(() => expect(screen.getByText(/STT \(WhisperLive\) no disponible/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/STT.*no disponible/));
     expect(screen.queryByRole("button", { name: "Escuchando… soltá para enviar" })).not.toBeInTheDocument();
   });
 
@@ -237,7 +237,7 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
     fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
 
     const alertLine = await screen.findByRole("alert");
-    expect(alertLine).toHaveTextContent(/STT \(WhisperLive\) no disponible/);
+    expect(alertLine).toHaveTextContent(/STT.*no disponible/);
   });
 
   it("fills the mic while HELD (listening) and drains it on release", async () => {

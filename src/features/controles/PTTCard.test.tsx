@@ -169,7 +169,7 @@ describe("PTTCard: honest error state", () => {
 
     expect(screen.queryByRole("button", { name: "Escuchando…" })).not.toBeInTheDocument();
     expect(holdButton()).toBeInTheDocument();
-    expect(screen.getByText(/STT \(WhisperLive\) no disponible/)).toBeInTheDocument();
+    expect(screen.getByText(/STT.*no disponible/)).toBeInTheDocument();
   });
 });
 

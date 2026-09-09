@@ -317,7 +317,7 @@ export const controlesEs = {
   "controles.ptt.hotkey.mapButton.action": "Mapear atajo",
   "controles.ptt.hotkey.mapButton.hint": "Requiere la app de escritorio",
   "controles.ptt.liveAudio.separateApp.hint":
-    "LiveAudio (WhisperLive) es un programa aparte: hay que descargarlo y dejarlo corriendo para que OpenCohost te escuche. Una vez que esté andando, pegá acá su URL.",
+    "LiveAudio es un programa aparte: hay que descargarlo y dejarlo corriendo para que OpenCohost te escuche. Una vez que esté andando, pegá acá su URL.",
   "controles.ptt.repliedNotice": "Kira respondió.",
   "controles.ptt.wsUrl.active.label": "URL activa",
   "controles.ptt.wsUrl.error.scheme": "La URL debe empezar con ws:// o wss://.",

@@ -26,7 +26,7 @@ export const experienciaEs = {
   "experiencia.conversationPanel.mic.state.idle": "Mantené para hablar con Kira",
   "experiencia.conversationPanel.mic.state.listening": "Escuchando… soltá para enviar",
   "experiencia.conversationPanel.mic.unavailable.hint":
-    "PTT no disponible — WhisperLive no está corriendo.",
+    "PTT no disponible — el servicio de reconocimiento de voz no responde.",
   "experiencia.conversationPanel.pending.cancel": "Cancelar y recuperar texto",
   "experiencia.conversationPanel.pending.waiting": "Mensaje en espera del motor LLM:",
   "experiencia.conversationPanel.send.error": "No se pudo enviar el mensaje.",
@@ -114,7 +114,7 @@ export const experienciaEs = {
   "experiencia.ptt.error.startFailed": "No se pudo iniciar PTT.",
   "experiencia.ptt.error.sttLost": "Se perdió la conexión con el STT — la sesión se cerró sola.",
   "experiencia.ptt.error.sttUnreachable":
-    "STT (WhisperLive) no disponible — puede estar apagado, o la URL configurada más abajo puede apuntar al puerto equivocado.",
+    "STT no disponible — el servicio de reconocimiento de voz puede estar apagado, o la URL configurada más abajo puede apuntar al puerto equivocado.",
   "experiencia.ptt.state.connecting": "Conectando…",
   "experiencia.ptt.state.flushing": "Procesando…",
   "experiencia.ptt.state.idle": "Mantené para hablar",

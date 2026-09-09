@@ -239,7 +239,7 @@ export function PTTCard() {
 
         <section aria-labelledby="ptt-liveaudio-label" className="space-y-3 border-t border-border-soft pt-3.5">
           <span id="ptt-liveaudio-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            LiveAudio (WhisperLive)
+            LiveAudio (STT)
           </span>
 
           {/* LiveAudio is a separate download, not something OpenCohost ships or

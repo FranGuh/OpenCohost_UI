@@ -28,7 +28,7 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.conversationPanel.mic.state.idle": "Hold to talk to Kira",
   "experiencia.conversationPanel.mic.state.listening": "Listening… release to send",
   "experiencia.conversationPanel.mic.unavailable.hint":
-    "PTT unavailable — WhisperLive isn't running.",
+    "PTT unavailable — speech recognition service isn't running.",
   "experiencia.conversationPanel.pending.cancel": "Cancel and restore text",
   "experiencia.conversationPanel.pending.waiting": "Message waiting for LLM engine:",
   "experiencia.conversationPanel.send.error": "Couldn't send the message.",
@@ -116,7 +116,7 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.ptt.error.startFailed": "Could not start PTT.",
   "experiencia.ptt.error.sttLost": "Lost the connection to STT — the session closed on its own.",
   "experiencia.ptt.error.sttUnreachable":
-    "STT (WhisperLive) unavailable — it may be off, or the URL configured below may point at the wrong port.",
+    "STT unavailable — speech recognition service may be off, or the URL configured below may point at the wrong port.",
   "experiencia.ptt.state.connecting": "Connecting…",
   "experiencia.ptt.state.flushing": "Processing…",
   "experiencia.ptt.state.idle": "Hold to talk",

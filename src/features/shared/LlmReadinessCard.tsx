@@ -11,7 +11,6 @@ import { useLlmReadiness } from "./useLlmReadiness.js";
 import {
   LLM_PROVIDER_PRESETS,
   useLlmProvider,
-  useTriggerCloudProbe,
   useUpdateLlmProvider
 } from "../../api/llmProvider.js";
 import { useT } from "../../i18n/t.js";
@@ -31,7 +30,6 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
 
   const { data: providerConfig } = useLlmProvider();
   const updateProvider = useUpdateLlmProvider();
-  const triggerProbe = useTriggerCloudProbe();
 
   const [mode, setMode] = useState<"local" | "cloud">("local");
   const [copied, setCopied] = useState(false);
@@ -377,17 +375,22 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
               <div className="flex items-center justify-between pt-1">
                 <Button
                   variant="outline"
-                  disabled={triggerProbe.isPending}
-                  onClick={() => void triggerProbe.mutateAsync()}
+                  disabled={isManualChecking}
+                  onClick={() => void handleManualRefresh()}
                   className="text-xs"
                 >
-                  Probar conexión activa
+                  <RefreshCw size={12} className={cn("mr-1.5", isManualChecking && "animate-spin")} aria-hidden="true" />
+                  {isManualChecking ? t("controles.readiness.checking") : "Verificar conexión activa"}
                 </Button>
-                {triggerProbe.isSuccess && (
-                  <span className={cn("text-xs font-medium", triggerProbe.data?.armed ? "text-ok" : "text-warn")}>
-                    {triggerProbe.data?.armed ? "✓ Conexión exitosa" : `Fallo: ${triggerProbe.data?.reason ?? "desconocido"}`}
+                {isReady ? (
+                  <span className="text-xs font-medium text-ok">
+                    ✓ Conexión lista
                   </span>
-                )}
+                ) : readiness?.cloud?.configured ? (
+                  <span className="text-xs font-medium text-warn">
+                    {readiness?.cloud?.reachable === false ? "No se pudo conectar" : "Sin conexión"}
+                  </span>
+                ) : null}
               </div>
             </div>
           )}
@@ -455,15 +458,7 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  disabled={triggerProbe.isPending}
-                  onClick={() => void triggerProbe.mutateAsync()}
-                  className="text-xs"
-                >
-                  Probar conexión
-                </Button>
+              <div className="flex items-center justify-end gap-2 pt-1">
                 <Button
                   variant="primary"
                   disabled={!apiKeyInput.trim() || updateProvider.isPending}
@@ -473,12 +468,6 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
                   Guardar y Activar
                 </Button>
               </div>
-
-              {triggerProbe.isSuccess && (
-                <Alert tone={triggerProbe.data?.armed ? "ok" : "warn"}>
-                  {triggerProbe.data?.armed ? "Proveedor conectado con éxito." : `No se pudo conectar: ${triggerProbe.data?.reason ?? "desconocido"}`}
-                </Alert>
-              )}
             </div>
           )}
         </div>

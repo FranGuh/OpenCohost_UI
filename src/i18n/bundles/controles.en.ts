@@ -319,7 +319,7 @@ export const controlesEn: Record<keyof typeof controlesEs, string> = {
   "controles.ptt.hotkey.mapButton.action": "Map shortcut",
   "controles.ptt.hotkey.mapButton.hint": "Requires the desktop app",
   "controles.ptt.liveAudio.separateApp.hint":
-    "LiveAudio (WhisperLive) is a separate program: you download it and keep it running for OpenCohost to hear you. Once it's up, paste its URL here.",
+    "LiveAudio is a separate program: you download it and keep it running for OpenCohost to hear you. Once it's up, paste its URL here.",
   "controles.ptt.repliedNotice": "Kira replied.",
   "controles.ptt.wsUrl.active.label": "Active URL",
   "controles.ptt.wsUrl.error.scheme": "The URL must start with ws:// or wss://.",
