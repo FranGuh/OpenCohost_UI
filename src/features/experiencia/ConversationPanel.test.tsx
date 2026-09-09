@@ -1502,3 +1502,33 @@ describe("ConversationPanel transcript ring buffer (progressive-slowdown guard)"
     expect(rendered[rendered.length - 1]).toHaveTextContent(`flood turno numero ${flood}`);
   });
 });
+
+describe("ConversationPanel terminal cloud failures", () => {
+  it("clears thinking for a fresh manual failure but ignores history and automatic fallback", async () => {
+    act(() => {
+      useEventStore.getState().append({
+        id: "historic-cloud-error", ts: Date.now(), source: "motor", action: "cloud_llm_error", label: "Cloud error", tone: "warn"
+      });
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "auto-fallback", ts: Date.now(), source: "motor", action: "cloud_fallback_engaged", label: "Fallback local", tone: "info"
+      });
+    });
+    expect(screen.getByText(/pensando/i)).toBeInTheDocument();
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "current-manual-cloud-error", ts: Date.now(), source: "motor", action: "cloud_llm_error", label: "Cloud error", tone: "warn"
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument());
+  });
+});

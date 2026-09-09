@@ -115,8 +115,7 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.ptt.error.sessionNotActive": "The server closed the session.",
   "experiencia.ptt.error.startFailed": "Could not start PTT.",
   "experiencia.ptt.error.sttLost": "Lost the connection to STT — the session closed on its own.",
-  "experiencia.ptt.error.sttUnreachable":
-    "STT unavailable — speech recognition service may be off, or the URL configured below may point at the wrong port.",
+  "experiencia.ptt.error.sttUnreachable": "STT unavailable — check the speech recognition service or port.",
   "experiencia.ptt.state.connecting": "Connecting…",
   "experiencia.ptt.state.flushing": "Processing…",
   "experiencia.ptt.state.idle": "Hold to talk",

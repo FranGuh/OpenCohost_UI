@@ -188,3 +188,10 @@ describe("ComposerCommandPanel — inline browsable home (Comandos tab)", () => 
     expect(screen.getByText("¿Qué tema querés agendar?")).toBeInTheDocument();
   });
 });
+
+describe("ComposerCommandPanel floating dialog bounds", () => {
+  it("keeps the floating role dialog vertically scrollable inside a short viewport", () => {
+    render(<ComposerCommandPanel query="" activeId="agenda" onClose={() => {}} />);
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100vh-140px)]", "overflow-y-auto");
+  });
+});

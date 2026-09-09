@@ -306,7 +306,7 @@ export function ComposerCommandPanel({
     <div
       role="dialog"
       aria-label={t("commands.panel.title")}
-      className="absolute inset-x-0 bottom-full z-30 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
+      className="absolute inset-x-0 bottom-full z-30 mb-2 max-h-[calc(100vh-140px)] overflow-y-auto animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
     >
       {content}
     </div>

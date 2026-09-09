@@ -191,6 +191,15 @@ const KNOWN_SILENT = new Set<string>([
   "ptt.auto_stopped"
 ]);
 
+/** Failure events must not inherit the success-green default. Explicit caller
+ * tones still win, which keeps this a safe default rather than a hard override. */
+const EVENT_DEFAULT_TONES: Partial<Record<string, AppEventTone>> = {
+  "motor.cloud_llm_error": "warn",
+  "motor.cloud_bad_key": "danger",
+  "motor.cloud_probe_gave_up": "warn",
+  "ptt.error": "danger"
+};
+
 const MAX_DETAIL_CHARS = 48;
 const MAX_DETAIL_WORDS = 6;
 
@@ -242,7 +251,7 @@ export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?:
     label,
     // Guardrail refusals always warn-tint regardless of caller — a refused
     // prefetch is a notable-but-not-fatal event (I2).
-    tone: isGuardrail ? "warn" : (input.tone ?? "ok")
+    tone: isGuardrail ? "warn" : (input.tone ?? EVENT_DEFAULT_TONES[key] ?? "ok")
   };
   useEventStore.getState().append(event);
   // Toast unless suppressed. EXCEPTION: ptt.* server echoes pass toast:false

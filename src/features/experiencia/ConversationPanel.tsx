@@ -417,6 +417,9 @@ export function ConversationPanel() {
   // the baseline, only a LATER change away from it counts as the real reply.
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [awaitingBaseline, setAwaitingBaseline] = useState<number | null>(null);
+  // Snapshot event ids at submit time so historical cloud failures cannot
+  // cancel a later request.
+  const awaitingFailureEventIdsRef = useRef<Set<string>>(new Set());
   const currentTurnId = lastReply.data?.turn_id ?? null;
 
   // Composer mic — the SAME usePttHold hook PTTCard drives, relocated here as
@@ -482,6 +485,19 @@ export function ConversationPanel() {
       setAwaitingBaseline(null);
     }
   }, [awaitingReply, awaitingBaseline, currentTurnId]);
+
+  useEffect(() => {
+    if (!awaitingReply) return;
+    const terminalCloudFailure = appEvents.some(
+      (event) =>
+        event.source === "motor" &&
+        event.action === "cloud_llm_error" &&
+        !awaitingFailureEventIdsRef.current.has(event.id)
+    );
+    if (!terminalCloudFailure) return;
+    setAwaitingReply(false);
+    setAwaitingBaseline(null);
+  }, [appEvents, awaitingReply]);
 
   // Accumulates a new Kira transcript entry the moment a NEW turn_id with
   // real text lands on the poll. Dedup is strict: a turn_id already appended
@@ -602,6 +618,7 @@ export function ConversationPanel() {
       send(text)
         .then(() => {
           pendingTurnIdRef.current = null;
+          awaitingFailureEventIdsRef.current = new Set(appEvents.map((event) => event.id));
           setAwaitingReply(true);
           setAwaitingBaseline(currentTurnId);
           setPendingMessage(null);
@@ -660,6 +677,7 @@ export function ConversationPanel() {
       await send(text);
       setMessage("");
       pendingTurnIdRef.current = null;
+      awaitingFailureEventIdsRef.current = new Set(appEvents.map((event) => event.id));
       setAwaitingReply(true);
       setAwaitingBaseline(currentTurnId);
     } catch (err: unknown) {
@@ -1047,28 +1065,30 @@ export function ConversationPanel() {
                   </Button>
                 </div>
               )}
-              <div
-                className="mono flex h-7 items-center gap-2 text-[11px] text-dim"
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div
+                  className="mono flex h-7 items-center gap-2 text-[11px] text-dim"
                 title={t("experiencia.conversationPanel.composer.muted.title")}
-              >
-                <MessageSquareOff size={12} aria-hidden="true" />
-                {t("experiencia.conversationPanel.composer.muted.label")}
-              </div>
+                >
+                  <MessageSquareOff size={12} aria-hidden="true" />
+                  {t("experiencia.conversationPanel.composer.muted.label")}
+                </div>
 
-              {voiceSent && (
-                <p role="status" className="mono mt-1 flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
-                  <Mic size={12} aria-hidden="true" />
-                  {t("experiencia.conversationPanel.composer.voiceSent")}
-                </p>
-              )}
+                {voiceSent && (
+                  <p role="status" className="mono flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
+                    <Mic size={12} aria-hidden="true" />
+                    {t("experiencia.conversationPanel.composer.voiceSent")}
+                  </p>
+                )}
               {/* role="alert" (assertive) + icon + rise-in: a live PTT failure must
                   actually register — the old bare 11px line was easy to miss. */}
-              {pttError && (
-                <p role="alert" className="mono mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
-                  <MicOff size={12} aria-hidden="true" />
-                  {errorCopy(pttError)}
-                </p>
-              )}
+                {pttError && (
+                  <p role="alert" className="mono flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
+                    <MicOff size={12} aria-hidden="true" />
+                    {errorCopy(pttError)}
+                  </p>
+                )}
+              </div>
 
               <form onSubmit={handleSubmit} className="mt-2">
                 <Input

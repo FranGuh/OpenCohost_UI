@@ -113,8 +113,7 @@ export const experienciaEs = {
   "experiencia.ptt.error.sessionNotActive": "El servidor cortó la sesión.",
   "experiencia.ptt.error.startFailed": "No se pudo iniciar PTT.",
   "experiencia.ptt.error.sttLost": "Se perdió la conexión con el STT — la sesión se cerró sola.",
-  "experiencia.ptt.error.sttUnreachable":
-    "STT no disponible — el servicio de reconocimiento de voz puede estar apagado, o la URL configurada más abajo puede apuntar al puerto equivocado.",
+  "experiencia.ptt.error.sttUnreachable": "STT no disponible — verifica el servicio de voz o el puerto configurado.",
   "experiencia.ptt.state.connecting": "Conectando…",
   "experiencia.ptt.state.flushing": "Procesando…",
   "experiencia.ptt.state.idle": "Mantené para hablar",

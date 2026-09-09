@@ -36,6 +36,22 @@ describe("sanitizeDetail", () => {
 });
 
 describe("emitAppEvent", () => {
+  it("assigns non-ok default tones to terminal cloud and PTT failures while respecting an explicit caller tone", () => {
+    const cases: Array<[AppEventInput, "warn" | "danger"]> = [
+      [{ source: "motor", action: "cloud_llm_error" }, "warn"],
+      [{ source: "motor", action: "cloud_bad_key" }, "danger"],
+      [{ source: "motor", action: "cloud_probe_gave_up" }, "warn"],
+      [{ source: "ptt", action: "error" }, "danger"]
+    ];
+
+    for (const [input] of cases) emitAppEvent(input);
+
+    expect(useEventStore.getState().events.map((event) => event.tone)).toEqual(cases.map(([, tone]) => tone));
+    emitAppEvent({ source: "motor", action: "cloud_llm_error", tone: "info" });
+    const events = useEventStore.getState().events;
+    expect(events[events.length - 1]?.tone).toBe("info");
+  });
+
   it("with a whitelisted key: appends exactly one store event with the template label and calls the toast sink once with (label, tone)", () => {
     const sink = vi.fn();
     setToastSink(sink);
