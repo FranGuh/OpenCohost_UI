@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
-import type { SyntheticEvent } from "react";
 import { useStatusQuery } from "../../api/status.js";
+import { useAvatarConfigQuery, avatarImageUrl } from "../../api/avatar.js";
+import { useAvatarImageVersion } from "../../store/avatarImageVersion.js";
 import { useAvatarLiveState } from "../../store/avatarLiveStore.js";
 import { t, useT } from "../../i18n/t.js";
 import { AVATAR_IMAGE, FALLBACK_AVATAR, deriveAvatarState, resolveAvatar } from "./kiraState.js";
-
-function handleAvatarError(event: SyntheticEvent<HTMLImageElement>) {
-  event.currentTarget.src = FALLBACK_AVATAR;
-}
 
 /**
  * F4 fix (runtime_findings_batch_20260731 1.3): the identity row used to
@@ -137,7 +134,36 @@ export function KiraCover() {
     asleep,
     alt
   });
-  const avatarSrc = AVATAR_IMAGE[avatarState];
+  // User-uploaded art (tauri_avatar_upload_20260911): when the backend config
+  // maps this state to an uploaded file, paint the served bytes; otherwise the
+  // static default. Two-level error fallback: custom → static → kira-error.
+  const { data: avatarCfg } = useAvatarConfigQuery();
+  // Content version busts the served URL after a same-state re-upload (which
+  // otherwise yields the identical string) and resets the error fallback so
+  // fresh bytes repaint even from a parked static fallback.
+  const imgVersion = useAvatarImageVersion((s) => s.versions[avatarState] ?? 0);
+  const customUrl = avatarCfg?.state_images[avatarState]
+    ? avatarImageUrl(avatarState, imgVersion)
+    : undefined;
+  const candidates = customUrl
+    ? [customUrl, AVATAR_IMAGE[avatarState], FALLBACK_AVATAR]
+    : [AVATAR_IMAGE[avatarState], FALLBACK_AVATAR];
+  const [errorCount, setErrorCount] = useState(0);
+  useEffect(() => {
+    setErrorCount(0);
+  }, [avatarState, customUrl]);
+  const avatarSrc = candidates[Math.min(errorCount, candidates.length - 1)];
+
+  // Preload both speaking frames so the 700ms mouth-flap never flashes blank.
+  useEffect(() => {
+    if (!avatarCfg) return;
+    for (const state of ["speaking", "speaking_alt"] as const) {
+      if (avatarCfg.state_images[state]) {
+        const preload = new Image();
+        preload.src = avatarImageUrl(state);
+      }
+    }
+  }, [avatarCfg]);
 
   return (
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden">
@@ -171,7 +197,7 @@ export function KiraCover() {
         {/* Avatar image */}
         <img
           src={avatarSrc}
-          onError={handleAvatarError}
+          onError={() => setErrorCount((count) => count + 1)}
           alt={t("experiencia.kiraCover.avatar.alt", { state: t(avatarLabel) })}
           className="h-full w-full object-contain"
         />

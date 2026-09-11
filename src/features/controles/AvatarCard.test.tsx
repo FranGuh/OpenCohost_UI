@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
@@ -10,14 +10,6 @@ import {
   avatarConfigPutValidationHandler,
   defaultAvatarConfig
 } from "../../test/handlers.js";
-
-// Module-scope spy read lazily inside the factory (the repo's
-// @tauri-apps/api/core mock convention) — jsdom has no native picker.
-const openDialog = vi.fn<(options?: unknown) => Promise<string | null>>();
-
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: (options?: unknown) => openDialog(options)
-}));
 
 import { AvatarCard } from "./AvatarCard.js";
 
@@ -29,6 +21,18 @@ function renderCard() {
 function selectCustomOption(comboboxName: string | RegExp, optionName: string | RegExp) {
   fireEvent.click(screen.getByRole("combobox", { name: comboboxName }));
   fireEvent.click(screen.getByRole("option", { name: optionName }));
+}
+
+function fileInput(): HTMLInputElement {
+  const container = document.querySelector(".flex.flex-col.p-4") ?? document.body;
+  const input = container.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) throw new Error("file input not found");
+  return input;
+}
+
+function pngFile(name = "kira-angry.png"): File {
+  // Minimal PNG header — the MSW mock does not inspect bytes.
+  return new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type: "image/png" });
 }
 
 describe("AvatarCard populates from GET /api/avatar/config", () => {
@@ -78,9 +82,7 @@ describe("AvatarCard mode change PUTs the edited config", () => {
   });
 });
 
-describe("AvatarCard per-state image picks a real path through the native dialog", () => {
-  beforeEach(() => openDialog.mockReset());
-
+describe("AvatarCard per-state upload POSTs bytes (tauri_avatar_upload_20260911)", () => {
   async function clickChange(stateLabel: string) {
     renderCard();
     await screen.findByRole("combobox", { name: "Modo" });
@@ -95,87 +97,118 @@ describe("AvatarCard per-state image picks a real path through the native dialog
     changeButtons.forEach((button) => expect(button).not.toBeDisabled());
   });
 
-  it("filters the dialog to image types and PUTs the picked path merged into state_images", async () => {
-    openDialog.mockResolvedValue("C:\\avatars\\kira-angry.png");
-    let capturedBody: { state_images?: Record<string, string> } | undefined;
-    server.use(
-      http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
-        capturedBody = (await request.json()) as { state_images?: Record<string, string> };
-        return HttpResponse.json({ ...defaultAvatarConfig, ...capturedBody });
-      })
-    );
+  it("POSTs {state, filename, content_b64} and shows the stored path once it lands", async () => {
+    // Surgical stub: keep the URL constructor intact for MSW, only add the
+    // jsdom-missing createObjectURL so the instant-preview path is exercised.
+    const urlCtor = URL as unknown as Record<string, unknown>;
+    const hadFactory = "createObjectURL" in URL;
+    urlCtor["createObjectURL"] = () => "blob:preview";
+    try {
+      let capturedBody: { state?: string; filename?: string; content_b64?: string } | undefined;
+      server.use(
+        http.post(`${API_BASE_URL}/api/avatar/upload`, async ({ request }) => {
+          capturedBody = (await request.json()) as typeof capturedBody;
+          return HttpResponse.json({
+            ...defaultAvatarConfig,
+            state_images: { ...defaultAvatarConfig.state_images, angry: "user/angry.png" }
+          });
+        })
+      );
 
-    await clickChange("enfadada");
+      await clickChange("enfadada");
+      fireEvent.change(fileInput(), { target: { files: [pngFile()] } });
 
-    await waitFor(() => expect(capturedBody?.state_images?.angry).toBe("C:\\avatars\\kira-angry.png"));
-    expect(openDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        multiple: false,
-        directory: false,
-        filters: [expect.objectContaining({ extensions: expect.arrayContaining(["png", "jpg", "webp"]) })]
-      })
-    );
+      await waitFor(() => expect(capturedBody?.state).toBe("angry"));
+      expect(capturedBody?.filename).toBe("kira-angry.png");
+      expect(typeof capturedBody?.content_b64).toBe("string");
+      expect((capturedBody?.content_b64 ?? "").length).toBeGreaterThan(0);
+      await waitFor(() => expect(screen.getByText("user/angry.png")).toBeInTheDocument());
+    } finally {
+      if (!hadFactory) delete urlCtor["createObjectURL"];
+    }
   });
 
-  it("never drops the other states — every untouched path survives the PUT", async () => {
-    openDialog.mockResolvedValue("C:\\avatars\\kira-idle.png");
-    let capturedBody: { state_images?: Record<string, string> } | undefined;
+  it("treats an empty file selection as a no-op, not an error", async () => {
+    let postCount = 0;
     server.use(
-      http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
-        capturedBody = (await request.json()) as { state_images?: Record<string, string> };
-        return HttpResponse.json({ ...defaultAvatarConfig, ...capturedBody });
-      })
-    );
-
-    await clickChange("en vivo");
-
-    await waitFor(() => expect(capturedBody?.state_images?.idle).toBe("C:\\avatars\\kira-idle.png"));
-    // Every state other than the one just changed keeps its configured path.
-    Object.entries(defaultAvatarConfig.state_images)
-      .filter(([state]) => state !== "idle")
-      .forEach(([state, path]) => expect(capturedBody?.state_images?.[state]).toBe(path));
-  });
-
-  it("treats a cancelled dialog as a no-op, not an error", async () => {
-    openDialog.mockResolvedValue(null);
-    let putCount = 0;
-    server.use(
-      http.put(`${API_BASE_URL}/api/avatar/config`, async () => {
-        putCount += 1;
+      http.post(`${API_BASE_URL}/api/avatar/upload`, async () => {
+        postCount += 1;
         return HttpResponse.json(defaultAvatarConfig);
       })
     );
 
     await clickChange("enfadada");
+    fireEvent.change(fileInput(), { target: { files: [] } });
 
-    await waitFor(() => expect(openDialog).toHaveBeenCalled());
-    expect(putCount).toBe(0);
+    await waitFor(() => expect(screen.queryByText("Subiendo…")).not.toBeInTheDocument());
+    expect(postCount).toBe(0);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shows the new path in the row once the PUT lands", async () => {
-    openDialog.mockResolvedValue("C:\\avatars\\kira-idle.png");
+  it("surfaces an upload 422 honestly", async () => {
     server.use(
-      http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ ...defaultAvatarConfig, ...body });
+      http.post(`${API_BASE_URL}/api/avatar/upload`, () =>
+        HttpResponse.json({ detail: "Unsupported image format" }, { status: 422 })
+      )
+    );
+
+    await clickChange("enfadada");
+    fireEvent.change(fileInput(), { target: { files: [pngFile()] } });
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Unsupported image format"));
+  });
+
+  it("refuses oversized files client-side before any POST", async () => {
+    let postCount = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/avatar/upload`, async () => {
+        postCount += 1;
+        return HttpResponse.json(defaultAvatarConfig);
       })
     );
 
-    await clickChange("en vivo");
+    await clickChange("enfadada");
+    const big = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "huge.png", { type: "image/png" });
+    fireEvent.change(fileInput(), { target: { files: [big] } });
 
-    // The path text IS the confirmation. There is no in-app image preview by
-    // design — see the component docstring: the webview cannot read an absolute
-    // local path without widening Tauri's asset scope, so a swatch could only
-    // ever render broken. OBS is where the image itself gets verified.
-    await waitFor(() => expect(screen.getByText("C:\\avatars\\kira-idle.png")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("too large"));
+    expect(postCount).toBe(0);
   });
 
-  it("renders no image element — the preview was removed, not left broken", async () => {
-    renderCard();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Modo" })).toBeInTheDocument());
+  it("revokes the blob preview on success so the served URL takes over", async () => {
+    const urlCtor = URL as unknown as Record<string, unknown>;
+    const revoked: string[] = [];
+    const hadCreate = "createObjectURL" in URL;
+    const hadRevoke = "revokeObjectURL" in URL;
+    urlCtor["createObjectURL"] = () => "blob:preview";
+    urlCtor["revokeObjectURL"] = (url: string) => revoked.push(url);
+    try {
+      await clickChange("enfadada");
+      fireEvent.change(fileInput(), { target: { files: [pngFile()] } });
 
+      // Served mapping wins once the upload lands…
+      await waitFor(() => expect(screen.getByText("user/angry.png")).toBeInTheDocument());
+      expect(revoked).toEqual(["blob:preview"]);
+      // …and the served thumbnail (not the blob) is what renders.
+      const thumb = screen.getByRole("img", { name: "Vista previa — enfadada" }) as HTMLImageElement;
+      expect(thumb.src).toContain("avatar/image?state=angry");
+    } finally {
+      if (!hadCreate) delete urlCtor["createObjectURL"];
+      if (!hadRevoke) delete urlCtor["revokeObjectURL"];
+    }
+  });
+
+  it("renders a served thumbnail per configured state, placeholder when unset", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/avatar/config`, () =>
+        HttpResponse.json({ ...defaultAvatarConfig, state_images: {} })
+      )
+    );
+    renderCard();
+    await screen.findByRole("combobox", { name: "Modo" });
+
+    // No configured states: no thumbnails, eight honest "sin imagen" rows.
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Probar" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("sin imagen")).toHaveLength(8);
   });
 });

@@ -798,6 +798,40 @@ export const handlers = [
     const body = (await request.json()) as Partial<AvatarConfigResponse>;
     return HttpResponse.json({ ...defaultAvatarConfig, ...body });
   }),
+  // POST /api/avatar/upload (tauri_avatar_upload_20260911): bytes in, the
+  // config map gains `user/<state>.<ext>` for the uploaded state. Mirrors the
+  // server's fail-closed validation (state/extension/content) so UI request-
+  // shape regressions still get a 422 instead of a lying 200.
+  http.post(`${API_BASE_URL}/api/avatar/upload`, async ({ request }) => {
+    const body = (await request.json()) as { state: string; filename: string; content_b64?: string };
+    const known = [
+      "idle",
+      "listening",
+      "thinking",
+      "speaking",
+      "speaking_alt",
+      "sleeping",
+      "angry",
+      "error"
+    ];
+    if (!known.includes(body.state)) {
+      return HttpResponse.json({ detail: `unknown avatar state: ${body.state}` }, { status: 422 });
+    }
+    if (!body.content_b64 || !/\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(body.filename)) {
+      return HttpResponse.json({ detail: "Unsupported image format" }, { status: 422 });
+    }
+    const ext = body.filename.slice(body.filename.lastIndexOf("."));
+    return HttpResponse.json({
+      ...defaultAvatarConfig,
+      state_images: { ...defaultAvatarConfig.state_images, [body.state]: `user/${body.state}${ext}` }
+    });
+  }),
+  // GET /api/avatar/image?state= — served bytes; tests only assert the URL
+  // shape, so a minimal PNG header is enough for any consumer reading bytes.
+  http.get(`${API_BASE_URL}/api/avatar/image`, () => {
+    const header = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    return new HttpResponse(header, { headers: { "Content-Type": "image/png" } });
+  }),
   http.get(`${API_BASE_URL}/api/obs/config`, () => HttpResponse.json(defaultObsConfig)),
   http.put(`${API_BASE_URL}/api/obs/config`, async ({ request }) => {
     const body = (await request.json()) as Partial<ObsConfigResponse> & { password?: string };

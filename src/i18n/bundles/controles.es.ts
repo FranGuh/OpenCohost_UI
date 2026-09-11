@@ -18,10 +18,12 @@ export const controlesEs = {
   "controles.avatar.stateImage.change.aria": "Cambiar imagen — {label}",
   "controles.avatar.stateImage.change.hint": "Elegir una imagen para este estado",
   "controles.avatar.stateImage.filter.name": "Imágenes",
+  "controles.avatar.stateImage.preview.alt": "Vista previa — {label}",
   "controles.avatar.stateImage.unset": "sin imagen",
+  "controles.avatar.stateImage.uploading": "Subiendo…",
   "controles.avatar.stateImages.eyebrow": "Imágenes por estado",
   "controles.avatar.stateImages.hint":
-    "Cambiar abre el selector de archivos del sistema. La imagen se usa desde donde está, así que si después la movés o la borrás, el estado se queda sin imagen.",
+    "Cambiar sube una copia de la imagen a la app: después puedes mover o borrar el archivo original sin que pase nada.",
   "controles.editorialCards.arm.action": "Armar",
   "controles.editorialCards.arm.success": "Tarjeta armada. Kira puede usarla cuando el tema salga.",
   "controles.editorialCards.badge.singleUse": "de un solo uso",

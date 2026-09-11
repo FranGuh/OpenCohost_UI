@@ -20,10 +20,12 @@ export const controlesEn: Record<keyof typeof controlesEs, string> = {
   "controles.avatar.stateImage.change.aria": "Change image — {label}",
   "controles.avatar.stateImage.change.hint": "Pick an image for this state",
   "controles.avatar.stateImage.filter.name": "Images",
+  "controles.avatar.stateImage.preview.alt": "Preview — {label}",
   "controles.avatar.stateImage.unset": "no image",
+  "controles.avatar.stateImage.uploading": "Uploading…",
   "controles.avatar.stateImages.eyebrow": "Images per state",
   "controles.avatar.stateImages.hint":
-    "Change opens your system file picker. The image is used from where it lives, so if you move or delete it later, that state ends up with no image.",
+    "Change uploads a copy of the image into the app: you can move or delete the original file afterwards.",
   "controles.editorialCards.arm.action": "Arm",
   "controles.editorialCards.arm.success": "Card armed. Kira can use it when the topic comes up.",
   "controles.editorialCards.badge.singleUse": "single use",

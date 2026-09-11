@@ -2260,6 +2260,83 @@
           }
         }
       }
+    },
+    "/api/avatar/image": {
+      "get": {
+        "summary": "Get Avatar Image",
+        "description": "Serve the resolved image bytes for an avatar *state* (Tauri KiraCover).\n\nResolution: configured map → user assets_folder → bundled defaults → idle\nfallbacks (`resolve_state_image`). Unknown state -> 422, nothing found ->\n404 (the client falls back to its static art). Conditional GET via ETag\n(`st_mtime_ns`-`st_size`) so the 700ms speaking flap revalidates cheaply.",
+        "operationId": "get_avatar_image_api_avatar_image_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/avatar/upload": {
+      "post": {
+        "summary": "Post Avatar Upload",
+        "description": "Upload avatar image bytes for one state (Tauri `AvatarCard`).\n\nJSON+base64 on purpose: no `python-multipart` in the dependency set and no\nother multipart endpoint exists — one image (~1-2MB) fits JSON fine. The\nbytes are validated (state/extension/10MB cap/magic) and copied into the\nuser avatar dir, so the source file can be moved or deleted afterwards.",
+        "operationId": "post_avatar_upload_api_avatar_upload_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3099,7 +3176,7 @@
         },
         "type": "object",
         "title": "AvatarConfigRequest",
-        "description": "PUT /api/avatar/config body — a partial update.\n\n`state_images` keys are validated against `VALID_STATES` server-side\n(unknown state -> 422) before anything is applied. Image UPLOAD is\ndeferred (owner decision) — values are paths only, never multipart."
+        "description": "PUT /api/avatar/config body — a partial update.\n\n`state_images` keys are validated against `VALID_STATES` server-side\n(unknown state -> 422) before anything is applied. Values are paths only.\nFor real uploads (bytes copied server-side into user-data) use\nPOST /api/avatar/upload (`AvatarUploadRequest`)."
       },
       "AvatarConfigResponse": {
         "properties": {
@@ -5746,6 +5823,30 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "AvatarUploadRequest": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "content_b64": {
+            "type": "string",
+            "title": "Content B64"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "filename",
+          "content_b64"
+        ],
+        "title": "AvatarUploadRequest",
+        "description": "POST /api/avatar/upload body — Tauri avatar upload (bytes, not paths).\n\n`content_b64` is the raw image file bytes (base64). The server validates\nstate/extension/size/magic and copies into the user avatar dir as\n`<state><ext>`, so the original file can be moved or deleted afterwards.\nCap: 10MB (`MAX_UPLOAD_BYTES`)."
       }
     }
   }
