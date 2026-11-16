@@ -22,7 +22,15 @@ import { subscribeMutationEvents } from "../lib/appEvents.js";
 import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import { useEventStore } from "../store/eventStore.js";
 import { ValidationError } from "./client.js";
-import { postPttTest, putPttConfig, usePttHold, usePttServerSignal } from "./ptt.js";
+import {
+  PTT_FOCUS_HEARTBEAT_MS,
+  postPttFocus,
+  postPttTest,
+  putPttConfig,
+  usePttFocusReporter,
+  usePttHold,
+  usePttServerSignal
+} from "./ptt.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -203,24 +211,22 @@ describe("usePttHold: stop", () => {
 });
 
 describe("usePttHold: fast-tap race", () => {
-  it("stop() during connecting cuts the session the instant start() resolves, never shows listening", async () => {
+  it("stop() during connecting cancels without sessionless stop, then stops only the returned ID", async () => {
     let resolveStart!: () => void;
-    let stopBody: unknown;
+    const stopBodies: unknown[] = [];
     server.use(
       http.post(
         `${API_BASE_URL}/api/ptt/start`,
         () =>
           new Promise((resolve) => {
-            resolveStart = () => resolve(HttpResponse.json(defaultPttStart));
+            resolveStart = () => resolve(HttpResponse.json({ session_id: "desktop-owned" }));
           })
       ),
       http.post(`${API_BASE_URL}/api/ptt/stop`, async ({ request }) => {
-        stopBody = await request.json();
+        const body = await request.json().catch(() => ({}));
+        stopBodies.push(body);
         return HttpResponse.json({ state: "flushing" });
       }),
-      // Stays "flushing" throughout — otherwise the flush-poll (enabled the
-      // instant state becomes "flushing") would immediately converge to the
-      // GET default's idle and mask the assertion this test cares about.
       http.get(`${API_BASE_URL}/api/ptt/state`, () =>
         HttpResponse.json({ state: "flushing", session_id: null, buffered_chars: 0, last_error: null })
       )
@@ -233,18 +239,69 @@ describe("usePttHold: fast-tap race", () => {
     act(() => result.current.stop()); // released before start() ever resolved
     expect(result.current.state).toBe("flushing");
     await act(() => vi.advanceTimersByTimeAsync(0));
-    // stop() fired with no session id yet (start() hasn't resolved) — the
-    // idempotent "stop whatever is active" path.
-    expect(stopBody).toEqual({});
+
+    // Must NOT fire a sessionless stop while start is pending
+    expect(stopBodies).toEqual([]);
 
     await act(async () => {
       resolveStart();
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    // start()'s success landed AFTER we already moved to flushing — must not
-    // resurrect "listening"; the just-opened session gets cut directly.
+    // Exactly one stop for the returned ID once start resolved
+    expect(stopBodies).toEqual([{ session_id: "desktop-owned" }]);
     expect(result.current.state).toBe("flushing");
+  });
+
+  it("409 rejected start does not fire any stop", async () => {
+    const stopBodies: unknown[] = [];
+    server.use(
+      http.post(
+        `${API_BASE_URL}/api/ptt/start`,
+        () => HttpResponse.json({ error: "session_active" }, { status: 409 })
+      ),
+      http.post(`${API_BASE_URL}/api/ptt/stop`, async ({ request }) => {
+        const body = await request.json().catch(() => ({}));
+        stopBodies.push(body);
+        return HttpResponse.json({ state: "flushing" });
+      })
+    );
+    const { result } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
+
+    act(() => result.current.start());
+    act(() => result.current.stop());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(stopBodies).toEqual([]);
+    expect(result.current.state).toBe("idle");
+  });
+
+  it("repeat release calls stop at-most-once", async () => {
+    const stopBodies: unknown[] = [];
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, () =>
+        HttpResponse.json({ session_id: "test-sess" })
+      ),
+      http.post(`${API_BASE_URL}/api/ptt/stop`, async ({ request }) => {
+        const body = await request.json().catch(() => ({}));
+        stopBodies.push(body);
+        return HttpResponse.json({ state: "flushing" });
+      }),
+      http.get(`${API_BASE_URL}/api/ptt/state`, () =>
+        HttpResponse.json({ state: "flushing", session_id: null, buffered_chars: 0, last_error: null })
+      )
+    );
+    const { result } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
+
+    act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.state).toBe("listening");
+
+    act(() => result.current.stop());
+    act(() => result.current.stop()); // repeat release
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(stopBodies).toEqual([{ session_id: "test-sess" }]);
   });
 });
 
@@ -293,7 +350,7 @@ describe("usePttHold: unmount safety net", () => {
 
   it("posts stop on unmount even mid-connect (start() still in flight)", async () => {
     let resolveStart!: () => void;
-    const { counter, handler } = countingHandler("/api/ptt/stop", { state: "idle" });
+    const stopBodies: unknown[] = [];
     server.use(
       http.post(
         `${API_BASE_URL}/api/ptt/start`,
@@ -302,7 +359,11 @@ describe("usePttHold: unmount safety net", () => {
             resolveStart = () => resolve(HttpResponse.json(defaultPttStart));
           })
       ),
-      handler
+      http.post(`${API_BASE_URL}/api/ptt/stop`, async ({ request }) => {
+        const body = await request.json().catch(() => ({}));
+        stopBodies.push(body);
+        return HttpResponse.json({ state: "idle" });
+      })
     );
     const { result, unmount } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
 
@@ -311,12 +372,15 @@ describe("usePttHold: unmount safety net", () => {
 
     unmount();
     await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(counter.calls).toBe(1); // stop() fires immediately, without a session id
+    // No sessionless stop while start() is still pending
+    expect(stopBodies).toEqual([]);
 
     await act(async () => {
       resolveStart();
       await vi.advanceTimersByTimeAsync(0);
     });
+    // Stops the session once it resolves with its owned ID
+    expect(stopBodies).toEqual([{ session_id: defaultPttStart.session_id }]);
   });
 });
 
@@ -412,5 +476,127 @@ describe("putPttConfig / postPttTest: liveaudio_url_config", () => {
       ok: false,
       detail: "Connection refused"
     });
+  });
+});
+
+describe("dictation mode (ptt-dictation-20261111)", () => {
+  function focusSpy() {
+    const bodies: Array<{ focused: boolean }> = [];
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/focus`, async ({ request }) => {
+        bodies.push((await request.json()) as { focused: boolean });
+        return HttpResponse.json({ ok: true });
+      })
+    );
+    return bodies;
+  }
+
+  it("putPttConfig sends dictation_mode and reads it back", async () => {
+    let body: unknown = null;
+    server.use(
+      http.put(`${API_BASE_URL}/api/ptt/config`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ stt_ws_uri: "ws://127.0.0.1:9090", hotkey: "F10", dictation_mode: "foreground" });
+      })
+    );
+    await expect(putPttConfig({ dictation_mode: "foreground" })).resolves.toMatchObject({ dictation_mode: "foreground" });
+    expect(body).toEqual({ dictation_mode: "foreground" });
+  });
+
+  it("putPttConfig sends companion_dictation alone and reads it back", async () => {
+    let body: unknown = null;
+    server.use(
+      http.put(`${API_BASE_URL}/api/ptt/config`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ stt_ws_uri: "ws://127.0.0.1:9090", companion_dictation: true });
+      })
+    );
+    await expect(putPttConfig({ companion_dictation: true })).resolves.toMatchObject({ companion_dictation: true });
+    expect(body).toEqual({ companion_dictation: true });
+  });
+
+  it("postPttFocus posts the boolean and nothing else", async () => {
+    const bodies = focusSpy();
+    await expect(postPttFocus(true)).resolves.toEqual({ ok: true });
+    expect(bodies).toEqual([{ focused: true }]);
+  });
+
+  it("usePttHold({ origin: 'companion' }) tags the start so the backend treats the hold as background", async () => {
+    let startBody: unknown = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, async ({ request }) => {
+        startBody = await request.json();
+        return HttpResponse.json(defaultPttStart);
+      })
+    );
+    const { result } = renderHook(() => usePttHold({ origin: "companion" }), { wrapper: createWrapper() });
+    act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(startBody).toEqual({ origin: "companion" });
+  });
+
+  it("usePttHold() without options keeps the exact {} start body", async () => {
+    let startBody: unknown = null;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, async ({ request }) => {
+        startBody = await request.json();
+        return HttpResponse.json(defaultPttStart);
+      })
+    );
+    const { result } = renderHook(() => usePttHold(), { wrapper: createWrapper() });
+    act(() => result.current.start());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(startBody).toEqual({});
+  });
+
+  it("the focus reporter stays silent unless the mode is foreground", async () => {
+    const bodies = focusSpy();
+    server.use(pttStateHandler({ ...defaultPttState, dictation_mode: "send" }));
+    renderHook(() => usePttFocusReporter(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(PTT_FOCUS_HEARTBEAT_MS * 3));
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(bodies).toEqual([]);
+  });
+
+  it("in foreground mode it reports at once, on blur/focus, and on a heartbeat", async () => {
+    const bodies = focusSpy();
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    server.use(pttStateHandler({ ...defaultPttState, dictation_mode: "foreground" }));
+    renderHook(() => usePttFocusReporter(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(bodies[0]).toEqual({ focused: true });
+
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(bodies[bodies.length - 1]).toEqual({ focused: false });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(bodies[bodies.length - 1]).toEqual({ focused: true });
+
+    const before = bodies.length;
+    await act(() => vi.advanceTimersByTimeAsync(PTT_FOCUS_HEARTBEAT_MS));
+    expect(bodies.length).toBeGreaterThan(before);
+    hasFocus.mockRestore();
+  });
+
+  it("the heartbeat reports a hidden window as not focused", async () => {
+    const bodies = focusSpy();
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    server.use(pttStateHandler({ ...defaultPttState, dictation_mode: "foreground" }));
+    renderHook(() => usePttFocusReporter(), { wrapper: createWrapper() });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(bodies[0]).toEqual({ focused: false });
+    hasFocus.mockRestore();
   });
 });

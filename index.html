@@ -27,13 +27,20 @@
       }
     </style>
     <script>
+      if (window.location.pathname === "/overlay/vrm") {
+        document.documentElement.dataset.vrmOverlay = "";
+        document.write('<style>html[data-vrm-overlay],html[data-vrm-overlay] body{background:transparent!important}html[data-vrm-overlay] #oc-boot-splash{display:none}</style>');
+      } else if (window.location.pathname === "/desktop/kira") {
+        document.documentElement.dataset.desktopCompanion = "";
+        document.write('<style>html, body { background: transparent !important; } #oc-boot-splash { display: none !important; }</style>');
+      }
       // Blocking pre-paint theme apply — avoids a flash of the :root
       // (cockpit/dark) default on reload for studio/aurora users, since
       // useTheme.ts only sets data-theme in a post-paint useEffect.
       // Keep this key/set/default in sync with src/theme/useTheme.ts.
       (function () {
         var STORAGE_KEY = "oc-theme";
-        var THEME_NAMES = ["cockpit", "aurora", "studio"];
+        var THEME_NAMES = ["cockpit", "aurora", "studio", "kira-aurora"];
         var DEFAULT_THEME = "cockpit";
         var stored = null;
         try {

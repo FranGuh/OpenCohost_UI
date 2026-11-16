@@ -250,6 +250,7 @@ pub struct ProvisionResult {
 #[derive(Debug, Clone)]
 pub struct ProvisionerConfig {
     pub data_root: PathBuf,
+    pub msvc_crt_dir: Option<PathBuf>,
     pub install_id: String,
     pub app_module: String,
     pub preferred_port: u16,

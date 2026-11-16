@@ -33,13 +33,13 @@ function renderApp() {
 }
 
 describe("AppLayout", () => {
-  it("renders exactly one of each landmark and Experiencia content by default", () => {
+  it("renders exactly one of each landmark and Experiencia content by default", async () => {
     renderApp();
     expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("navigation")).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("complementary")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "default" })).toBeInTheDocument();
   });
 
   it("gives the chat/queue column 465px and drops the fixed 1180px min-width (horizontal-scroll fix)", () => {
@@ -62,7 +62,7 @@ describe("AppLayout", () => {
     // by the owner's runtime validation instead.
   });
 
-  it("restores Welcome from Settings and returns section ownership to Experiencia", () => {
+  it("restores Welcome from Settings and returns section ownership to Experiencia", async () => {
     useWelcomeStore.setState({ dismissed: true });
     renderApp();
     fireEvent.click(screen.getByRole("button", { name: /Controles/ }));
@@ -70,13 +70,16 @@ describe("AppLayout", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Volver a ver bienvenida" }));
 
-    expect(screen.getByRole("button", { name: /Experiencia/ })).toHaveAttribute("aria-current", "true");
-    expect(screen.getByRole("dialog", { name: "Conocé a Kira" })).toBeInTheDocument();
-    expect(screen.getByText("1 de 5")).toBeInTheDocument();
+    // The menu action reopens the setup assistant (setup-assistant-20261008 T4).
+    expect(await screen.findByRole("dialog", { name: "Asistente de configuración" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Experiencia/ })).toHaveAttribute("aria-current", "true")
+    );
+    expect(await screen.findByText("Paso 1 de 9")).toBeInTheDocument();
     expect(useWelcomeStore.getState().dismissed).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Cerrar bienvenida" }));
-    expect(screen.getByRole("button", { name: "Configuración" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar asistente" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Configuración" })).toHaveFocus());
   });
 
   it("hydrates the sidebar collapsed state from localStorage (oc-sidebar-collapsed)", () => {
@@ -200,7 +203,9 @@ describe("AppLayout", () => {
     // Driving the switch from the OTHER consumer (ProfilePlaylist's row)...
     // Anchor the name so it matches the row button ("Akira perfil") only, not
     // its edit pencil ("Editar perfil Akira").
-    fireEvent.click(screen.getByRole("button", { name: /^Akira/ }));
+    // The list loads after GET /api/i18n resolves the backend locale, so wait
+    // for the row instead of assuming it is there with the status.
+    fireEvent.click(await screen.findByRole("button", { name: /^Akira/ }));
 
     // ...must be reflected by ProfileSwitcher reading the SAME shared
     // pending state — proof there is exactly one poll owner, not two.

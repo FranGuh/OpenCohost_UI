@@ -31,13 +31,13 @@ export interface SettingsSectionProps {
 export function SettingsSection({ header, children }: SettingsSectionProps) {
   if (!header) {
     return (
-      <main className={PANEL_CLASS} style={{ backgroundImage: PANEL_GRADIENT }}>
+      <main className={cn(PANEL_CLASS, "h-full")} style={{ backgroundImage: PANEL_GRADIENT }}>
         {children}
       </main>
     );
   }
   return (
-    <main className="flex min-h-0 flex-col overflow-hidden" style={{ backgroundImage: PANEL_GRADIENT }}>
+    <main className="flex h-full min-h-0 flex-col overflow-hidden" style={{ backgroundImage: PANEL_GRADIENT }}>
       <div className="shrink-0 px-4 pt-4">{header}</div>
       <div className={cn(PANEL_CLASS, "flex-1")}>{children}</div>
     </main>

@@ -14,12 +14,13 @@ afterEach(() => {
 });
 
 describe("ThemeSwitcher", () => {
-  it("renders the 3 themes as a segmented control, cockpit pressed by default", () => {
+  it("renders the 4 themes as a segmented control, cockpit pressed by default", () => {
     render(<ThemeSwitcher />);
 
     expect(screen.getByRole("button", { name: "Cockpit" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Aurora" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Studio" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Kira Aurora" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("switching to Aurora updates data-theme live and persists it", async () => {
@@ -32,5 +33,17 @@ describe("ThemeSwitcher", () => {
     expect(screen.getByRole("button", { name: "Cockpit" })).toHaveAttribute("aria-pressed", "false");
     expect(document.documentElement.dataset.theme).toBe("aurora");
     expect(window.localStorage.getItem("oc-theme")).toBe("aurora");
+  });
+
+  it("switching to Kira Aurora updates data-theme live and persists it", async () => {
+    const user = userEvent.setup();
+    render(<ThemeSwitcher />);
+
+    await user.click(screen.getByRole("button", { name: "Kira Aurora" }));
+
+    expect(screen.getByRole("button", { name: "Kira Aurora" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Cockpit" })).toHaveAttribute("aria-pressed", "false");
+    expect(document.documentElement.dataset.theme).toBe("kira-aurora");
+    expect(window.localStorage.getItem("oc-theme")).toBe("kira-aurora");
   });
 });

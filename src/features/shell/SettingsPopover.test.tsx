@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,6 +6,15 @@ import { server } from "../../test/server.js";
 import { API_BASE_URL, defaultI18nState, i18nStateHandler } from "../../test/handlers.js";
 import { useLogsPrefStore } from "../../store/useLogsPref.js";
 import { useUiLocaleStore } from "../../i18n/locale.js";
+import { reloadBackend } from "../../lib/backendControl.js";
+vi.mock("../../lib/backendControl.js", () => ({ reloadBackend: vi.fn() }));
+
+const openExternalUrl = vi.fn().mockResolvedValue(true);
+
+vi.mock("../../lib/openUrl.js", () => ({
+  openExternalUrl: (url: string) => openExternalUrl(url)
+}));
+
 import {
   SettingsPopover as SettingsPopoverComponent,
   type SettingsPopoverProps
@@ -41,6 +51,17 @@ describe("SettingsPopover", () => {
     fireEvent.click(screen.getByRole("button", { name: "Volver a ver bienvenida" }));
 
     expect(onShowWelcome).toHaveBeenCalledOnce();
+  });
+
+  it("offers a Report an issue button that opens GitHub issues", () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    const reportBtn = screen.getByRole("button", { name: "Reportar un problema en GitHub" });
+    expect(reportBtn).toBeInTheDocument();
+    fireEvent.click(reportBtn);
+
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/plynte-labs/OpenCohost/issues/new");
   });
 
   it("is closed by default with aria-expanded false and no panel in the DOM", () => {
@@ -133,7 +154,7 @@ describe("SettingsPopover", () => {
     const group = screen.getByRole("group", { name: "Estilo de alertas" });
     expect(group).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sereno" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("alert")).toHaveTextContent("Elegí el estilo que más te acomode.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Elige el estilo que más te acomode.");
   });
 
   it("switching Alertas style updates data-alert-style and persists it to localStorage", () => {
@@ -212,6 +233,25 @@ describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", (
     await waitFor(() => expect(screen.getByText(/Reinicio requerido/)).toBeInTheDocument());
   });
 
+  it("warns what the pending restart applies and what it ends, with a Restart to apply button", async () => {
+    server.use(i18nStateHandler({ ...defaultI18nState, persisted_locale: "en", pending_restart: true }));
+    vi.mocked(reloadBackend).mockResolvedValue({ ok: true });
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    expect(await screen.findByText(/Kira hablará en el nuevo idioma después de reiniciar/)).toBeInTheDocument();
+    expect(screen.getByText(/cierra la conversación en curso/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reiniciar para aplicar" }));
+    await waitFor(() => expect(reloadBackend).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows no Restart to apply button when no restart is pending", async () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Reiniciar para aplicar" })).not.toBeInTheDocument();
+  });
+
   it("selecting a language PUTs /api/i18n and reflects the returned pending_restart badge", async () => {
     let capturedBody: unknown;
     server.use(
@@ -229,6 +269,27 @@ describe("SettingsPopover Idioma card (GET/PUT /api/i18n, D6 next-boot only)", (
     await waitFor(() => expect(capturedBody).toEqual({ locale: "en" }));
     await waitFor(() => expect(screen.getByText(/Reinicio requerido/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("syncs the shared [\"i18n\"] React Query cache immediately on locale change when mounted under QueryClientProvider", async () => {
+    const nextState = { ...defaultI18nState, persisted_locale: "en", pending_restart: true };
+    server.use(
+      http.put(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json(nextState))
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["i18n"], defaultI18nState);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsPopover />
+      </QueryClientProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Idioma" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+
+    await waitFor(() => expect(queryClient.getQueryData(["i18n"])).toEqual(nextState));
   });
 });
 
@@ -303,5 +364,69 @@ describe("SettingsPopover Idioma card — interface locale (E0, local-only, no b
 
     expect(screen.queryByRole("group", { name: "Idioma" })).not.toBeInTheDocument();
     expect(screen.queryByText("Voz de Kira")).not.toBeInTheDocument();
+  });
+
+  it("keeps the panel and the help flyout inside the viewport (internal scroll, capped size)", () => {
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ayuda" }));
+
+    const panel = document.getElementById("settings-popover-panel");
+    expect(panel).toHaveClass("max-w-[calc(100vw-2rem)]");
+    const scroller = panel?.firstElementChild;
+    expect(scroller).toHaveClass("max-h-[calc(100vh-4rem)]", "overflow-y-auto", "overflow-x-hidden");
+    const flyout = document.getElementById("settings-help-flyout");
+    expect(flyout).toHaveClass("max-h-[calc(100vh-4rem)]", "overflow-y-auto", "overflow-x-hidden");
+    // Narrow windows: the flyout overlays the panel instead of leaving the screen.
+    expect(flyout).toHaveClass("max-sm:inset-0");
+  });
+
+  it("shows the running version from the API in the panel header, not a hardcoded label", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/update`, () =>
+        HttpResponse.json({ enabled: true, current: "0.7.3", latest: null, newer: false, url: null })
+      )
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    expect(await screen.findByText("v0.7.3")).toBeInTheDocument();
+  });
+
+  it("shows the running version and the update-check switch bound to PUT /api/update/config", async () => {
+    let body: unknown = null;
+    server.use(
+      http.get(`${API_BASE_URL}/api/update`, () =>
+        HttpResponse.json({ enabled: true, current: "0.5.0", latest: "0.5.0", newer: false, url: null })
+      ),
+      http.put(`${API_BASE_URL}/api/update/config`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ enabled: false });
+      })
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+
+    expect(await screen.findByText("Versión 0.5.0")).toBeInTheDocument();
+    const toggle = await screen.findByRole("switch", { name: "Buscar actualizaciones al iniciar" });
+    await waitFor(() => expect(toggle).toBeChecked());
+    fireEvent.click(toggle);
+    await waitFor(() => expect(body).toEqual({ enabled: false }));
+    expect(toggle).not.toBeChecked();
+  });
+
+  it("rolls the update switch back when the save fails", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/update`, () =>
+        HttpResponse.json({ enabled: true, current: "0.5.0", latest: null, newer: false, url: null })
+      ),
+      http.put(`${API_BASE_URL}/api/update/config`, () => HttpResponse.json({ detail: "x" }, { status: 503 }))
+    );
+    render(<SettingsPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "Configuración" }));
+    const toggle = await screen.findByRole("switch", { name: "Buscar actualizaciones al iniciar" });
+    await waitFor(() => expect(toggle).toBeChecked());
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toBeChecked());
   });
 });

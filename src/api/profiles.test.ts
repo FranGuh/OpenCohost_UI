@@ -79,10 +79,11 @@ function keyRotationScenarioHandlers() {
         vram_status: "ok",
         rtf_status: "ok",
         ollama_status: "ok",
-        qwen_status: "ok",
+        // RETIRED 2026-09-21 (Qwen3-TTS): production reports unavailable/stopped.
+        qwen_status: "unavailable",
         overall_status: "ok",
         ollama_lifecycle: "running",
-        qwen_lifecycle: "running",
+        qwen_lifecycle: "stopped",
         free_vram_mb: 4096,
         rtf_rolling_avg: 0.3,
         last_updated: 0
@@ -125,6 +126,44 @@ describe("useProfilesQuery (spec R4)", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.data).toBeUndefined();
+  });
+});
+
+describe("useProfilesQuery locale filter", () => {
+  function captureLocales(seen: (string | null)[]) {
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get("locale"));
+        return HttpResponse.json({ profiles: ["default"] });
+      })
+    );
+  }
+
+  it("always sends the locale, Spanish included, reduced to its primary subtag", async () => {
+    const seen: (string | null)[] = [];
+    captureLocales(seen);
+    const { result } = renderHook(() => useProfilesQuery("es-AR"), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(seen).toEqual(["es"]);
+  });
+
+  it("does not fetch while disabled (backend locale still loading)", async () => {
+    const seen: (string | null)[] = [];
+    captureLocales(seen);
+    const { result } = renderHook(() => useProfilesQuery(undefined, { enabled: false }), { wrapper: createWrapper() });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(seen).toEqual([]);
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it("keys the cache by locale so es and en lists never share an entry", async () => {
+    const seen: (string | null)[] = [];
+    captureLocales(seen);
+    const wrapper = createWrapper();
+    const { result, rerender } = renderHook(({ l }) => useProfilesQuery(l), { wrapper, initialProps: { l: "es" } });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    rerender({ l: "en" });
+    await waitFor(() => expect(seen).toEqual(["es", "en"]));
   });
 });
 

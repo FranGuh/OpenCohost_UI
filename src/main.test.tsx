@@ -32,8 +32,9 @@ describe("main entrypoint", () => {
 
   it("mounts React synchronously without waiting for backend bootstrap", async () => {
     await import("./main.js");
-
-    expect(mocks.createRoot).toHaveBeenCalledWith(document.getElementById("root"));
+    await vi.waitFor(() => {
+      expect(mocks.createRoot).toHaveBeenCalledWith(document.getElementById("root"));
+    });
     expect(mocks.render).toHaveBeenCalledTimes(1);
     expect(mocks.bootstrapBackend).not.toHaveBeenCalled();
   });

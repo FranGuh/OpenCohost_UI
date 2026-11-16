@@ -8,14 +8,21 @@ import { server } from "../test/server.js";
 import { API_BASE_URL } from "../test/handlers.js";
 import { ApiError, ConflictError, NotFoundError, ValidationError } from "./client.js";
 import {
+  ActiveCardUnavailableError,
   armEditorialCard,
+  deleteEditorialCard,
+  disableEditorialCard,
+  getActiveCard,
   listEditorialCards,
+  activateEditorialCard,
+  putActiveCardFields,
+  deactivateEditorialCard,
   postEditorialCard,
   useArmCardMutation,
   useCardsQuery,
   useCreateCardMutation
 } from "./editorialCards.js";
-import type { EditorialCardCreateRequest, EditorialCardListItem } from "./editorialCards.js";
+import type { EditorialCardCreateRequest, EditorialCardListItem, ActiveCard } from "./editorialCards.js";
 
 function createWrapperWithClient() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -201,5 +208,132 @@ describe("useArmCardMutation", () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["editorial-cards"] }));
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["memoria-stats"] }));
+  });
+});
+
+describe("active card routes", () => {
+  const activeCard: ActiveCard = {
+    id: "card_a",
+    topic: "Acme",
+    topic_slug: "acme",
+    status: "draft",
+    origin: "",
+    summary: "s",
+    streamer_take: "t",
+    active: false,
+    single_use: false,
+    must_say: ["30 day returns"],
+    forbidden_claims: ["best in the world"],
+    discount_code: "KIRA10",
+    link: "acme.example/kira",
+    updated_at: "2026-10-04T00:00:00+00:00"
+  };
+
+  it("getActiveCard reads /api/editorial/cards/{id}", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/editorial/cards/card_a`, () => HttpResponse.json(activeCard)));
+    expect(await getActiveCard("card_a")).toEqual(activeCard);
+  });
+
+  it("putActiveCardFields sends a PUT with the fields body", async () => {
+    let body: Record<string, unknown> | undefined;
+    server.use(
+      http.put(`${API_BASE_URL}/api/editorial/cards/card_a/fields`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(activeCard);
+      })
+    );
+    await putActiveCardFields("card_a", { must_say: ["x"] });
+    expect(body).toEqual({ must_say: ["x"] });
+  });
+
+  it("putActiveCardFields maps 422 to ValidationError with the detail", async () => {
+    server.use(
+      http.put(`${API_BASE_URL}/api/editorial/cards/card_a/fields`, () =>
+        HttpResponse.json({ detail: "link too long" }, { status: 422 })
+      )
+    );
+    await expect(putActiveCardFields("card_a", { link: "x" })).rejects.toMatchObject({
+      name: "ValidationError",
+      message: "link too long"
+    });
+  });
+
+  it("activateEditorialCard POSTs /activate and maps 409 to ConflictError", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/editorial/cards/card_a/activate`, () =>
+        HttpResponse.json({ detail: "card_not_activatable" }, { status: 409 })
+      )
+    );
+    await expect(activateEditorialCard("card_a")).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("deactivate, disable and delete use the documented verbs", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/editorial/cards/card_a/deactivate`, () =>
+        HttpResponse.json({ id: "card_a", active: false })
+      ),
+      http.post(`${API_BASE_URL}/api/editorial/cards/card_a/disable`, () =>
+        HttpResponse.json({ id: "card_a", status: "expired" })
+      ),
+      http.delete(`${API_BASE_URL}/api/editorial/cards/card_a`, () =>
+        HttpResponse.json({ id: "card_a", deleted: true })
+      )
+    );
+    expect(await deactivateEditorialCard("card_a")).toEqual({ id: "card_a", active: false });
+    expect(await disableEditorialCard("card_a")).toEqual({ id: "card_a", status: "expired" });
+    expect(await deleteEditorialCard("card_a")).toEqual({ id: "card_a", deleted: true });
+  });
+
+  it("activate returns the active flag and several cards can be active", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/editorial/cards/a/activate`, () => HttpResponse.json({ id: "a", active: true })),
+      http.post(`${API_BASE_URL}/api/editorial/cards/b/activate`, () => HttpResponse.json({ id: "b", active: true }))
+    );
+    expect(await activateEditorialCard("a")).toEqual({ id: "a", active: true });
+    expect(await activateEditorialCard("b")).toEqual({ id: "b", active: true });
+  });
+
+  it("card_not_found 404 is NotFoundError", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/editorial/cards/card_a/activate`, () =>
+        HttpResponse.json({ detail: "card_not_found" }, { status: 404 })
+      )
+    );
+    await expect(activateEditorialCard("card_a")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("a route-missing 404 becomes ActiveCardUnavailableError", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/editorial/cards/card_a/activate`, () =>
+        HttpResponse.json({ detail: "Not Found" }, { status: 404 })
+      )
+    );
+    await expect(activateEditorialCard("card_a")).rejects.toBeInstanceOf(ActiveCardUnavailableError);
+  });
+
+  it("a network failure becomes ActiveCardUnavailableError", async () => {
+    server.use(http.post(`${API_BASE_URL}/api/editorial/cards/card_a/activate`, () => HttpResponse.error()));
+    await expect(activateEditorialCard("card_a")).rejects.toBeInstanceOf(ActiveCardUnavailableError);
+  });
+
+  it("503 stays an ApiError", async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/api/editorial/cards/card_a/activate`, () =>
+        HttpResponse.json({ detail: "editorial_cards_unavailable" }, { status: 503 })
+      )
+    );
+    await expect(activateEditorialCard("card_a")).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("postEditorialCard forwards active card fields", async () => {
+    let body: Record<string, unknown> | undefined;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agent/cards`, async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: "c", topic_slug: "c", status: "draft", demoted: false });
+      })
+    );
+    await postEditorialCard({ ...sampleCreateBody, must_say: ["a"] });
+    expect(body).toMatchObject({ must_say: ["a"] });
   });
 });

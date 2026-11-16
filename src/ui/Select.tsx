@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Loader2 } from "lucide-react";
 import { cn } from "../lib/cn.js";
 
 export interface SelectOption {
@@ -15,6 +16,7 @@ interface CustomProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  loading?: boolean;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
@@ -44,7 +46,7 @@ interface ListPosition {
   bottom?: number;
 }
 
-function CustomSelect({ options, value, onChange, disabled, className, ...ariaProps }: CustomProps) {
+function CustomSelect({ options, value, onChange, disabled, loading, className, ...ariaProps }: CustomProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -148,6 +150,7 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-busy={loading || undefined}
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
@@ -158,7 +161,7 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
           }
         }}
         className={cn(
-          "flex h-11 w-full items-center justify-between rounded-md border border-border bg-surface-2 px-3",
+          "flex h-11 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface-2 px-3",
           "text-left text-sm font-semibold text-foreground transition-colors duration-fast ease-io",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           "disabled:cursor-not-allowed disabled:opacity-60",
@@ -166,12 +169,15 @@ function CustomSelect({ options, value, onChange, disabled, className, ...ariaPr
         )}
         {...ariaProps}
       >
-        <span>{selected?.label ?? value}</span>
-        <span
-          aria-hidden="true"
-          className={cn("text-dim transition-transform duration-base ease-io", open && "rotate-180")}
-        >
-          ▾
+        <span className="min-w-0 truncate">{selected?.label ?? value}</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {loading && <Loader2 size={14} className="animate-spin text-info motion-reduce:animate-none" aria-hidden="true" />}
+          <span
+            aria-hidden="true"
+            className={cn("text-dim transition-transform duration-base ease-io", open && "rotate-180")}
+          >
+            ▾
+          </span>
         </span>
       </button>
 
@@ -245,13 +251,14 @@ export type SelectProps = CustomProps;
  * feature, so the native branch was removed. Every call site now builds an
  * `options` array instead.
  */
-export function Select({ options, value, onChange, disabled, className, ...ariaProps }: SelectProps) {
+export function Select({ options, value, onChange, disabled, loading, className, ...ariaProps }: SelectProps) {
   return (
     <CustomSelect
       options={options}
       value={value}
       onChange={onChange}
       disabled={disabled}
+      loading={loading}
       className={className}
       {...ariaProps}
     />

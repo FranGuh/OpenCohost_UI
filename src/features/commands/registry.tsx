@@ -3,14 +3,18 @@ import type { ReactElement } from "react";
 import {
   AGENDA_QUERY_KEY,
   AGENDA_TURN_OPTIONS,
+  COHOST_PROFILES_QUERY_KEY,
   postAgendaTopic,
   putAgendaSession,
   saveCohostProfile,
+  selectCohostProfile,
   useAgendaQuery,
   useAgendaSessionActionMutation,
   type AgendaResponse,
   type AgendaSessionAction
 } from "../../api/agenda.js";
+import { getI18nState } from "../../api/i18n.js";
+import { primaryLocale } from "../../api/profiles.js";
 import {
   useMusicLibraryQuery,
   useMusicMoodMutation,
@@ -21,12 +25,15 @@ import { ValidationError } from "../../api/client.js";
 import { connectStreamAndAwait, putStreamLimits } from "../../api/stream.js";
 import { pickRotationTrack } from "../../lib/musicRotation.js";
 import { usePlaybackContext } from "../../state/PlaybackProvider.js";
-import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
+import { SetupCommandScreen } from "../setup/SetupCommandScreen.js";
+import { stashSetupSection } from "../setup/setupCheckpoint.js";
+import { useUiLocaleStore } from "../../i18n/locale.js";
 import { t, useT, type TKey } from "../../i18n/t.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
 import { Select } from "../../ui/Select.js";
+import { useVisionQuery } from "../../api/vision.js";
 import { type StepDef, type StepValue } from "./primitives.js";
 import {
   LENGTH_VOCAB,
@@ -94,6 +101,10 @@ export interface Command {
    * against these fixed strings only, never against translated labels — a
    * locale flip must never change which commands a query matches. */
   aliases?: readonly string[];
+  /** The command takes words after its name (e.g. `/setup voz`). The launcher
+   * hands them over right before opening the screen ("" when none were typed);
+   * commands without it still match only their bare name. */
+  acceptArgs?: (args: string) => void;
 }
 
 // ─── Shared option sets ─────────────────────────────────────────────────────
@@ -388,7 +399,50 @@ function MusicaScreen({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── The seven commands ─────────────────────────────────────────────────────
+// ─── /mira — typed look command reference screen ────────────────────────────
+
+/** Modes accepted after `/mira` (backend `LOOK_MODE_ALIASES`: clip/video,
+ * text/texto). Listed as one canonical word per mode; aliases live in the copy. */
+const MIRA_MODES = [
+  { command: "/mira clip", descriptionKey: "commands.mira.mode.clip" },
+  { command: "/mira texto", descriptionKey: "commands.mira.mode.text" }
+] as const satisfies ReadonlyArray<{ command: string; descriptionKey: TKey }>;
+
+function MiraScreen({ onClose }: { onClose: () => void }) {
+  // /mira is typed in the composer (ConversationPanel parses it); this screen
+  // only documents it, and warns when vision is off.
+  const t = useT();
+  const { data } = useVisionQuery();
+  return (
+    <div className="flex flex-col gap-2 text-[13px]">
+      <p className="text-foreground">{t("commands.mira.intro")}</p>
+      {data && !data.enabled && (
+        <p role="status" className="text-warn">
+          {t("commands.mira.off")}
+        </p>
+      )}
+      <ul className="flex flex-col gap-1.5">
+        <li className="text-muted-foreground">{t("commands.mira.default")}</li>
+        {MIRA_MODES.map((mode) => (
+          <li key={mode.command} className="flex items-baseline gap-2">
+            <span className="mono rounded border border-border-soft bg-card px-1.5 py-0.5 text-[11px] font-semibold text-[var(--kira-cyan)]">
+              {mode.command}
+            </span>
+            <span className="text-muted-foreground">{t(mode.descriptionKey)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-muted-foreground">{t("commands.mira.natural")}</p>
+      <div className="mt-1 flex justify-end border-t border-border-soft pt-3">
+        <Button type="button" variant="outline" className="h-8 px-3 text-[13px]" onClick={onClose}>
+          {t("commands.mira.close.action")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── The commands ───────────────────────────────────────────────────────────
 
 export const COMMANDS: Command[] = [
   {
@@ -443,12 +497,29 @@ export const COMMANDS: Command[] = [
     summaryTitleKey: "commands.perfil.summaryTitle",
     primaryLabelKey: "commands.perfil.primary.action",
     resetLabelKey: "commands.perfil.reset.action",
-    // WU10/R16-R19: save the cohost profile (identity) AND apply the session
-    // fields — two calls, never POST /api/perfiles (the LLM persona). `estandar`
-    // maps to `monologue` (R19 flagged), never sent raw.
+    // WU10/R16-R19: save the cohost profile (identity) with active runtime locale,
+    // select it so live style syncs, apply session settings, and refresh caches.
     submit: async (values) => {
-      await saveCohostProfile(toCohostProfileRequest(values));
+      const fallbackLocale = primaryLocale(useUiLocaleStore.getState().locale) || "es";
+      let activeLocale = fallbackLocale;
+      try {
+        const i18n = await queryClient.ensureQueryData({
+          queryKey: ["i18n"],
+          queryFn: getI18nState,
+          staleTime: 60_000,
+          retry: false
+        });
+        const rawLocale = (i18n.active_locale ?? "").trim();
+        activeLocale = (rawLocale ? primaryLocale(rawLocale) : "") || fallbackLocale;
+      } catch {
+        activeLocale = fallbackLocale;
+      }
+      const profileRequest = toCohostProfileRequest(values, activeLocale);
+      await saveCohostProfile(profileRequest);
+      await selectCohostProfile({ name: profileRequest.name, locale: activeLocale });
       await putAgendaSession(toAgendaSessionRequest(values));
+      void queryClient.invalidateQueries({ queryKey: COHOST_PROFILES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: AGENDA_QUERY_KEY });
       return t("commands.perfil.submit.ack");
     },
     steps: [
@@ -522,7 +593,7 @@ export const COMMANDS: Command[] = [
     // all throw and are surfaced by errorCopy.
     submit: async (values) => {
       const plataforma = values.plataforma as string;
-      const canal = values.canal as string;
+      const canal = (plataforma === "twitch" ? values.canal_twitch : values.canal_youtube) as string;
       if (isYoutubeChannelUrl(canal)) {
         throw new ValidationError("youtube_channel_url");
       }
@@ -541,12 +612,12 @@ export const COMMANDS: Command[] = [
         ],
         default: "youtube"
       },
-      // Per-platform URL copy (Lote C): mutually-exclusive `when` gates render
-      // exactly one `canal` step. YouTube needs the live VIDEO link (a channel
-      // URL 422s); Twitch takes a channel name or URL.
+      // Per-platform URL steps (Lote C): distinct IDs keep each platform's
+      // answer isolated so editing from YouTube to Twitch never leaks a stale
+      // `canal` value across platforms.
       {
         kind: "text",
-        id: "canal",
+        id: "canal_youtube",
         questionKey: "commands.vivo.step.canal.youtube.question",
         chipLabelKey: "commands.vivo.step.canal.youtube.chip",
         placeholderKey: "commands.vivo.step.canal.youtube.placeholder",
@@ -554,7 +625,7 @@ export const COMMANDS: Command[] = [
       },
       {
         kind: "text",
-        id: "canal",
+        id: "canal_twitch",
         questionKey: "commands.vivo.step.canal.twitch.question",
         chipLabelKey: "commands.vivo.step.canal.twitch.chip",
         placeholderKey: "commands.vivo.step.canal.twitch.placeholder",
@@ -652,7 +723,18 @@ export const COMMANDS: Command[] = [
     descriptionKey: "commands.setup.description",
     summaryTitleKey: "commands.setup.summaryTitle",
     aliases: ["config", "install", "ollama", "models"],
-    screen: ({ onClose }) => <LlmReadinessCard onClose={onClose} showDismiss />
+    // setup-assistant-20261008 T4: the shared setup flow; readiness is its "Equipo" step.
+    screen: SetupCommandScreen,
+    // S10: `/setup voz` opens that part of a completed setup directly.
+    acceptArgs: stashSetupSection
+  },
+  {
+    id: "mira",
+    badge: "/mira",
+    titleKey: "commands.mira.title",
+    descriptionKey: "commands.mira.description",
+    aliases: ["look"],
+    screen: MiraScreen
   }
 ];
 
@@ -661,8 +743,21 @@ export function commandFilter(query: string): string {
   return query.trim().replace(/^[/!]/, "").trim().toLowerCase();
 }
 
+/** The words after the command name ("voz" in "/setup voz"); "" when none. */
+export function commandArgs(query: string): string {
+  const [, ...rest] = commandFilter(query).split(/\s+/);
+  return rest.join(" ");
+}
+
 export function matchCommands(query: string): Command[] {
   const filter = commandFilter(query);
+  const [name, ...rest] = filter.split(/\s+/);
+  // Words after the name: only an exact name of a command that takes them still matches.
+  if (rest.length > 0) {
+    return COMMANDS.filter(
+      (command) => command.acceptArgs !== undefined && (command.id === name || (command.aliases?.includes(name) ?? false))
+    );
+  }
   return COMMANDS.filter(
     (command) => command.id.startsWith(filter) || (command.aliases?.some((alias) => alias.startsWith(filter)) ?? false)
   );

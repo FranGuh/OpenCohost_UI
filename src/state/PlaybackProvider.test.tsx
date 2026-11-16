@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlaybackProvider, usePlaybackContext } from "./PlaybackProvider.js";
@@ -274,4 +274,112 @@ describe("PlaybackProvider", () => {
       expect(screen.getByTestId("volume")).toHaveTextContent("70");
     });
   });
+
+  describe("multi-window cross-window synchronization (host vs client mode)", () => {
+    const originalAudio = window.Audio;
+    const instances: HTMLAudioElement[] = [];
+
+    class SpyAudio extends originalAudio {
+      constructor(...args: ConstructorParameters<typeof Audio>) {
+        super(...args);
+        instances.push(this);
+      }
+    }
+
+    beforeEach(() => {
+      window.Audio = SpyAudio as unknown as typeof Audio;
+      window.localStorage.removeItem(VOLUME_STORAGE_KEY);
+    });
+
+    afterEach(() => {
+      window.Audio = originalAudio;
+      instances.length = 0;
+      window.localStorage.removeItem(VOLUME_STORAGE_KEY);
+    });
+
+    it("client mode does not instantiate a physical Audio element", () => {
+      render(
+        React.createElement(PlaybackProvider, { mode: "client" }, React.createElement(Harness))
+      );
+      expect(instances).toHaveLength(0);
+    });
+
+    it("client synchronizes with host when host plays a track", async () => {
+      const host = render(
+        React.createElement(PlaybackProvider, { mode: "host" }, React.createElement(Harness))
+      );
+      const client = render(
+        React.createElement(PlaybackProvider, { mode: "client" }, React.createElement(Harness))
+      );
+
+      const hostEl = within(host.container);
+      const clientEl = within(client.container);
+
+      // Initially only 1 audio element created by host
+      expect(instances).toHaveLength(1);
+
+      // Play on Host
+      fireEvent.click(hostEl.getByText("play track-1"));
+      expect(hostEl.getByTestId("playing")).toHaveTextContent("true");
+      expect(hostEl.getByTestId("current")).toHaveTextContent("track-1");
+
+      // Client should receive the state update
+      await waitFor(() => {
+        expect(clientEl.getByTestId("playing")).toHaveTextContent("true");
+        expect(clientEl.getByTestId("current")).toHaveTextContent("track-1");
+      });
+
+      // Still only 1 audio element exists in memory!
+      expect(instances).toHaveLength(1);
+    });
+
+    it("client pause() pauses host playback and updates both windows", async () => {
+      const host = render(
+        React.createElement(PlaybackProvider, { mode: "host" }, React.createElement(Harness))
+      );
+      const client = render(
+        React.createElement(PlaybackProvider, { mode: "client" }, React.createElement(Harness))
+      );
+
+      const hostEl = within(host.container);
+      const clientEl = within(client.container);
+
+      fireEvent.click(hostEl.getByText("play track-1"));
+      await waitFor(() => expect(clientEl.getByTestId("playing")).toHaveTextContent("true"));
+
+      fireEvent.click(clientEl.getByText("toggle"));
+
+      await waitFor(() => {
+        expect(hostEl.getByTestId("playing")).toHaveTextContent("false");
+        expect(clientEl.getByTestId("playing")).toHaveTextContent("false");
+      });
+    });
+
+    it("client playTrack() swaps track on host without creating a second audio stream", async () => {
+      const host = render(
+        React.createElement(PlaybackProvider, { mode: "host" }, React.createElement(Harness))
+      );
+      const client = render(
+        React.createElement(PlaybackProvider, { mode: "client" }, React.createElement(Harness))
+      );
+
+      const hostEl = within(host.container);
+      const clientEl = within(client.container);
+
+      fireEvent.click(hostEl.getByText("play track-1"));
+      await waitFor(() => expect(clientEl.getByTestId("current")).toHaveTextContent("track-1"));
+
+      fireEvent.click(clientEl.getByText("play track-2"));
+
+      await waitFor(() => {
+        expect(hostEl.getByTestId("current")).toHaveTextContent("track-2");
+        expect(clientEl.getByTestId("current")).toHaveTextContent("track-2");
+      });
+
+      // Exactly ONE Audio element in memory, retargeted to track-2
+      expect(instances).toHaveLength(1);
+      expect(instances[0].src).toContain("track-2");
+    });
+  });
 });
+

@@ -16,9 +16,16 @@ pub struct BackendDiagnostic {
 pub fn backend_diagnostic(code: &str) -> BackendDiagnostic {
     let (stage, action, message_key) = match code {
         "runtime_not_ready" => ("runtime", "provision_or_repair", "runtime_not_ready"),
+        "data_root_inside_install" => (
+            "runtime",
+            "provision_or_repair",
+            "data_root_inside_install",
+        ),
         "backend_state_unavailable" => ("startup", "restart", "ipc_unavailable"),
         "backend_launch_failed" => ("launch", "retry", "backend_launch_failed"),
         "backend_ports_busy" => ("launch", "retry", "backend_ports_busy"),
+        "backend_foreign_instance" => ("launch", "retry", "backend_foreign_instance"),
+        "backend_exited" => ("runtime", "retry", "backend_exited"),
         _ => ("startup", "retry", "generic"),
     };
     BackendDiagnostic {
@@ -30,7 +37,12 @@ pub fn backend_diagnostic(code: &str) -> BackendDiagnostic {
 }
 
 pub fn classify_backend_error(error: &str) -> BackendDiagnostic {
-    if error.contains("runtime_not_ready") || error.contains("Provision or Repair") {
+    if error.contains("outside the application install directory") {
+        backend_diagnostic("data_root_inside_install")
+    } else if error.contains("runtime_not_ready")
+        || error.contains("Provision or Repair")
+        || error.contains("run Repair")
+    {
         backend_diagnostic("runtime_not_ready")
     } else if error.contains("both in use") {
         backend_diagnostic("backend_ports_busy")

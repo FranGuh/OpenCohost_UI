@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, NotFoundError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
+import { primaryLocale } from "./profiles.js";
 import type { AppEventMeta } from "../lib/appEvents.js";
 import { t } from "../i18n/t.js";
 
@@ -129,11 +130,13 @@ export interface CohostProfileSaveRequest {
   style: string;
   priority?: string;
   length?: string;
+  locale?: string;
 }
 
 /** POST /api/agenda/cohost-profiles/select body. */
 export interface CohostProfileSelectRequest {
   name: string;
+  locale?: string;
 }
 
 /** POST /api/agenda/cohost-profiles/select response — RAM-only apply, does
@@ -143,7 +146,22 @@ export interface CohostProfileSelectResponse {
   selected: string;
 }
 
+/**
+ * GET/PUT /api/agenda/progression — topic-progression deck variants toggle.
+ * ON by default; global (not per-locale), persisted server-side, applies
+ * without a restart. `variant` is the effective variant ("" when off) and
+ * `env_override` is true when OPENCOHOST_AGENDA_PROGRESSION is set, in which
+ * case the env var wins and `enabled` only records the stored choice.
+ * ponytail: keep in sync manually with opencohost/api/models.py.
+ */
+export interface AgendaProgressionResponse {
+  enabled: boolean;
+  variant: string;
+  env_override: boolean;
+}
+
 export const AGENDA_QUERY_KEY = ["agenda"] as const;
+export const AGENDA_PROGRESSION_QUERY_KEY = ["agenda-progression"] as const;
 export const COHOST_PROFILES_QUERY_KEY = ["cohost-profiles"] as const;
 
 /**
@@ -234,12 +252,43 @@ export async function postAgendaSessionAction(body: AgendaSessionActionRequest):
   return (await res.json()) as AgendaResponse;
 }
 
+export async function getAgendaProgression(): Promise<AgendaProgressionResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/api/agenda/progression`);
+  if (!res.ok) {
+    return parseAgendaError(res, `GET /api/agenda/progression failed with ${res.status}`);
+  }
+  return (await res.json()) as AgendaProgressionResponse;
+}
+
+export async function putAgendaProgression(body: { enabled: boolean }): Promise<AgendaProgressionResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/agenda/progression`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    return parseAgendaError(res, `PUT /api/agenda/progression failed with ${res.status}`);
+  }
+  return (await res.json()) as AgendaProgressionResponse;
+}
+
+function normalizeCohostLocale(locale?: string): string | undefined {
+  const trimmed = locale?.trim();
+  if (!trimmed) return undefined;
+  const primary = primaryLocale(trimmed);
+  return primary || undefined;
+}
+
 /**
  * GET /api/agenda/cohost-profiles — disk-only read, no host/agenda needed.
  * Falls back to 3 defaults server-side when the profiles file is absent.
  */
-export async function getCohostProfiles(): Promise<CohostProfilesResponse> {
-  const res = await fetch(`${getApiBaseUrl()}/api/agenda/cohost-profiles`);
+export async function getCohostProfiles(locale?: string): Promise<CohostProfilesResponse> {
+  const effectiveLocale = normalizeCohostLocale(locale);
+  const url = effectiveLocale
+    ? `${getApiBaseUrl()}/api/agenda/cohost-profiles?locale=${encodeURIComponent(effectiveLocale)}`
+    : `${getApiBaseUrl()}/api/agenda/cohost-profiles`;
+  const res = await fetch(url);
   if (!res.ok) {
     throw new ApiError(
       await extractAgendaDetail(res, `GET /api/agenda/cohost-profiles failed with ${res.status}`),
@@ -467,19 +516,45 @@ export function useAgendaSessionActionMutation() {
   }));
 }
 
-export function useCohostProfilesQuery() {
-  return useQuery({
-    queryKey: COHOST_PROFILES_QUERY_KEY,
-    queryFn: getCohostProfiles
+export function useAgendaProgressionQuery() {
+  return useQuery({ queryKey: AGENDA_PROGRESSION_QUERY_KEY, queryFn: getAgendaProgression });
+}
+
+export function useUpdateAgendaProgressionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: putAgendaProgression,
+    meta: { event: (v) => ({ source: "agenda", action: "progression", detail: (v as { enabled: boolean }).enabled ? "on" : "off" }) },
+    onSuccess: (data) => {
+      queryClient.setQueryData(AGENDA_PROGRESSION_QUERY_KEY, data);
+    }
   });
 }
 
-export function useSaveCohostProfileMutation() {
+export function useCohostProfilesQuery(locale?: string, options: { enabled?: boolean } = {}) {
+  const effectiveLocale = normalizeCohostLocale(locale);
+  return useQuery({
+    queryKey: effectiveLocale ? [...COHOST_PROFILES_QUERY_KEY, effectiveLocale] : COHOST_PROFILES_QUERY_KEY,
+    queryFn: () => getCohostProfiles(effectiveLocale),
+    enabled: options.enabled ?? true
+  });
+}
+
+export function useSaveCohostProfileMutation(locale?: string) {
   const queryClient = useQueryClient();
+  const effectiveLocale = normalizeCohostLocale(locale);
   return useMutation({
-    mutationFn: saveCohostProfile,
-    onSuccess: (data) => {
-      queryClient.setQueryData(COHOST_PROFILES_QUERY_KEY, data);
+    mutationFn: (body: CohostProfileSaveRequest) => {
+      const normalizedBodyLocale = normalizeCohostLocale(body.locale) ?? effectiveLocale;
+      return saveCohostProfile(normalizedBodyLocale ? { ...body, locale: normalizedBodyLocale } : body);
+    },
+    onSuccess: (data, variables) => {
+      const targetLocale = normalizeCohostLocale(variables.locale) ?? effectiveLocale;
+      if (targetLocale) {
+        queryClient.setQueryData([...COHOST_PROFILES_QUERY_KEY, targetLocale], data);
+      } else {
+        queryClient.setQueryData(COHOST_PROFILES_QUERY_KEY, data);
+      }
     }
   });
 }
@@ -490,10 +565,14 @@ export function useSaveCohostProfileMutation() {
  * select response itself carries no AgendaResponse, so invalidate (not
  * setQueryData) to pick up the new profile_style on next read.
  */
-export function useSelectCohostProfileMutation() {
+export function useSelectCohostProfileMutation(locale?: string) {
   const queryClient = useQueryClient();
+  const effectiveLocale = normalizeCohostLocale(locale);
   return useMutation({
-    mutationFn: selectCohostProfile,
+    mutationFn: (body: CohostProfileSelectRequest) => {
+      const normalizedBodyLocale = normalizeCohostLocale(body.locale) ?? effectiveLocale;
+      return selectCohostProfile(normalizedBodyLocale ? { ...body, locale: normalizedBodyLocale } : body);
+    },
     meta: { event: (v) => ({ source: "profile", action: "cohost-select", detail: (v as { name: string }).name }) },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: AGENDA_QUERY_KEY });

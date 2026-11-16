@@ -9,10 +9,11 @@ function makeHealth(overall_status: string): StatusResponse["health"] {
     vram_status: "ok",
     rtf_status: "ok",
     ollama_status: "ok",
-    qwen_status: "ok",
+    // RETIRED 2026-09-21 (Qwen3-TTS): production reports unavailable/stopped.
+    qwen_status: "unavailable",
     overall_status,
     ollama_lifecycle: "running",
-    qwen_lifecycle: "running",
+    qwen_lifecycle: "stopped",
     free_vram_mb: 4096,
     rtf_rolling_avg: 0.3,
     last_updated: 0,

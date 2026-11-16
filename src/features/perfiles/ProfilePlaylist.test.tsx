@@ -35,6 +35,27 @@ describe("ProfilePlaylist", () => {
     expect(screen.getByText("default")).toHaveClass("text-[var(--kira-cyan)]");
   });
 
+  it("marks the active row with plain quiet text (no chip) and an 'Otros perfiles' heading after it", async () => {
+    renderList();
+    await waitFor(() => expect(screen.getByText("Akira")).toBeInTheDocument());
+    expect(screen.getAllByText("Activo")).toHaveLength(1);
+    // Owner: no badge/dot, the same quiet status line style as other rows.
+    expect(screen.getByText("Activo").tagName).toBe("SPAN");
+    expect(screen.getByText("Activo")).toHaveClass("text-dim");
+    expect(screen.getByText("Otros perfiles")).toBeInTheDocument();
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("default");
+    expect(rows[0]).toHaveTextContent("Activo");
+    expect(rows[1]).toHaveTextContent("Akira");
+  });
+
+  it("lists the active profile first even when the backend returns it last", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/perfiles`, () => HttpResponse.json({ profiles: ["Akira", "default"] })));
+    renderList();
+    await waitFor(() => expect(screen.getByText("Akira")).toBeInTheDocument());
+    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("default");
+  });
+
   it("switches profile on row click (shared useProfileSwitch orchestration)", async () => {
     renderList();
     await waitFor(() => expect(screen.getByText("Akira")).toBeInTheDocument());

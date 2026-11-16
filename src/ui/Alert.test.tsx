@@ -20,13 +20,13 @@ describe("Alert", () => {
   it("renders an optional bold title above the body", () => {
     render(
       <Alert tone="info" title="Así se ve una alerta">
-        Elegí el estilo que más te acomode.
+        Elige el estilo que más te acomode.
       </Alert>
     );
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Así se ve una alerta");
-    expect(alert).toHaveTextContent("Elegí el estilo que más te acomode.");
+    expect(alert).toHaveTextContent("Elige el estilo que más te acomode.");
   });
 
   it("omits the title paragraph when no title is given", () => {

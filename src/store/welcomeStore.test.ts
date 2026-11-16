@@ -40,6 +40,17 @@ describe("welcomeStore", () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe("false");
   });
 
+  it("bumps a session-only reopen counter on every restore so the setup slot can reopen", async () => {
+    const { useWelcomeStore } = await loadStore();
+    const before = useWelcomeStore.getState().reopenSeq;
+
+    useWelcomeStore.getState().restore();
+    useWelcomeStore.getState().restore();
+
+    expect(useWelcomeStore.getState().reopenSeq).toBe(before + 2);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("false");
+  });
+
   it("exports one module-singleton store shared by every importer", async () => {
     const firstImport = await loadStore();
     const secondImport = await loadStore();

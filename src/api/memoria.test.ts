@@ -102,6 +102,31 @@ describe("useMemoriaStatsQuery", () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.data).toBeUndefined();
   });
+
+  it("respects enabled:false (prevents premature request) and fetches when enabled becomes true", async () => {
+    let calls = 0;
+    let capturedUrl: string | null = null;
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/stats`, ({ request }) => {
+        calls += 1;
+        capturedUrl = request.url;
+        return HttpResponse.json(defaultMemoriaStats);
+      })
+    );
+    const { result, rerender } = renderHook(
+      ({ profileId, enabled }: { profileId: string; enabled: boolean }) =>
+        useMemoriaStatsQuery(profileId, { enabled }),
+      { initialProps: { profileId: "", enabled: false }, wrapper: createWrapper() }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(calls).toBe(0);
+
+    rerender({ profileId: "profile-id-akira", enabled: true });
+    await waitFor(() => expect(result.current.data).toEqual(defaultMemoriaStats));
+    expect(calls).toBe(1);
+    expect(capturedUrl).toContain("profile_id=profile-id-akira");
+  });
 });
 
 describe("postMemoriaFlags", () => {

@@ -77,14 +77,41 @@ export type StatusResponse = GeneratedStatusResponse & {
 };
 export type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
 
+/**
+ * Mirrors opencohost/api/models.py::ModelReasoningConfig (T2,
+ * controls-cleanup-adaptive-reasoning-20260928). `budget_tokens: null` means
+ * Auto -- the adaptive budget engine decides the generation budget at
+ * request time from calibrated throughput/latency targets. A number is a
+ * REAL manual cap on that adaptive estimate (min(), never a floor or
+ * override) -- see `resolve_generation_budget` in
+ * opencohost/core/engine/llm_budget_engine.py.
+ */
 export interface ModelReasoningConfig {
   enabled: boolean;
-  budget_tokens: number;
+  budget_tokens: number | null;
+}
+
+/**
+ * Mirrors opencohost/api/models.py::ModelContextConfig (T2,
+ * model-context-auto-config-20260928). Describes the CURRENT/active model
+ * only — same single-model shape as ModelReasoningConfig above, not a
+ * per-installed-model dict (owner decision 2026-09-28).
+ * `native_context`/`effective_context` are read-only best-effort and degrade
+ * to `null` when not yet cached backend-side.
+ */
+export interface ModelContextConfig {
+  model: string;
+  context_tokens: number | null;
+  auto_context_tokens: number;
+  native_context: number | null;
+  effective_context: number | null;
+  policy: string;
 }
 
 export type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"] & {
   is_reasoning_active?: boolean;
   reasoning_config?: ModelReasoningConfig;
+  context_config?: ModelContextConfig;
 };
 
 export type LlmReadinessState =
@@ -116,10 +143,12 @@ export type LlmReadinessResponse = {
   };
   cloud: {
     configured: boolean;
-    validating: boolean;
+    validating?: boolean;
     selected_model?: string | null;
     error?: string | null;
     endpoint?: string;
+    provider_id?: string | null;
+    reachable?: boolean | null;
   };
   hardware: {
     gpu_name?: string | null;
@@ -127,12 +156,19 @@ export type LlmReadinessResponse = {
     free_vram_mb?: number | null;
     recommended_tier: string;
     recommended_model: string;
+    /** True when no GPU was detected (VRAM 0 / detection failure). Newer than older backends. */
+    cpu_only?: boolean;
+    /** Backend hardware recommendation (llm_readiness.get_hardware_guideline). */
+    recommended_tag?: string;
   };
 };
 type GeneratedTtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"];
 export type TtsConfigResponse = GeneratedTtsConfigResponse & {
   piper_available?: boolean;
+  /** Why Piper is unavailable; newer than older backends. */
+  piper_unavailable_reason?: "package_missing" | "voice_file_missing" | null;
   edge_tts_offline?: boolean;
+  discard_speech_residue?: boolean;
 };
 type GeneratedMemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
 /**
@@ -253,6 +289,40 @@ export interface LastReplyResponse {
   submitted_under_provider?: string | null;
   provider_changed_while_queued?: boolean | null;
   origin?: string | null;
+  fragments?: string[] | null;
+  is_streaming?: boolean | null;
+  web_searched?: boolean | null;
+  /** Real sources of a web answer (runtime-fixes-20261110 T5), built by the
+   * backend: at most 3, `https:` only. Hand-typed, like the fields above. */
+  web_sources?: WebSource[] | null;
+}
+
+/** One source of a web answer. The UI labels the chip from `url`, never `host`. */
+export interface WebSource {
+  host: string;
+  url: string;
+}
+
+/**
+ * `GET /api/chat/speech-progress`. `turn_id` is a vision-read token and must
+ * NOT be used for highlighting; `feed_turn_id` is the reply-feed turn (same id
+ * as `turn_id` in `/api/chat/last-reply`), null for read-aloud, vision
+ * readings, status lines and notices. `job_id` is monotonic per speech job,
+ * `fragment` is the exact TTS fragment playing now (= fragments[current_idx]).
+ * The four new fields are always present and nullable on current backends;
+ * optional here so older payloads still type-check.
+ * ponytail: keep in sync manually.
+ */
+export interface ChatSpeechProgressResponse {
+  speaking: boolean;
+  turn_id?: number | null;
+  current_idx: number | null;
+  played: number;
+  total: number;
+  feed_turn_id?: number | null;
+  job_id?: number | null;
+  source?: string | null;
+  fragment?: string | null;
 }
 
 /** Server-side whitelist mirrored from opencohost/api/main.py::_COMMAND_WHITELIST. */
@@ -262,6 +332,7 @@ export type EngineCommand =
   | "set_tts_speed"
   | "set_piper_voice"
   | "set_motor_tts"
+  | "set_discard_speech_residue"
   | "switch_model"
   | "switch_llm_tier";
 
@@ -299,6 +370,40 @@ export class ValidationError extends ApiError {
   constructor(detail: string) {
     super(detail, 422);
     this.name = "ValidationError";
+  }
+}
+
+/**
+ * A pasted-image turn that failed in the vision step. `code` is the backend's
+ * stable `vision_*` enum (opencohost/api/chat_image.py), never free text, so the
+ * UI can pick a message per cause. The backend queued nothing when this is thrown.
+ */
+export class ChatImageError extends ApiError {
+  readonly code: string;
+  /** Which image of the message failed (0-based `index` of `total`), when the
+   * backend says so. Counts only, never content. */
+  readonly failedImage: { index: number; total: number } | null;
+  constructor(code: string, status: number, failedImage: { index: number; total: number } | null = null) {
+    super(code, status);
+    this.name = "ChatImageError";
+    this.code = code;
+    this.failedImage = failedImage;
+  }
+}
+
+async function visionFailure(
+  res: Response
+): Promise<{ code: string; failedImage: { index: number; total: number } | null } | null> {
+  try {
+    const body = (await res.clone().json()) as { detail?: unknown; image_index?: unknown; image_total?: unknown };
+    if (typeof body.detail !== "string" || !/^vision_[a-z_]+$/.test(body.detail)) return null;
+    const failedImage =
+      Number.isInteger(body.image_index) && Number.isInteger(body.image_total)
+        ? { index: body.image_index as number, total: body.image_total as number }
+        : null;
+    return { code: body.detail, failedImage };
+  } catch {
+    return null;
   }
 }
 
@@ -362,8 +467,8 @@ export function rotateIdempotencyKey(target: string): void {
  * `src/lib/backendBootstrap.ts` at startup) and refreshed by `authFetch` on
  * a 401. `null` — the default, and the only possible state outside the
  * Tauri shell — means every mutating request goes out with no Authorization
- * header, exactly as it did before this track (owner decision D2:
- * enforcement stays default OFF).
+ * header (enforced by default since 2026-11-08, so the backend answers 401;
+ * the kill switch OPENCOHOST_API_AUTH=0 restores the old behavior).
  */
 let cachedApiToken: string | null = null;
 let tokenFetchPromise: Promise<string | null> | null = null;
@@ -419,9 +524,9 @@ function withAuthHeaders(init: RequestInit): RequestInit {
 }
 
 /**
- * `fetch` wrapper for mutating (`POST`/`PUT`/`DELETE`) calls to operator
+ * `fetch` wrapper for mutating calls and sensitive reads (memoria GETs) to operator
  * endpoints — attaches `Authorization: Bearer <token>` when a token is
- * cached, and none otherwise (D2: a missing token must never break the
+ * cached, and none otherwise (a missing token must never throw in the
  * call). On a 401 the caller may be racing the spawn-path token mint
  * (design risk "Token file appears AFTER Tauri probes") — refresh the
  * token once and retry the exact same request before handing the response
@@ -448,8 +553,11 @@ export async function getStatus(): Promise<StatusResponse> {
   return (await res.json()) as StatusResponse;
 }
 
-export async function getPerfiles(): Promise<ProfilesResponse> {
-  const res = await fetch(`${getApiBaseUrl()}/api/perfiles`);
+export async function getPerfiles(locale?: string): Promise<ProfilesResponse> {
+  const url = locale
+    ? `${getApiBaseUrl()}/api/perfiles?locale=${encodeURIComponent(locale)}`
+    : `${getApiBaseUrl()}/api/perfiles`;
+  const res = await fetch(url);
   if (!res.ok) {
     throw new ApiError(`GET /api/perfiles failed with ${res.status}`, res.status);
   }
@@ -501,12 +609,20 @@ export async function getModels(): Promise<ModelsResponse> {
   return (await res.json()) as ModelsResponse;
 }
 
+/**
+ * PUT /api/models/reasoning — `budget_tokens: null` explicitly clears a
+ * manual cap back to Auto (mirrors `updateModelContext`'s own
+ * null-clears-to-Auto convention). Omitting `budget_tokens` from the call
+ * entirely (as `handleToggleReasoning` never does, but a partial caller
+ * could) leaves it untouched server-side — the backend distinguishes
+ * "omitted" from "explicit null" via the JSON body, not this TS type.
+ */
 export async function updateModelReasoning(body: {
   enabled?: boolean;
-  budget_tokens?: number;
+  budget_tokens?: number | null;
   model?: string;
 }): Promise<ModelReasoningConfig> {
-  const res = await fetch(`${getApiBaseUrl()}/api/models/reasoning`, {
+  const res = await authFetch(`${getApiBaseUrl()}/api/models/reasoning`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -517,6 +633,27 @@ export async function updateModelReasoning(body: {
   return (await res.json()) as ModelReasoningConfig;
 }
 
+/**
+ * PUT /api/models/context — `context_tokens: null` clears back to Auto.
+ * Out-of-range values are silently clamped server-side (2048-131072), never
+ * a 422 (T2 contract). Applying to the ACTIVE model triggers a backend
+ * reload of that model.
+ */
+export async function updateModelContext(body: {
+  model: string;
+  context_tokens: number | null;
+}): Promise<ModelContextConfig> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/models/context`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new ApiError(`PUT /api/models/context failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ModelContextConfig;
+}
+
 export async function getLlmReadiness(): Promise<LlmReadinessResponse> {
   const res = await fetch(`${getApiBaseUrl()}/api/llm/readiness`);
   if (!res.ok) {
@@ -525,8 +662,8 @@ export async function getLlmReadiness(): Promise<LlmReadinessResponse> {
   return (await res.json()) as LlmReadinessResponse;
 }
 
-export async function getTtsConfig(): Promise<TtsConfigResponse> {
-  const res = await fetch(`${getApiBaseUrl()}/api/tts/config`);
+export async function getTtsConfig(options: { signal?: AbortSignal } = {}): Promise<TtsConfigResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/api/tts/config`, { cache: "no-store", signal: options.signal });
   if (!res.ok) {
     throw new ApiError(`GET /api/tts/config failed with ${res.status}`, res.status);
   }
@@ -541,7 +678,7 @@ export async function getTtsConfig(): Promise<TtsConfigResponse> {
  */
 export async function getMemoriaStats(profileId?: string): Promise<MemoriaStatsResponse> {
   const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : "";
-  const res = await fetch(`${getApiBaseUrl()}/api/memoria/stats${query}`);
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/stats${query}`);
   if (!res.ok) {
     throw new ApiError(`GET /api/memoria/stats failed with ${res.status}`, res.status);
   }
@@ -549,7 +686,7 @@ export async function getMemoriaStats(profileId?: string): Promise<MemoriaStatsR
 }
 
 export async function getMemoriaList(profileId: string): Promise<MemoriaListResponse> {
-  const res = await fetch(`${getApiBaseUrl()}/api/memoria/list?profile_id=${encodeURIComponent(profileId)}`);
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/list?profile_id=${encodeURIComponent(profileId)}`);
   if (!res.ok) {
     throw new ApiError(`GET /api/memoria/list failed with ${res.status}`, res.status);
   }
@@ -576,7 +713,8 @@ export async function postMemoriaPurge(profileId: string): Promise<MemoriaPurgeR
 export async function postCommand(
   command: EngineCommand,
   value: unknown,
-  idempotencyKey: string
+  idempotencyKey: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<CommandAccepted> {
   const payload = command === "clear_history" ? {} : { value };
   const res = await authFetch(`${getApiBaseUrl()}/api/commands`, {
@@ -585,7 +723,8 @@ export async function postCommand(
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey
     },
-    body: JSON.stringify({ command, payload })
+    body: JSON.stringify({ command, payload }),
+    signal: options.signal
   });
 
   if (res.status === 409) {
@@ -623,6 +762,28 @@ export async function getLastReply(): Promise<LastReplyResponse> {
 }
 
 /**
+ * `GET /api/chat/last-reply?turn_id=N` — same shape, for one of the last 20
+ * turns. A 404 (`turn_not_found`: aged out or unknown) resolves to null so the
+ * caller simply shows no highlight.
+ */
+export async function getLastReplyByTurn(turnId: number): Promise<LastReplyResponse | null> {
+  const res = await fetch(`${getApiBaseUrl()}/api/chat/last-reply?turn_id=${encodeURIComponent(String(turnId))}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new ApiError(`GET /api/chat/last-reply?turn_id failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as LastReplyResponse;
+}
+
+export async function getSpeechProgress(): Promise<ChatSpeechProgressResponse> {
+  const res = await fetch(`${getApiBaseUrl()}/api/chat/speech-progress`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/chat/speech-progress failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as ChatSpeechProgressResponse;
+}
+
+/**
  * How long a chat turn may stay in flight before the composer gives up.
  * `/api/chat/turn` is an ENQUEUE endpoint — it returns as soon as the command
  * is accepted, without waiting for Kira to think or speak — so a request still
@@ -637,6 +798,24 @@ export async function getLastReply(): Promise<LastReplyResponse> {
  * timeout in `fetch` would break those to defend a path they never broke on.
  */
 const CHAT_TURN_TIMEOUT_MS = 15_000;
+// An image turn is described BEFORE it is queued: one cold start of the vision
+// stack (waited once, opencohost/core/vision/controller.py DEFAULT_COLD_START_WAIT_S
+// = 40 s) plus one describe call per image at the largest deadline the setting
+// allows (30 s), plus 10 s of margin. One image: 10 + 40 + 30 = 80 s (as in T3).
+const CHAT_IMAGE_MARGIN_MS = 10_000;
+const CHAT_IMAGE_COLD_START_MS = 40_000;
+const CHAT_IMAGE_DESCRIBE_MS = 30_000;
+
+export function chatImageTurnTimeoutMs(imageCount: number): number {
+  if (imageCount <= 0) return CHAT_TURN_TIMEOUT_MS;
+  return CHAT_IMAGE_MARGIN_MS + CHAT_IMAGE_COLD_START_MS + imageCount * CHAT_IMAGE_DESCRIBE_MS;
+}
+
+/** One pasted image on a chat turn: raw base64 (no data-URL prefix) + mime type. */
+export interface ChatTurnImage {
+  data: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp";
+}
 
 /**
  * POST /api/chat/turn (R8): accepted-only — the response never carries
@@ -644,8 +823,19 @@ const CHAT_TURN_TIMEOUT_MS = 15_000;
  * poll). Same error-mapping shape as postCommand, plus a hard timeout so a
  * hung socket surfaces as a visible, retryable error instead of a dead button.
  */
-export async function postChatTurn(text: string, idempotencyKey: string): Promise<ChatTurnAccepted> {
+export async function postChatTurn(
+  text: string,
+  idempotencyKey: string,
+  image?: ChatTurnImage | readonly ChatTurnImage[]
+): Promise<ChatTurnAccepted> {
   let res: Response;
+  const images: readonly ChatTurnImage[] = image === undefined ? [] : "data" in image ? [image] : image;
+  // A pasted image is described by the vision model BEFORE the turn is queued.
+  // The backend waits up to 40 s for a cold vision stack (opencohost/core/vision/
+  // controller.py DEFAULT_COLD_START_WAIT_S) plus the describe deadline (setting,
+  // up to 30 s) for EACH image, so the request gets chatImageTurnTimeoutMs(n)
+  // instead of failing before the server does.
+  const timeoutMs = chatImageTurnTimeoutMs(images.length);
   try {
     res = await authFetch(`${getApiBaseUrl()}/api/chat/turn`, {
       method: "POST",
@@ -653,10 +843,14 @@ export async function postChatTurn(text: string, idempotencyKey: string): Promis
         "Content-Type": "application/json",
         "Idempotency-Key": idempotencyKey
       },
-      body: JSON.stringify({ text }),
+      // One image keeps the original `image` field (an older backend only knows
+      // that one); two or more go as a list, each described in its own call.
+      body: JSON.stringify(
+        images.length === 0 ? { text } : images.length === 1 ? { text, image: images[0] } : { text, images }
+      ),
       // AbortSignal.timeout budgets from creation, so a 401 retry inside
       // authFetch shares the same deadline instead of doubling it.
-      signal: AbortSignal.timeout(CHAT_TURN_TIMEOUT_MS)
+      signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (error) {
     // A timeout arrives as DOMException("TimeoutError"); its native message
@@ -664,7 +858,7 @@ export async function postChatTurn(text: string, idempotencyKey: string): Promis
     // can tell a hang apart from a refusal. Anything else (offline, DNS) keeps
     // its own message.
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new ApiError(`POST /api/chat/turn timed out after ${CHAT_TURN_TIMEOUT_MS / 1000}s`, 408);
+      throw new ApiError(`POST /api/chat/turn timed out after ${timeoutMs / 1000}s`, 408);
     }
     throw error;
   }
@@ -674,6 +868,10 @@ export async function postChatTurn(text: string, idempotencyKey: string): Promis
   }
   if (res.status === 429) {
     throw new QueueFullError("chat turn queue full");
+  }
+  if (images.length > 0 && !res.ok) {
+    const failure = await visionFailure(res);
+    if (failure) throw new ChatImageError(failure.code, res.status, failure.failedImage);
   }
   if (res.status === 422) {
     let detail = "invalid chat turn";

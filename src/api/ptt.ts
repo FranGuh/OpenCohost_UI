@@ -21,6 +21,15 @@ import { useAvatarLiveState } from "../store/avatarLiveStore.js";
  */
 export type PttLifecycleState = "idle" | "listening" | "flushing";
 
+/** What a released hold does with the words (ptt-dictation-20261111): send
+ * them as a turn (default), write them into the main window's composer while
+ * that window has focus, or always write them into the composer. */
+export type PttDictationMode = "send" | "foreground" | "always";
+
+/** Where a hold was made. Only the desktop companion tags itself: its holds
+ * count as background for the `foreground` dictation mode. */
+export type PttHoldOrigin = "companion";
+
 export interface PttStartResponse {
   session_id: string;
   state: PttLifecycleState;
@@ -45,6 +54,20 @@ export interface PttStateResponse {
    * server (liveaudio_url_config track). Read-only here — change it via
    * PUT /api/ptt/config below. Optional: older backends omit the field. */
   stt_ws_url?: string | null;
+  /** Global push-to-talk hotkey configured on the server. */
+  hotkey?: string;
+  /** Effective dictation mode. Optional: older backends omit it (= send). */
+  dictation_mode?: PttDictationMode;
+  /** Whether a desktop-companion hold dictates (in `always` mode) instead of
+   * always sending. Optional: older backends omit it (= false). */
+  companion_dictation?: boolean;
+}
+
+export interface PttConfigRequest {
+  stt_ws_uri?: string;
+  hotkey?: string;
+  dictation_mode?: PttDictationMode;
+  companion_dictation?: boolean;
 }
 
 /** PUT /api/ptt/config body/response (liveaudio_url_config track). Field is
@@ -52,6 +75,9 @@ export interface PttStateResponse {
  * (read side) — that mismatch is the pinned backend contract, not a typo. */
 export interface PttConfigResponse {
   stt_ws_uri: string;
+  hotkey?: string;
+  dictation_mode?: PttDictationMode;
+  companion_dictation?: boolean;
 }
 
 export interface PttTestResponse {
@@ -75,11 +101,12 @@ async function pttErrorDetail(res: Response, fallback: string): Promise<string> 
  * outcomes the hold gesture must render honestly (never a fake "listening"),
  * so both surface as a typed ApiError instead of being swallowed here.
  */
-export async function postPttStart(): Promise<PttStartResponse> {
+export async function postPttStart(origin?: PttHoldOrigin): Promise<PttStartResponse> {
   const res = await authFetch(`${getApiBaseUrl()}/api/ptt/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({})
+    // No origin keeps the exact pre-dictation body ({}).
+    body: JSON.stringify(origin ? { origin } : {})
   });
   if (!res.ok) {
     throw new ApiError(await pttErrorDetail(res, `POST /api/ptt/start failed with ${res.status}`), res.status);
@@ -123,6 +150,23 @@ export async function postPttStop(sessionId?: string): Promise<PttStopResponse> 
 }
 
 /**
+ * POST /api/ptt/focus (ptt-dictation-20261111) — the MAIN window reports
+ * whether it has focus, a boolean only. The backend keeps it in memory with a
+ * staleness bound; a missing or stale report means "background" (send).
+ */
+export async function postPttFocus(focused: boolean): Promise<{ ok: boolean }> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/ptt/focus`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ focused })
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST /api/ptt/focus failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as { ok: boolean };
+}
+
+/**
  * GET /api/ptt/state — open per auth rule 3 (non-mutating read). Polled only
  * while flushing (see usePttHold below); buffered_chars is a count, NEVER
  * the text.
@@ -140,14 +184,17 @@ export async function getPttState(): Promise<PttStateResponse> {
  * 422 (bad scheme: server only accepts ws:// or wss://) carries a specific
  * reason and must render honestly, never a generic failure.
  */
-export async function putPttConfig(sttWsUri: string): Promise<PttConfigResponse> {
+export async function putPttConfig(
+  input: string | PttConfigRequest
+): Promise<PttConfigResponse> {
+  const body = typeof input === "string" ? { stt_ws_uri: input } : input;
   const res = await authFetch(`${getApiBaseUrl()}/api/ptt/config`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stt_ws_uri: sttWsUri })
+    body: JSON.stringify(body)
   });
   if (res.status === 422) {
-    throw new ValidationError(await pttErrorDetail(res, "invalid stt_ws_uri"));
+    throw new ValidationError(await pttErrorDetail(res, "invalid config"));
   }
   if (!res.ok) {
     throw new ApiError(`PUT /api/ptt/config failed with ${res.status}`, res.status);
@@ -190,9 +237,18 @@ export function useUpdatePttConfigMutation() {
       // Field-name mismatch is the pinned contract (uri here, url on GET) —
       // map explicitly rather than spreading the response into the cache.
       queryClient.setQueryData<PttStateResponse>(PTT_STATE_QUERY_KEY, (old) =>
-        old ? { ...old, stt_ws_url: data.stt_ws_uri } : old
+        old
+          ? {
+              ...old,
+              stt_ws_url: data.stt_ws_uri ?? old.stt_ws_url,
+              hotkey: data.hotkey ?? old.hotkey,
+              dictation_mode: data.dictation_mode ?? old.dictation_mode,
+              companion_dictation: data.companion_dictation ?? old.companion_dictation
+            }
+          : old
       );
-    }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: PTT_STATE_QUERY_KEY })
   });
 }
 
@@ -239,6 +295,43 @@ export function usePttServerSignal(): void {
   }, [listening, query.dataUpdatedAt]);
 }
 
+/** Focus re-report cadence; the backend treats a report older than 6 s as
+ * unknown (= background), so a live focused window must beat well inside it. */
+export const PTT_FOCUS_HEARTBEAT_MS = 2000;
+
+/**
+ * Main-window focus reporter for the `foreground` dictation mode. Mount ONCE,
+ * in the main window only (EventBridge): the desktop companion is a separate
+ * webview that never mounts it, so it can never claim "main window focused".
+ * Silent in every other mode — no request at all.
+ */
+export function usePttFocusReporter(): void {
+  const { data } = usePttStateQuery();
+  const mode = data?.dictation_mode;
+  useEffect(() => {
+    if (mode !== "foreground") return;
+    const send = (focused: boolean) => {
+      void postPttFocus(focused).catch(() => {
+        // Best effort: a lost report goes stale, and stale means "send".
+      });
+    };
+    const current = () => send(document.visibilityState !== "hidden" && document.hasFocus());
+    const onFocus = () => send(true);
+    const onBlur = () => send(false);
+    current();
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", current);
+    const timer = setInterval(current, PTT_FOCUS_HEARTBEAT_MS);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", current);
+    };
+  }, [mode]);
+}
+
 const KEEPALIVE_MS = 1000;
 const PTT_FLUSH_POLL_QUERY_KEY = ["ptt-flush-poll"] as const;
 
@@ -266,7 +359,8 @@ export interface UsePttHoldResult {
  * below) converges on the same "stop whatever is open, go idle" routine —
  * never leaves a session conceptually open.
  */
-export function usePttHold(): UsePttHoldResult {
+export function usePttHold(options?: { origin?: PttHoldOrigin }): UsePttHoldResult {
+  const origin = options?.origin;
   const [state, setState] = useState<PttUiState>("idle");
   const [error, setError] = useState<PttErrorCode | null>(null);
   const stateRef = useRef<PttUiState>("idle");
@@ -310,7 +404,29 @@ export function usePttHold(): UsePttHoldResult {
   // see src/api/events.ts + the ptt.* toast exception in appEvents.ts). The old
   // mutation-meta path double-emitted alongside that echo, and left the
   // external F10 bridge (server events only) invisible.
-  const startMutation = useMutation({ mutationFn: postPttStart });
+  const startMutation = useMutation({
+    mutationFn: () => postPttStart(origin),
+    onSuccess: (data) => {
+      if (stateRef.current !== "connecting" || !mountedRef.current) {
+        // stop() (or unmount) already fired while start() was still in
+        // flight (a very fast tap) — don't resurrect a session nobody is
+        // holding; cut it immediately instead of waiting out the server's
+        // 8s keepalive watchdog.
+        void postPttStop(data.session_id);
+        return;
+      }
+      sessionIdRef.current = data.session_id;
+      setUiState("listening");
+      beginKeepalive(data.session_id);
+    },
+    onError: (err: unknown) => {
+      setUiState("idle");
+      if (mountedRef.current) {
+        setError(err instanceof ApiError && err.status === 503 ? "stt_unreachable" : "start_failed");
+      }
+      emitAppEvent({ source: "ptt", action: "error" });
+    }
+  });
   const stopMutation = useMutation({
     mutationFn: (sessionId: string | undefined) => postPttStop(sessionId)
   });
@@ -347,37 +463,24 @@ export function usePttHold(): UsePttHoldResult {
     if (stateRef.current !== "idle") return; // guard: pointerdown + keydown can both fire for one press
     setError(null);
     setUiState("connecting");
-    startMutation.mutate(undefined, {
-      onSuccess: (data) => {
-        if (stateRef.current !== "connecting") {
-          // stop() (or unmount) already fired while start() was still in
-          // flight (a very fast tap) — don't resurrect a session nobody is
-          // holding; cut it immediately instead of waiting out the server's
-          // 8s keepalive watchdog.
-          void postPttStop(data.session_id);
-          return;
-        }
-        sessionIdRef.current = data.session_id;
-        setUiState("listening");
-        beginKeepalive(data.session_id);
-      },
-      onError: (err: unknown) => {
-        setUiState("idle");
-        if (mountedRef.current) {
-          setError(err instanceof ApiError && err.status === 503 ? "stt_unreachable" : "start_failed");
-        }
-        emitAppEvent({ source: "ptt", action: "error" });
-      }
-    });
-  }, [beginKeepalive, setUiState, startMutation]);
+    startMutation.mutate(undefined);
+  }, [setUiState, startMutation]);
 
   const stop = useCallback(() => {
     if (stateRef.current !== "listening" && stateRef.current !== "connecting") return;
     clearKeepalive();
-    const sessionId = sessionIdRef.current ?? undefined;
+    const sessionId = sessionIdRef.current;
     sessionIdRef.current = null;
+    const wasConnecting = stateRef.current === "connecting";
     setUiState("flushing");
-    stopMutation.mutate(sessionId);
+    if (wasConnecting) {
+      // In pending-start cancellation, mark the intent canceled without calling
+      // postPttStop(undefined); its existing late-success path will stop only data.session_id.
+      return;
+    }
+    if (sessionId) {
+      stopMutation.mutate(sessionId);
+    }
   }, [clearKeepalive, setUiState, stopMutation]);
 
   // Poll GET /api/ptt/state at 1s while flushing (not holding) — the client
@@ -405,8 +508,10 @@ export function usePttHold(): UsePttHoldResult {
     return () => {
       mountedRef.current = false;
       clearKeepalive();
-      if (stateRef.current === "listening" || stateRef.current === "connecting") {
-        void postPttStop(sessionIdRef.current ?? undefined);
+      const sessionId = sessionIdRef.current;
+      sessionIdRef.current = null;
+      if (sessionId) {
+        void postPttStop(sessionId);
       }
     };
   }, [clearKeepalive]);

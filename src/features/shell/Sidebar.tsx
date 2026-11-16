@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent as ReactFocusEvent, PointerEvent as ReactPointerEvent } from "react";
-import { Info, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  Brain,
+  CalendarDays,
+  Info,
+  MessagesSquare,
+  Music,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Radio,
+  SlidersHorizontal
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { ProfilePlaylist } from "../perfiles/ProfilePlaylist.js";
 import { usePerfilDetailQuery } from "../../api/profiles.js";
 import { useProfileSwitchContext } from "../../api/useProfileSwitch.js";
@@ -11,19 +22,19 @@ export type Section = "experiencia" | "controles" | "agenda" | "stream" | "music
 
 interface NavItem {
   id: Section;
-  icon: string;
+  icon: LucideIcon;
   labelKey: TKey;
 }
 
 // Flat, honest nav — every entry here is real and wired. Owner edits this
 // array to add/reorder/remove sections; no inert placeholders live here.
 const NAV_ITEMS: readonly NavItem[] = [
-  { id: "experiencia", icon: "◈", labelKey: "shell.nav.experiencia" },
-  { id: "agenda", icon: "▤", labelKey: "shell.nav.agenda" },
-  { id: "stream", icon: "◉", labelKey: "shell.nav.stream" },
-  { id: "musica", icon: "♪", labelKey: "shell.nav.musica" },
-  { id: "memoria", icon: "◆", labelKey: "shell.nav.memoria" },
-  { id: "controles", icon: "⚙", labelKey: "shell.nav.controles" }
+  { id: "experiencia", icon: MessagesSquare, labelKey: "shell.nav.experiencia" },
+  { id: "agenda", icon: CalendarDays, labelKey: "shell.nav.agenda" },
+  { id: "stream", icon: Radio, labelKey: "shell.nav.stream" },
+  { id: "musica", icon: Music, labelKey: "shell.nav.musica" },
+  { id: "memoria", icon: Brain, labelKey: "shell.nav.memoria" },
+  { id: "controles", icon: SlidersHorizontal, labelKey: "shell.nav.controles" }
 ];
 
 // Hover dwell before the profile preview card appears. Keyboard focus shows it
@@ -79,6 +90,7 @@ function useAnchoredCard<T>(onHidden?: () => void) {
   // JSX handlers) while still calling the caller's freshest cleanup.
   const onHiddenRef = useRef(onHidden);
   onHiddenRef.current = onHidden;
+  const lastClampedRef = useRef<{ cardTop: number; height: number } | null>(null);
 
   const cancelDwell = useCallback(() => {
     if (dwellRef.current) {
@@ -97,6 +109,8 @@ function useAnchoredCard<T>(onHidden?: () => void) {
         clearTimeout(closeRef.current);
         closeRef.current = null;
       }
+      lastClampedRef.current = null;
+      setClampedTop(null);
       const rect = el.getBoundingClientRect();
       setCard({ data, left: rect.right + 8, top: rect.top, closing: false });
     },
@@ -114,7 +128,9 @@ function useAnchoredCard<T>(onHidden?: () => void) {
     closeRef.current = setTimeout(() => {
       closeRef.current = null;
       onHiddenRef.current?.();
+      lastClampedRef.current = null;
       setCard(null);
+      setClampedTop(null);
     }, CLOSE_FADE_MS);
   }, [cancelDwell]);
 
@@ -165,9 +181,18 @@ function useAnchoredCard<T>(onHidden?: () => void) {
   // bails on an unchanged value, so a stable height settles in one pass instead
   // of looping.
   useLayoutEffect(() => {
-    if (!card || !cardRef.current) return;
+    if (!card || !cardRef.current) {
+      lastClampedRef.current = null;
+      return;
+    }
     const height = cardRef.current.offsetHeight;
-    setClampedTop(Math.min(card.top, window.innerHeight - height - 8));
+    const prev = lastClampedRef.current;
+    if (prev && Math.abs(prev.cardTop - card.top) <= 1 && Math.abs(prev.height - height) <= 2) {
+      return;
+    }
+    lastClampedRef.current = { cardTop: card.top, height };
+    const target = Math.round(Math.min(card.top, window.innerHeight - height - 8));
+    setClampedTop((current) => (current !== null && Math.abs(current - target) <= 2 ? current : target));
   });
 
   return { card, clampedTop, cardRef, openNow, openAfterDwell, hide, cancelDwell };
@@ -265,9 +290,16 @@ function ProfilesRegion({ collapsed }: { collapsed: boolean }) {
           id={cardId}
           ref={cardRef}
           role="tooltip"
-          style={{ position: "fixed", left: preview.left, top: clampedTop ?? preview.top }}
+          style={{
+            position: "fixed",
+            left: preview.left,
+            top: clampedTop ?? preview.top,
+            backgroundColor: "var(--surface-2)",
+            backdropFilter: "var(--surface-blur)",
+            WebkitBackdropFilter: "var(--surface-blur)",
+          }}
           className={cn(
-            "z-50 max-h-[calc(100vh-16px)] w-64 overflow-y-auto rounded-md border border-border-soft bg-card p-3 shadow-panel transition-opacity duration-base ease-io",
+            "z-50 max-h-[calc(100vh-16px)] w-64 overflow-y-auto rounded-md border border-border-soft bg-surface-2 p-3 shadow-panel backdrop-blur-md transition-opacity duration-base ease-io",
             // Entry rises + fades in; exit swaps the one-shot animation for a
             // plain opacity transition so it fades out before unmount (§3b).
             preview.closing ? "opacity-0" : "animate-rise-in opacity-100"
@@ -326,6 +358,7 @@ function NavRail({
       {NAV_ITEMS.map((item) => {
         const isActive = item.id === activeSection;
         const label = t(item.labelKey);
+        const Icon = item.icon;
         return (
           <button
             key={item.id}
@@ -351,7 +384,7 @@ function NavRail({
               isActive && "bg-ok-bg text-[var(--kira-cyan)]"
             )}
           >
-            <span aria-hidden="true">{item.icon}</span>
+            <Icon size={18} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />
             {!collapsed && label}
           </button>
         );
@@ -363,9 +396,16 @@ function NavRail({
         <div
           ref={cardRef}
           aria-hidden="true"
-          style={{ position: "fixed", left: card.left, top: clampedTop ?? card.top }}
+          style={{
+            position: "fixed",
+            left: card.left,
+            top: clampedTop ?? card.top,
+            backgroundColor: "var(--surface-2)",
+            backdropFilter: "var(--surface-blur)",
+            WebkitBackdropFilter: "var(--surface-blur)",
+          }}
           className={cn(
-            "pointer-events-none z-50 w-max max-w-[200px] rounded-md border border-border-soft bg-card px-2.5 py-1.5 text-sm font-semibold text-foreground shadow-panel transition-opacity duration-base ease-io",
+            "pointer-events-none z-50 w-max max-w-[200px] rounded-md border border-border-soft bg-surface-2 px-2.5 py-1.5 text-sm font-semibold text-foreground shadow-panel backdrop-blur-md transition-opacity duration-base ease-io",
             card.closing ? "opacity-0" : "animate-rise-in opacity-100"
           )}
         >

@@ -3,6 +3,7 @@ import { BackendGate } from "./features/shell/BackendGate.js";
 import { EventBridge } from "./features/shell/EventBridge.js";
 import { FirstRunGate } from "./features/shell/FirstRunGate.js";
 import { TitleBar } from "./features/shell/TitleBar.js";
+import { UpdateNotice } from "./features/shell/UpdateNotice.js";
 import { ToastProvider } from "./ui/Toast.js";
 
 export function App() {
@@ -19,6 +20,7 @@ export function App() {
         <div className="oc-app-body">
           <BackendGate runtimeSetup={(onReady, backendError) => <FirstRunGate onReady={onReady} backendError={backendError} />}>
             <EventBridge />
+            <UpdateNotice />
             <AppLayout />
           </BackendGate>
         </div>

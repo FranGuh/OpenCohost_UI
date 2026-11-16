@@ -42,13 +42,23 @@ const POLL_MS = 1000;
 const ANTILOOP_RE = /\b(.+?)(?:\s+\1\b){2,}/gi;
 const MAX_CHARS = 2000;
 const MIN_WORDS = 2;
+// The webview opens its socket up to one state poll (POLL_MS) after the hold
+// began, so this hold's first cue may predate the socket by about that much.
+const REPLAY_SLACK_SEC = 1.5;
 
 /**
  * Fold one raw WS frame into the running buffer. Frames without a non-empty
  * `text` field (the `hello` handshake, `theme` pushes, malformed JSON) are
  * ignored — identical to PttSession._ingest, which only ever reads `.text`.
+ * Frames with `is_replay === true` are either LiveAudio's late-joiner replay
+ * burst (the previous hold's cues) or a delayed LIVE cue (LiveAudio flags any
+ * cue older than 1 s under its auto backlog policy, e.g. slow CPU ASR). Same
+ * rule as PttSession._ingest: a flagged cue whose `created_at` (epoch seconds)
+ * is at or after `connectedAtSec` minus REPLAY_SLACK_SEC is this hold's speech
+ * and is kept; older ones, or any without `created_at`, are dropped. Frames
+ * without the field are kept.
  */
-export function appendSegment(buffer: string, raw: unknown): string {
+export function appendSegment(buffer: string, raw: unknown, connectedAtSec = 0): string {
   if (typeof raw !== "string") return buffer;
   let data: unknown;
   try {
@@ -57,6 +67,12 @@ export function appendSegment(buffer: string, raw: unknown): string {
     return buffer;
   }
   if (data === null || typeof data !== "object") return buffer;
+  if ((data as { is_replay?: unknown }).is_replay === true) {
+    const createdAt = (data as { created_at?: unknown }).created_at;
+    const ownHold =
+      typeof createdAt === "number" && connectedAtSec > 0 && createdAt >= connectedAtSec - REPLAY_SLACK_SEC;
+    if (!ownHold) return buffer;
+  }
   const rawText = (data as { text?: unknown }).text;
   if (typeof rawText !== "string") return buffer;
   const cleaned = rawText.trim().replace(ANTILOOP_RE, "$1").trim();
@@ -73,15 +89,57 @@ export function finalizeTranscript(buffer: string): string {
   return text.split(/\s+/).filter(Boolean).length >= MIN_WORDS ? text : "";
 }
 
-/** Newest server `ptt.*` echo timestamp sitting in the app-event store, or 0
- * when none has been polled yet. Those echoes (`ptt.started`/`ptt.stopped`,
- * carried with their REAL server ts by src/api/events.ts) are the ONLY
- * server-clock reading the voice channel can get — the words themselves never
- * cross the HTTP API. */
+/** ptt.* rows in the app-event store (server echoes carry their REAL server ts;
+ * the words themselves never cross the HTTP API). */
+function pttEvents() {
+  return useEventStore.getState().events.filter((event) => event.source === "ptt");
+}
+
+/** Hold outcomes: they land AFTER the hold (and possibly after Kira's own
+ * reply ts), so they are never borrowed as a bubble's clock. `dictation_lost`
+ * is this window's own notice row (ptt-dictation-20261111). */
+const OUTCOME_ACTIONS = new Set(["flushed", "empty", "dictated", "dictation_lost"]);
+
+/** Newest server `ptt.*` timestamp usable as a sort key: started/stopped only. */
 function newestPttTs(): number {
-  return useEventStore
-    .getState()
-    .events.reduce((newest, event) => (event.source === "ptt" && event.ts > newest ? event.ts : newest), 0);
+  return pttEvents().reduce(
+    (newest, event) => (!OUTCOME_ACTIONS.has(event.action ?? "") && event.ts > newest ? event.ts : newest),
+    0
+  );
+}
+
+/** How long a finished hold's text may wait for the backend's verdict
+ * (`ptt.flushed` / `ptt.empty`, which ride the 1.5s events poll after the
+ * backend's 1.2s grace) before it is dropped as unconfirmed. */
+const OUTCOME_TIMEOUT_MS = 15_000;
+
+type Verdict = { action: "flushed" | "empty" | "dictated"; id: string };
+
+/** This hold's verdict, or null while it is still unknown. The outcome must be
+ * newer than the hold's own `ptt.stopped` when that row is known, else newer
+ * than the rising-edge baseline — a previous hold's late `flushed` is older
+ * than this hold's `stopped`, so it can never confirm this hold. */
+function outcomeSince(baseline: number): Verdict | null {
+  const events = pttEvents().filter((e) => e.ts > baseline);
+  const stopped = events.filter((e) => e.action === "stopped").reduce((n, e) => Math.max(n, e.ts), 0);
+  const floor = stopped > 0 ? stopped : baseline;
+  const verdict = events
+    .filter((e) => (e.action === "flushed" || e.action === "empty" || e.action === "dictated") && e.ts > floor)
+    .sort((x, y) => x.ts - y.ts)[0];
+  return verdict ? { action: verdict.action as Verdict["action"], id: verdict.id } : null;
+}
+
+/**
+ * Dictation mode (ptt-dictation-20261111). The backend skipped the turn and
+ * emitted `ptt.dictated`; this window owns the only copy of the words.
+ * `onDictated` gets this hold's final text (it is NEVER committed as a sent
+ * turn). `onDictationLost` fires when the backend dictated but this window
+ * has no usable text (no socket, a failed one, under two words, a hold it
+ * never observed) — the caller must show it, never drop silently.
+ */
+export interface DictationHandlers {
+  onDictated: (text: string) => void;
+  onDictationLost: () => void;
 }
 
 /**
@@ -108,9 +166,64 @@ function newestPttTs(): number {
  * id (appEvents.ts drops `detail` for every ptt.* label), so nothing client-side
  * can bind a row to a hold.
  */
-export function useLiveTranscript(onTranscript: (text: string, pttStamp: number) => void): void {
+export function useLiveTranscript(
+  onTranscript: (text: string, pttStamp: number) => void,
+  onPending?: (text: string | null) => void,
+  dictation?: DictationHandlers
+): void {
   const callbackRef = useRef(onTranscript);
   callbackRef.current = onTranscript;
+  const pendingCbRef = useRef(onPending);
+  pendingCbRef.current = onPending;
+  const dictationRef = useRef(dictation);
+  dictationRef.current = dictation;
+  // `ptt.dictated` rows already answered (consumed by a hold or reported lost).
+  const handledDictatedRef = useRef(new Set<string>());
+  // Rows older than this mount are backfill from before this window existed.
+  const mountedAtRef = useRef(Date.now());
+  // A finished hold's text waiting for the backend verdict (see commit rules).
+  const awaitingRef = useRef<{ text: string; baseline: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const settle = (verdict: "commit" | "drop" | "dictate") => {
+    const waiting = awaitingRef.current;
+    if (!waiting) return;
+    clearTimeout(waiting.timer);
+    awaitingRef.current = null;
+    pendingCbRef.current?.(null);
+    if (verdict === "commit" && waiting.text) {
+      const newest = newestPttTs();
+      callbackRef.current(waiting.text, newest > waiting.baseline ? newest : 0);
+    } else if (verdict === "dictate") {
+      const handlers = dictationRef.current;
+      if (!handlers) return; // no composer to write into: dropped, as before
+      if (waiting.text) handlers.onDictated(waiting.text);
+      else handlers.onDictationLost();
+    }
+  };
+  const checkOutcome = () => {
+    const waiting = awaitingRef.current;
+    if (!waiting) return;
+    const outcome = outcomeSince(waiting.baseline);
+    if (!outcome) return;
+    if (outcome.action === "dictated") handledDictatedRef.current.add(outcome.id);
+    if (outcome.action === "flushed") settle("commit");
+    else if (outcome.action === "empty") settle("drop");
+    else settle("dictate");
+  };
+  // A `ptt.dictated` row with no hold of this window to answer it: the state
+  // poll never saw that hold, or the hold's text was superseded. Its words
+  // exist nowhere now, so say so (once per row).
+  const checkOrphanDictation = () => {
+    const handlers = dictationRef.current;
+    if (!handlers || attemptedRef.current || awaitingRef.current) return;
+    const handled = handledDictatedRef.current;
+    const orphan = pttEvents().find(
+      (e) => e.action === "dictated" && e.ts > mountedAtRef.current && !handled.has(e.id)
+    );
+    if (!orphan) return;
+    handled.add(orphan.id);
+    handlers.onDictationLost();
+  };
   const wsRef = useRef<{ close: () => void } | null>(null);
   const bufferRef = useRef("");
   // True once a connect attempt for the CURRENT hold happened (even a failed
@@ -144,12 +257,16 @@ export function useLiveTranscript(onTranscript: (text: string, pttStamp: number)
     if (active && !attemptedRef.current) {
       attemptedRef.current = true;
       bufferRef.current = "";
+      settle("drop"); // a newer hold supersedes an unconfirmed older one
       pttBaselineRef.current = newestPttTs(); // rising edge: this hold's baseline
       if (!wsUrl) return; // older backend / no URL — degrade silently, no echo
       try {
+        const connectedAtSec = Date.now() / 1000;
         const ws = new WebSocket(wsUrl);
         ws.onmessage = (event: MessageEvent) => {
-          bufferRef.current = appendSegment(bufferRef.current, event.data);
+          bufferRef.current = appendSegment(bufferRef.current, event.data, connectedAtSec);
+          // Live text is only PENDING: it has not reached Kira until the backend says so.
+          pendingCbRef.current?.(finalizeTranscript(bufferRef.current) || null);
         };
         // No mid-hold reconnect (matches PttSession: deliver what was heard).
         // wsRef stays set so this hold never dials again; onerror/onclose are
@@ -160,20 +277,48 @@ export function useLiveTranscript(onTranscript: (text: string, pttStamp: number)
       }
     } else if (!active && attemptedRef.current) {
       const text = finalizeTranscript(bufferRef.current);
-      const newest = newestPttTs();
+      const baseline = pttBaselineRef.current;
       bufferRef.current = "";
       attemptedRef.current = false;
       wsRef.current?.close();
       wsRef.current = null;
-      if (text) callbackRef.current(text, newest > pttBaselineRef.current ? newest : 0);
+      if (!text) {
+        pendingCbRef.current?.(null);
+        if (dictationRef.current) {
+          // Nothing to show or commit, but a `dictated` verdict for this hold
+          // means the words are lost: wait for the verdict so it can be told.
+          awaitingRef.current = { text: "", baseline, timer: setTimeout(() => settle("drop"), OUTCOME_TIMEOUT_MS) };
+          checkOutcome();
+        }
+      } else {
+        // Do NOT echo yet: the final transcript may never reach Kira (the
+        // backend drops under-two-word holds, flush dispatch can fail). Keep it
+        // pending until `ptt.flushed`; `ptt.empty` or the timeout discards it.
+        awaitingRef.current = { text, baseline, timer: setTimeout(() => settle("drop"), OUTCOME_TIMEOUT_MS) };
+        pendingCbRef.current?.(text);
+        checkOutcome();
+      }
     }
   }, [active, wsUrl]);
+
+  // The verdict rides the events poll, independent of the state poll above.
+  useEffect(
+    () =>
+      useEventStore.subscribe(() => {
+        checkOutcome();
+        checkOrphanDictation();
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   // Unmount: close quietly, no echo — nobody is left to render it.
   useEffect(
     () => () => {
       wsRef.current?.close();
       wsRef.current = null;
+      if (awaitingRef.current) clearTimeout(awaitingRef.current.timer);
+      awaitingRef.current = null;
     },
     []
   );

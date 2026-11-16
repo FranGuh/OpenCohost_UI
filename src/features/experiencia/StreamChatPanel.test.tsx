@@ -65,7 +65,7 @@ describe("StreamChatPanel — four states + break dividers", () => {
   it("shows the forbidden state on a 403 from the messages poll (no operator token)", async () => {
     server.use(connectedChatLiveHandler(), streamChatMessagesForbiddenHandler());
     renderPanel();
-    await waitFor(() => expect(screen.getByText(/No podés leer el chat desde acá/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/No puedes leer el chat desde aquí/)).toBeInTheDocument());
   });
 
   it("renders a quiet engine-restart divider once a boot change resets the store", async () => {
@@ -360,7 +360,7 @@ describe("StreamChatPanel — non-403 poll failure (Fix 7)", () => {
     await waitFor(() => expect(screen.getByText(/no se está actualizando/)).toBeInTheDocument(), { timeout: 5000 });
     expect(screen.getByText("última fila viva")).toBeInTheDocument();
     // A 503 is not a permissions problem.
-    expect(screen.queryByText(/No podés leer el chat desde acá/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No puedes leer el chat desde aquí/)).not.toBeInTheDocument();
   });
 });
 

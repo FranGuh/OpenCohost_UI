@@ -6,10 +6,16 @@ import { controlesEs } from "./bundles/controles.es.js";
 import { controlesEn } from "./bundles/controles.en.js";
 import { experienciaEs } from "./bundles/experiencia.es.js";
 import { experienciaEn } from "./bundles/experiencia.en.js";
+import { modelsEs } from "./bundles/models.es.js";
+import { modelsEn } from "./bundles/models.en.js";
 import { musicaEs } from "./bundles/musica.es.js";
 import { musicaEn } from "./bundles/musica.en.js";
 import { perfilesEs } from "./bundles/perfiles.es.js";
 import { perfilesEn } from "./bundles/perfiles.en.js";
+import { remoteEs } from "./bundles/remote.es.js";
+import { remoteEn } from "./bundles/remote.en.js";
+import { setupEs } from "./bundles/setup.es.js";
+import { setupEn } from "./bundles/setup.en.js";
 import { shellEs } from "./bundles/shell.es.js";
 import { shellEn } from "./bundles/shell.en.js";
 import { streamEs } from "./bundles/stream.es.js";
@@ -22,8 +28,11 @@ export const ES = {
   ...commandsEs,
   ...controlesEs,
   ...experienciaEs,
+  ...modelsEs,
   ...musicaEs,
   ...perfilesEs,
+  ...remoteEs,
+  ...setupEs,
   ...shellEs,
   ...streamEs,
   ...uiEs
@@ -34,8 +43,11 @@ export const EN: Record<keyof typeof ES, string> = {
   ...commandsEn,
   ...controlesEn,
   ...experienciaEn,
+  ...modelsEn,
   ...musicaEn,
   ...perfilesEn,
+  ...remoteEn,
+  ...setupEn,
   ...shellEn,
   ...streamEn,
   ...uiEn

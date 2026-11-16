@@ -1,18 +1,32 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { Card } from "../../ui/Card.js";
 import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
 import { ConfirmFooter, ConfirmToggle } from "../../ui/ConfirmFooter.js";
 import { Dialog } from "../../ui/Dialog.js";
+import { Select } from "../../ui/Select.js";
+import { Switch } from "../../ui/Switch.js";
 import {
+  primaryLocale,
+  type ProfileCreateRequest,
   type ProfileUpdateRequest,
   useCreateProfileMutation,
   useDeleteProfileMutation,
+  useSwitchProfileMutation,
+  PROFILE_OWNER_GENDERS,
+  PROFILE_WARMTHS,
+  type ProfileOwnerGender,
+  type ProfileWarmth,
   useProfileDetailQuery,
   useUpdateProfileMutation
 } from "../../api/profiles.js";
+import { getI18nState } from "../../api/i18n.js";
+import { STATUS_QUERY_KEY } from "../../api/status.js";
+import type { StatusResponse } from "../../api/client.js";
 import { useMemoriaPurgeMutation } from "../../api/memoria.js";
+import { useUiLocale } from "../../i18n/locale.js";
 import { useT, type TKey } from "../../i18n/t.js";
 
 export type ProfileEditorMode = "create" | "edit";
@@ -42,17 +56,28 @@ const SAVE_BUTTON_CLASS =
  * real CRUD routes (opencohost/api/main.py ~606-702): POST/PUT/GET/DELETE
  * /api/perfiles(/{name}). Edit mode hydrates the prompt from GET so a save
  * always resends a real value (never the old "empty means unchanged" mock
- * convention). `use_system` is read-only here (no UI control yet) — an
- * update never sends it, relying on the backend's partial-update contract
- * (an omitted field leaves the stored value unchanged).
+ * convention). `use_system` controls whether instructions travel via the
+ * official 'system' role or inside the user message.
  */
+/** Fallback max_turns bound when the API reports no engine cap. */
+const DEFAULT_MAX_TURNS_CAP = 10;
+
 export function ProfileEditor({ open, mode, onClose, initialName = "" }: ProfileEditorProps) {
   const t = useT();
+  const { locale: uiLocale } = useUiLocale();
   const [name, setName] = useState(initialName);
   const [systemPrompt, setSystemPrompt] = useState("");
+  const [extendedResponses, setExtendedResponses] = useState(false);
+  const [warmth, setWarmth] = useState<ProfileWarmth>("cold");
+  const [ownerGender, setOwnerGender] = useState<ProfileOwnerGender>("");
+  const warmthIndex = PROFILE_WARMTHS.indexOf(warmth);
+  const warmthPct = (warmthIndex / (PROFILE_WARMTHS.length - 1)) * 100;
+  const [useSystem, setUseSystem] = useState(false);
+  const [maxTurns, setMaxTurns] = useState(3);
   const [nameTouched, setNameTouched] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [purgeMemory, setPurgeMemory] = useState(false);
+  const [resolvingLocale, setResolvingLocale] = useState(false);
   // Set only once the profile itself has already been deleted successfully
   // but the follow-up memoria purge failed — the profile no longer exists,
   // so retrying must re-attempt ONLY the purge, never the delete.
@@ -61,17 +86,32 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   const initialNameRef = useRef(initialName);
   initialNameRef.current = initialName;
 
+  // Match useProfileSwitch.tsx: profiles belong to the backend active locale
+  // (falling back to uiLocale if GET /api/i18n is unavailable). Share the
+  // ["i18n"] cache populated by ProfileSwitchProvider when mounted inside the app.
+  const i18nQuery = useQuery({
+    queryKey: ["i18n"],
+    queryFn: getI18nState,
+    staleTime: 60_000,
+    enabled: open && mode === "create"
+  });
   // Hydration query — only fetches while the dialog is open in edit mode, so
   // the always-mounted component never fetches in the background while
   // closed or while creating a new profile.
   const profileDetail = useProfileDetailQuery(open && mode === "edit" ? initialName : null);
   const createMutation = useCreateProfileMutation();
   const updateMutation = useUpdateProfileMutation();
+  const switchMutation = useSwitchProfileMutation();
+  const queryClient = useQueryClient();
   const deleteMutation = useDeleteProfileMutation();
   // Memoria rows are stored keyed by the profile's stable uuid, not its
   // display name — target the `id` hydrated from GET /api/perfiles/{name},
   // never `initialName`.
   const purgeMutation = useMemoriaPurgeMutation(profileDetail.data?.id ?? "");
+  // Engine history cap derived from the active model's context window. Only
+  // the edit-mode GET carries it; create mode (or an older backend) keeps the
+  // historical bound of 10. The engine clamps again on apply.
+  const maxTurnsCap = profileDetail.data?.max_turns_cap ?? DEFAULT_MAX_TURNS_CAP;
 
   // On open: reset from the open-time initialName (a later activeProfile
   // reconcile must not clobber in-progress input). Trigger capture, initial
@@ -80,9 +120,15 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
     if (!open) return;
     setName(initialNameRef.current);
     setSystemPrompt("");
+    setExtendedResponses(false);
+    setWarmth("cold");
+    setOwnerGender("");
+    setUseSystem(false);
+    setMaxTurns(3);
     setNameTouched(false);
     setDeleting(false);
     setPurgeMemory(false);
+    setResolvingLocale(false);
     setPurgeFailedAfterDelete(false);
     createMutation.reset();
     updateMutation.reset();
@@ -99,27 +145,88 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   useEffect(() => {
     if (!open || mode !== "edit" || !profileDetail.data) return;
     setSystemPrompt(profileDetail.data.prompt);
+    setExtendedResponses(Boolean(profileDetail.data.extended_responses));
+    setWarmth(profileDetail.data.warmth ?? "cold");
+    setOwnerGender(profileDetail.data.owner_gender ?? "");
+    setUseSystem(Boolean(profileDetail.data.use_system));
+    setMaxTurns(profileDetail.data.max_turns ?? 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, profileDetail.data]);
 
   const trimmedName = name.trim();
   const nameInvalid = nameTouched && trimmedName.length === 0;
-  const savePending = mode === "create" ? createMutation.isPending : updateMutation.isPending;
+  const savePending = mode === "create" ? resolvingLocale || createMutation.isPending : updateMutation.isPending;
   const saveError = mode === "create" ? createMutation.error : updateMutation.error;
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setNameTouched(true);
     if (!trimmedName) return;
 
     if (mode === "create") {
-      createMutation.mutate({ name: trimmedName, prompt: systemPrompt }, { onSuccess: onClose });
+      let rawLocale = i18nQuery.data?.active_locale;
+      if (!rawLocale && i18nQuery.isPending) {
+        setResolvingLocale(true);
+        try {
+          const i18n = await queryClient.ensureQueryData({
+            queryKey: ["i18n"],
+            queryFn: getI18nState,
+            staleTime: 60_000
+          });
+          rawLocale = i18n.active_locale;
+        } catch {
+          // Fall back to uiLocale below when GET /api/i18n fails.
+        } finally {
+          setResolvingLocale(false);
+        }
+      }
+      const createLocale = primaryLocale((rawLocale ?? "").trim() || uiLocale) || uiLocale;
+      const createBody: ProfileCreateRequest = {
+        name: trimmedName,
+        prompt: systemPrompt,
+        locale: createLocale
+      };
+      if (extendedResponses) createBody.extended_responses = true;
+      if (warmth !== "cold") createBody.warmth = warmth;
+      if (ownerGender !== "") createBody.owner_gender = ownerGender;
+      if (useSystem) createBody.use_system = true;
+      if (maxTurns !== 3) createBody.max_turns = maxTurns;
+      createMutation.mutate(createBody, { onSuccess: onClose });
       return;
     }
 
     const body: ProfileUpdateRequest = { prompt: systemPrompt };
     if (trimmedName !== initialName) body.new_name = trimmedName;
-    updateMutation.mutate({ name: initialName, body }, { onSuccess: onClose });
+    if (extendedResponses !== Boolean(profileDetail.data?.extended_responses)) {
+      body.extended_responses = extendedResponses;
+    }
+    if (warmth !== (profileDetail.data?.warmth ?? "cold")) {
+      body.warmth = warmth;
+    }
+    if (ownerGender !== (profileDetail.data?.owner_gender ?? "")) {
+      body.owner_gender = ownerGender;
+    }
+    if (useSystem !== Boolean(profileDetail.data?.use_system)) {
+      body.use_system = useSystem;
+    }
+    if (maxTurns !== (profileDetail.data?.max_turns ?? 3)) {
+      body.max_turns = maxTurns;
+    }
+    // The engine reads warmth/extended_responses only on profile switch or
+    // boot, so saving the ACTIVE profile re-triggers the switch (to the new
+    // name when renamed) for the change to take effect immediately.
+    const activeProfile = queryClient.getQueryData<StatusResponse>(STATUS_QUERY_KEY)?.active_profile;
+    updateMutation.mutate(
+      { name: initialName, body },
+      {
+        onSuccess: () => {
+          if (activeProfile && activeProfile === initialName) {
+            switchMutation.mutate({ name: body.new_name ?? initialName });
+          }
+          onClose();
+        }
+      }
+    );
   }
 
   // Delete and purge run SEQUENTIALLY — the dialog only closes once both
@@ -212,6 +319,147 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 {t("perfiles.editor.prompt.error")}
               </p>
             )}
+          </section>
+
+          <section
+            aria-labelledby="profile-editor-extended-responses-label"
+            className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
+          >
+            <div className="space-y-1">
+              <span
+                id="profile-editor-extended-responses-label"
+                className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+              >
+                {t("perfiles.editor.extendedResponses.label")}
+              </span>
+              <span className="text-[13px] text-foreground">{t("perfiles.editor.extendedResponses.hint")}</span>
+            </div>
+            <Switch
+              checked={extendedResponses}
+              onChange={setExtendedResponses}
+              aria-label={t("perfiles.editor.extendedResponses.label")}
+            />
+          </section>
+
+          <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
+            <label
+              htmlFor="profile-editor-warmth"
+              className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("perfiles.editor.warmth.label")}
+            </label>
+            <p data-testid="warmth-current" className="text-[13px] font-semibold text-foreground">
+              {t(`perfiles.editor.warmth.${warmth}.label` as TKey)} <span aria-hidden="true">›</span>
+            </p>
+            <div className="relative h-5">
+              <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-surface-2" />
+              <div
+                className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary"
+                style={{ width: `${warmthPct}%` }}
+              />
+              {PROFILE_WARMTHS.map((level, i) => (
+                <span
+                  key={level}
+                  aria-hidden="true"
+                  className="absolute top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background/60"
+                  style={{ left: `${(i / (PROFILE_WARMTHS.length - 1)) * 100}%` }}
+                />
+              ))}
+              <input
+                id="profile-editor-warmth"
+                type="range"
+                min={0}
+                max={PROFILE_WARMTHS.length - 1}
+                step={1}
+                value={warmthIndex}
+                onChange={(e) => setWarmth(PROFILE_WARMTHS[Number(e.target.value)] ?? "cold")}
+                aria-valuetext={t(`perfiles.editor.warmth.${warmth}.label` as TKey)}
+                className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow peer-focus-visible:ring-2 peer-focus-visible:ring-ring"
+                style={{ left: `${warmthPct}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t(`perfiles.editor.warmth.${warmth}.hint` as TKey)}</p>
+            <p className="text-xs text-dim">{t("perfiles.editor.warmth.note")}</p>
+          </section>
+
+          <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
+            <span
+              id="profile-editor-owner-gender-label"
+              className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("perfiles.editor.ownerGender.label")}
+            </span>
+            <Select
+              aria-labelledby="profile-editor-owner-gender-label"
+              value={ownerGender}
+              onChange={(value) => setOwnerGender(value as ProfileOwnerGender)}
+              options={PROFILE_OWNER_GENDERS.map((value) => ({
+                value,
+                label: t(`perfiles.editor.ownerGender.${value || "unspecified"}` as TKey)
+              }))}
+            />
+            <p className="text-xs text-muted-foreground">{t("perfiles.editor.ownerGender.hint")}</p>
+          </section>
+
+          <section
+            aria-labelledby="profile-editor-use-system-label"
+            className="flex flex-col gap-2.5 border-t border-border-soft pt-3.5"
+          >
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <div className="space-y-1">
+                <span
+                  id="profile-editor-use-system-label"
+                  className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+                >
+                  {t("perfiles.editor.useSystem.label")}
+                </span>
+                <span className="text-[13px] text-foreground">{t("perfiles.editor.useSystem.hint")}</span>
+              </div>
+              <Switch
+                checked={useSystem}
+                onChange={setUseSystem}
+                aria-label={t("perfiles.editor.useSystem.label")}
+              />
+            </div>
+            <Alert role="status" tone={useSystem ? "info" : "neutral"} className="text-xs">
+              {useSystem
+                ? t("perfiles.editor.useSystem.notice.enabled")
+                : t("perfiles.editor.useSystem.notice.disabled")}
+            </Alert>
+          </section>
+
+          <section
+            className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
+          >
+            <div className="space-y-1">
+              <span
+                className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+              >
+                {t("perfiles.editor.maxTurns.label", { max: maxTurnsCap })}
+              </span>
+              <span className="text-[13px] text-foreground">{t("perfiles.editor.maxTurns.hint", { max: maxTurnsCap })}</span>
+            </div>
+            <div className="w-20">
+              <input
+                id="profile-editor-max-turns"
+                type="number"
+                min={1}
+                max={maxTurnsCap}
+                value={maxTurns}
+                onChange={(event) => {
+                  const val = parseInt(event.target.value, 10);
+                  if (!isNaN(val)) {
+                    setMaxTurns(Math.max(1, Math.min(val, maxTurnsCap)));
+                  }
+                }}
+                aria-label={t("perfiles.editor.maxTurns.label", { max: maxTurnsCap })}
+                className="h-9 w-full rounded-md border border-border bg-background px-3 text-center text-sm font-semibold text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              />
+            </div>
           </section>
 
           {mode === "edit" && purgeFailedAfterDelete ? (

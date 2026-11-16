@@ -43,6 +43,23 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("Sidebar — nav icons", () => {
+  it.each(["Experiencia", "Agenda", "Stream", "Música", "Memoria", "Controles"])(
+    "%s renders a lucide svg icon (no unicode glyph) in expanded and collapsed states",
+    (name) => {
+      const { unmount } = renderSidebar();
+      const expanded = screen.getByRole("button", { name }).querySelector("svg");
+      expect(expanded).not.toBeNull();
+      expect(expanded).toHaveAttribute("aria-hidden", "true");
+      expect(expanded).toHaveAttribute("width", "18");
+      expect(screen.getByRole("button", { name })).not.toHaveTextContent(/[◈▤◉♪◆⚙]/);
+      unmount();
+      renderSidebar({ collapsed: true });
+      expect(screen.getByRole("button", { name }).querySelector("svg")).not.toBeNull();
+    }
+  );
+});
+
 describe("Sidebar — collapsible icon rail", () => {
   it("renders a collapse toggle that calls onToggleCollapse when expanded", () => {
     const onToggleCollapse = vi.fn();
@@ -335,4 +352,38 @@ describe("Sidebar — profile hover card v3 (detail round: viewport clamp)", () 
       Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
     }
   });
+
+  it("does not exceed maximum update depth when card height oscillates by subpixel amounts", async () => {
+    renderSidebar();
+    const rowButton = (await screen.findByText("Akira")).closest("button") as HTMLButtonElement;
+    const li = rowButton.closest("li") as HTMLLIElement;
+
+    const originalOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    const originalInnerHeight = window.innerHeight;
+    let flip = false;
+    try {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+      // Oscillate height by 1px on alternating reads
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+        configurable: true,
+        get: () => {
+          flip = !flip;
+          return flip ? 220 : 221;
+        },
+      });
+      li.getBoundingClientRect = () =>
+        ({ top: 560, right: 48, bottom: 590, left: 8, width: 40, height: 30, x: 8, y: 560, toJSON() {} }) as DOMRect;
+
+      // Focus should open without throwing 'Maximum update depth exceeded'
+      expect(() => {
+        fireEvent.focus(rowButton);
+      }).not.toThrow();
+
+      expect(screen.getByRole("tooltip")).toBeInTheDocument();
+    } finally {
+      if (originalOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffset);
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    }
+  });
 });
+

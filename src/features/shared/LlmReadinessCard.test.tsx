@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
-import { API_BASE_URL, defaultReadiness } from "../../test/handlers.js";
+import { API_BASE_URL, defaultReadiness, makeDownloadJob } from "../../test/handlers.js";
 import { LlmReadinessCard, type LlmReadinessCardProps } from "./LlmReadinessCard.js";
 
 function renderCard(props: LlmReadinessCardProps = {}) {
@@ -203,3 +203,85 @@ describe("LlmReadinessCard component", () => {
   });
 });
 
+
+describe("LlmReadinessCard in-app download (T4)", () => {
+  it.each(["LOCAL_NO_MODELS", "LOCAL_MODEL_MISSING"])(
+    "%s offers a primary 'download recommended model' button and keeps the command as fallback",
+    async (state) => {
+      server.use(
+        http.get(`${API_BASE_URL}/api/llm/readiness`, () =>
+          HttpResponse.json({
+            ...defaultReadiness,
+            state,
+            can_chat: false,
+            ollama: { ...defaultReadiness.ollama, reachable: true, model_installed: false, installed_models: [] }
+          })
+        )
+      );
+      let postedTag = "";
+      server.use(
+        http.post(`${API_BASE_URL}/api/models/downloads`, async ({ request }) => {
+          postedTag = ((await request.json()) as { tag: string }).tag;
+          return HttpResponse.json(makeDownloadJob({ tag: postedTag, state: "queued" }), { status: 202 });
+        })
+      );
+
+      renderCard();
+
+      const button = await screen.findByRole("button", { name: "Descargar modelo recomendado (qwen3:1.7b)" });
+      expect(screen.getByText("ollama run qwen3:1.7b")).toBeInTheDocument();
+      fireEvent.click(button);
+      await waitFor(() => expect(postedTag).toBe("qwen3:1.7b"));
+    }
+  );
+
+  it("does not offer the download button when ready", async () => {
+    renderCard();
+    await waitFor(() => expect(screen.getByText("El motor LLM está listo para chatear.")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Descargar modelo recomendado/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("LlmReadinessCard no-Ollama guidance (T5)", () => {
+  function serveReadiness(state: string, reachable: boolean) {
+    let calls = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/llm/readiness`, () => {
+        calls += 1;
+        return HttpResponse.json({
+          ...defaultReadiness,
+          state,
+          can_chat: false,
+          ollama: { ...defaultReadiness.ollama, reachable, model_installed: false }
+        });
+      })
+    );
+    return () => calls;
+  }
+
+  it("LOCAL_OLLAMA_MISSING: clear message, download link and a 'Check again' that re-fetches readiness", async () => {
+    const calls = serveReadiness("LOCAL_OLLAMA_MISSING", false);
+    renderCard();
+
+    expect(
+      await screen.findByText(/Para usar modelos locales necesitas Ollama/)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /ollama\.com\/download/ })).toHaveAttribute("href", "https://ollama.com/download");
+    await waitFor(() => expect(calls()).toBeGreaterThanOrEqual(1));
+    const before = calls();
+    fireEvent.click(screen.getByRole("button", { name: "Comprobar de nuevo" }));
+    await waitFor(() => expect(calls()).toBeGreaterThan(before), { timeout: 400 });
+    expect(screen.queryByRole("button", { name: /Descargar modelo recomendado/ })).not.toBeInTheDocument();
+  });
+
+  it("LOCAL_OLLAMA_OFFLINE: start hint and a 'Check again' that re-fetches readiness", async () => {
+    const calls = serveReadiness("LOCAL_OLLAMA_OFFLINE", false);
+    renderCard();
+
+    expect(await screen.findByText(/Abre Ollama desde el menú Inicio/)).toBeInTheDocument();
+    await waitFor(() => expect(calls()).toBeGreaterThanOrEqual(1));
+    const before = calls();
+    fireEvent.click(screen.getByRole("button", { name: "Comprobar de nuevo" }));
+    await waitFor(() => expect(calls()).toBeGreaterThan(before), { timeout: 400 });
+  });
+});

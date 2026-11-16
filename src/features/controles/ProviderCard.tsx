@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Switch } from "../../ui/Switch.js";
@@ -9,24 +10,23 @@ import { Alert } from "../../ui/Alert.js";
 import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
 import { ApiError } from "../../api/client.js";
 import {
-  LLM_PROVIDER_PRESETS,
   isValidProfileId,
   suggestDuplicateId,
   suggestProfileId,
   useLlmProvider,
+  useLlmProviderPresets,
+  useTestLlmProvider,
   useUpdateLlmProvider
 } from "../../api/llmProvider.js";
-import type { LlmProviderRequest } from "../../api/llmProvider.js";
+import type { LlmProviderRequest, LlmProviderTestRequest, LlmProviderTestResponse } from "../../api/llmProvider.js";
+import { openExternalUrl } from "../../lib/openUrl.js";
 import { t, useT } from "../../i18n/t.js";
+import { KeyTestResult } from "../shared/KeyTestResult.js";
+import { testErrorToResponse } from "../shared/keyTestOutcome.js";
 
 const inputClass =
   "h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
 
-const PRESET_IDS = Object.keys(LLM_PROVIDER_PRESETS);
-
-function providerLabel(id: string): string {
-  return LLM_PROVIDER_PRESETS[id]?.label ?? id;
-}
 
 /**
  * Honest voseo copy per error, NEVER a fake success. For the activation-time
@@ -128,7 +128,11 @@ function providerErrorMessage(
  */
 export function ProviderCard() {
   const t = useT();
+  const LLM_PROVIDER_PRESETS = useLlmProviderPresets();
+  const PRESET_IDS = Object.keys(LLM_PROVIDER_PRESETS);
+  const providerLabel = (id: string) => LLM_PROVIDER_PRESETS[id]?.label ?? id;
   const { data, isError: getError, error: getErrorObj } = useLlmProvider();
+  const testMutation = useTestLlmProvider();
   const globalMutation = useUpdateLlmProvider();
   const profileMutation = useUpdateLlmProvider();
 
@@ -139,7 +143,12 @@ export function ProviderCard() {
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [preset, setPreset] = useState("");
+  // "This model sees images" (custom models); sent only when it changed.
+  const [modelVision, setModelVision] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  // Last key-test outcome for the open editor (cleared whenever the editor,
+  // provider or key changes). Never holds the key, only ids and an error code.
+  const [testResult, setTestResult] = useState<LlmProviderTestResponse | null>(null);
   // Which profile-scoped action last fired, so the shared profileMutation error
   // can be framed correctly ("api_key required..." means different things for a
   // save vs. clearing the active profile's key).
@@ -171,13 +180,16 @@ export function ProviderCard() {
       setBaseUrl(existing.base_url);
       setModel(existing.model);
       setPreset(existing.preset ?? "");
+      setModelVision(existing.model_vision === true);
     } else {
       const presetDef = LLM_PROVIDER_PRESETS[editId];
       setBaseUrl(presetDef?.base_url ?? "");
       setModel("");
       setPreset(presetDef ? editId : "");
+      setModelVision(false);
     }
     setApiKey("");
+    setTestResult(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId]);
 
@@ -244,18 +256,21 @@ export function ProviderCard() {
   }
 
   function startCustom() {
+    setTestResult(null);
     setCustomMode(true);
     setEditId(null);
     setCustomId("");
     setBaseUrl("");
     setModel("");
     setPreset("");
+    setModelVision(false);
     setApiKey("");
   }
 
   function handlePresetChange(next: string) {
     resetProfileError();
     setPreset(next);
+    setTestResult(null);
     // Mirror the backend prefill: choosing a preset fills an empty base_url.
     if (next && LLM_PROVIDER_PRESETS[next] && !baseUrl) {
       setBaseUrl(LLM_PROVIDER_PRESETS[next].base_url);
@@ -277,6 +292,7 @@ export function ProviderCard() {
     if (!(preset && baseUrl === "")) body.base_url = baseUrl;
     if (!(preset && model === "")) body.model = model;
     if (apiKey) body.api_key = apiKey; // write-only; omitted when untouched
+    if (modelVision !== (data?.profiles[effectiveId]?.model_vision === true)) body.model_vision = modelVision;
     profileMutation.mutate(body, {
       onSuccess: () => {
         setApiKey("");
@@ -326,7 +342,41 @@ export function ProviderCard() {
     setBaseUrl(src.base_url);
     setModel(src.model);
     setPreset(src.preset ?? "");
+    setModelVision(src.model_vision === true);
     setApiKey("");
+  }
+
+  const presetInfo = preset ? LLM_PROVIDER_PRESETS[preset] : undefined;
+  // Model dropdown: live ids from the last successful test (recommended first,
+  // marked), else the preset's recommended list. An already-chosen model that
+  // is in neither list is kept so it never silently disappears.
+  const recommendedIds = presetInfo?.models.map((m) => m.id) ?? [];
+  const liveIds = testResult?.ok ? testResult.models : [];
+  const recommendedFirst = (liveIds.length > 0 ? recommendedIds.filter((id) => liveIds.includes(id)) : recommendedIds);
+  const pickIds = [...recommendedFirst, ...liveIds.filter((id) => !recommendedFirst.includes(id))];
+  const selectedModel = model || presetInfo?.default_model || "";
+  if (selectedModel && !pickIds.includes(selectedModel)) pickIds.push(selectedModel);
+  const modelOptions = pickIds.map((id) => ({
+    value: id,
+    label: recommendedFirst.includes(id) ? t("controles.provider.editor.modelPick.recommended", { id }) : id
+  }));
+  const selectedSeesImages = Boolean(presetInfo?.models.find((m) => m.id === selectedModel)?.vision);
+  const canTest = Boolean(baseUrl || presetInfo) && (Boolean(apiKey) || currentApiKeySet) && !testMutation.isPending;
+
+  function runTest() {
+    // check_chat: also asks the chosen model one tiny question (spends a few tokens).
+    const body: LlmProviderTestRequest = { check_chat: true };
+    if (selectedModel) body.model = selectedModel;
+    if (preset) body.preset = preset;
+    const url = baseUrl || presetInfo?.base_url || "";
+    if (url) body.base_url = url;
+    if (apiKey) body.api_key = apiKey; // write-only; the stored key is used otherwise
+    else if (editId && currentApiKeySet) body.profile_id = editId;
+    setTestResult(null);
+    testMutation.mutate(body, {
+      onSuccess: (result) => setTestResult(result),
+      onError: (error) => setTestResult(testErrorToResponse(error, t))
+    });
   }
 
   const canSave = Boolean(effectiveId) && isValidProfileId(effectiveId ?? "") && !profileMutation.isPending;
@@ -354,7 +404,12 @@ export function ProviderCard() {
     <Card className="flex flex-col p-4">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
-        {anyPending && <Badge tone="info">{t("controles.provider.card.pending")}</Badge>}
+        {anyPending && (
+          <Badge tone="info">
+            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            {t("controles.provider.card.pending")}
+          </Badge>
+        )}
       </div>
 
       <div className="flex flex-col gap-3.5 pt-3.5">
@@ -395,6 +450,24 @@ export function ProviderCard() {
             {data.fallback_mode === "auto"
               ? t("controles.provider.fallback.hint.auto")
               : t("controles.provider.fallback.hint.manual")}
+          </p>
+        </div>
+
+        {/* Discard stale speech on a regenerated reply (T4, live_session_fixes_20260925) */}
+        <div className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
+          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+            <span className="text-[13px] text-foreground">
+              {t("controles.provider.discardStaleSpeech.label")}
+            </span>
+            <Switch
+              checked={data.discard_stale_speech_on_regenerated_reply}
+              onChange={(on) => globalMutation.mutate({ discard_stale_speech_on_regenerated_reply: on })}
+              disabled={anyPending}
+              aria-label={t("controles.provider.discardStaleSpeech.aria")}
+            />
+          </div>
+          <p className="text-[11px] leading-relaxed text-dim">
+            {t("controles.provider.discardStaleSpeech.hint")}
           </p>
         </div>
 
@@ -502,41 +575,6 @@ export function ProviderCard() {
                 )}
 
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="provider-base-url" className="text-[13px] text-foreground">
-                    {t("controles.provider.editor.baseUrl.label")}
-                  </label>
-                  <input
-                    id="provider-base-url"
-                    type="text"
-                    inputMode="url"
-                    value={baseUrl}
-                    onChange={(e) => {
-                      resetProfileError();
-                      setBaseUrl(e.target.value);
-                    }}
-                    placeholder={t("controles.provider.editor.baseUrl.placeholder")}
-                    className={inputClass}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="provider-model" className="text-[13px] text-foreground">
-                    {t("controles.provider.editor.model.label")}
-                  </label>
-                  <input
-                    id="provider-model"
-                    type="text"
-                    value={model}
-                    onChange={(e) => {
-                      resetProfileError();
-                      setModel(e.target.value);
-                    }}
-                    placeholder={t("controles.provider.editor.model.placeholder")}
-                    className={inputClass}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
                   <span id="provider-preset-label" className="text-[13px] text-foreground">
                     {t("controles.provider.editor.preset.label")}
                   </span>
@@ -549,6 +587,19 @@ export function ProviderCard() {
                     onChange={handlePresetChange}
                     aria-labelledby="provider-preset-label"
                   />
+                  {presetInfo?.key_url && (
+                    <div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          void openExternalUrl(presetInfo.key_url);
+                        }}
+                      >
+                        {t("controles.provider.editor.getKey.action")}
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -566,6 +617,7 @@ export function ProviderCard() {
                     onChange={(e) => {
                       resetProfileError();
                       setApiKey(e.target.value);
+                      setTestResult(null);
                     }}
                     placeholder={
                       currentApiKeySet
@@ -576,6 +628,101 @@ export function ProviderCard() {
                   />
                   <p className="text-[11px] leading-relaxed text-dim">{t("controles.provider.editor.apiKey.hint")}</p>
                 </div>
+
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" disabled={!canTest} onClick={runTest}>
+                      {testMutation.isPending && (
+                        <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      )}
+                      {testMutation.isPending
+                        ? t("controles.provider.editor.test.pending")
+                        : t("controles.provider.editor.test.action")}
+                    </Button>
+                    {testResult && <KeyTestResult result={testResult} />}
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-dim">{t("keytest.notice")}</p>
+                </div>
+
+                {modelOptions.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <span id="provider-model-pick-label" className="text-[13px] text-foreground">
+                      {t("controles.provider.editor.modelPick.label")}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Select
+                        options={modelOptions}
+                        value={selectedModel}
+                        onChange={(next) => {
+                          resetProfileError();
+                          setModel(next);
+                        }}
+                        aria-labelledby="provider-model-pick-label"
+                        className="min-w-0 flex-1"
+                      />
+                      {selectedSeesImages && <Badge tone="info">{t("controles.provider.editor.vision.badge")}</Badge>}
+                    </div>
+                  </div>
+                )}
+
+                <details className="flex flex-col gap-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                    {t("controles.provider.editor.advanced.summary")}
+                  </summary>
+                  <div className="flex flex-col gap-3 pt-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="provider-base-url" className="text-[13px] text-foreground">
+                        {t("controles.provider.editor.baseUrl.label")}
+                      </label>
+                      <input
+                        id="provider-base-url"
+                        type="text"
+                        inputMode="url"
+                        value={baseUrl}
+                        onChange={(e) => {
+                          resetProfileError();
+                          setBaseUrl(e.target.value);
+                          setTestResult(null);
+                        }}
+                        placeholder={t("controles.provider.editor.baseUrl.placeholder")}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="provider-model" className="text-[13px] text-foreground">
+                        {t("controles.provider.editor.model.label")}
+                      </label>
+                      <input
+                        id="provider-model"
+                        type="text"
+                        value={model}
+                        onChange={(e) => {
+                          resetProfileError();
+                          setModel(e.target.value);
+                        }}
+                        placeholder={t("controles.provider.editor.model.placeholder")}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <label htmlFor="provider-model-vision" className="flex items-center gap-2 text-[13px] text-foreground">
+                        <input
+                          id="provider-model-vision"
+                          type="checkbox"
+                          checked={modelVision}
+                          onChange={(e) => {
+                            resetProfileError();
+                            setModelVision(e.target.checked);
+                          }}
+                        />
+                        {t("controles.provider.editor.modelVision.label")}
+                      </label>
+                      <span className="pl-6 text-[11px] leading-tight text-dim">
+                        {t("controles.provider.editor.modelVision.hint")}
+                      </span>
+                    </div>
+                  </div>
+                </details>
 
                 <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                   <Button type="button" disabled={!canSave} onClick={saveProfile}>

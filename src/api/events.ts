@@ -1,9 +1,12 @@
 import { useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getApiBaseUrl } from "./client.js";
 import { emitAppEvent } from "../lib/appEvents.js";
 import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import type { AppEventSource } from "../store/eventStore.js";
+import type { VisionLookDetails } from "../store/visionStore.js";
+import { isVisionActivePhase, parseVisionMode, useVisionOffRequestStore, useVisionPhaseStore, useVisionResultStore } from "../store/visionStore.js";
+import { VISION_QUERY_KEY, getVision, type VisionResponse } from "./vision.js";
 
 /**
  * GET /api/events?since=cursor (item B) predates types.gen.ts's OpenAPI
@@ -21,7 +24,7 @@ export interface ServerEvent {
   ts: number;
   source: string;
   action: string;
-  detail: string | Record<string, number> | null;
+  detail: string | Record<string, string | number | boolean> | null;
 }
 
 /**
@@ -60,6 +63,7 @@ export async function getEventLog(since: number): Promise<EventLogResponse> {
  * dropped). Renders nothing; mounted once inside EventBridge.
  */
 export function useServerEventLog() {
+  const queryClient = useQueryClient();
   const lastCursor = useRef(0);
   const lastBoot = useRef<number | null>(null);
 
@@ -111,6 +115,14 @@ export function useServerEventLog() {
           continue; // deferred — emitted once after the loop
         }
       }
+      // Vision events (V1.9): metadata only, never a feed row. `vision_looking`
+      // flips the indicator now instead of waiting for the next status poll;
+      // `vision_result` is kept for the per-turn badge (correlated by time in
+      // ConversationPanel) and refreshes the status (state, last_result).
+      if (e.source === "vision") {
+        routeVisionEvent(e, queryClient);
+        continue;
+      }
       emitAppEvent(
         // ServerEvent.source is a plain string; emitAppEvent's own whitelist
         // (not this cast) is what actually gates an unmapped value.
@@ -134,7 +146,59 @@ export function useServerEventLog() {
       );
     }
     lastCursor.current = data.cursor;
-  }, [query.data]);
+  }, [query.data, queryClient]);
 
   return query;
+}
+
+function routeVisionEvent(e: ServerEvent, queryClient: QueryClient): void {
+  if (e.action === "vision_looking" || e.action === "vision_describing") {
+    const looking = typeof e.detail === "object" && e.detail !== null && e.detail.looking === true;
+    const phases = useVisionPhaseStore.getState();
+    if (looking) phases.setPhase(e.action === "vision_describing" ? "describing" : "looking");
+    else if (isVisionActivePhase(phases.phase)) phases.setPhase("idle");
+    queryClient.setQueryData<VisionResponse>(VISION_QUERY_KEY, (prev) =>
+      prev ? { ...prev, status: { ...prev.status, looking } } : prev
+    );
+    return;
+  }
+  if (e.action === "vision_off_request") {
+    // Owner asked Kira to look while vision is off. The feed shows an inline
+    // "Activar visión" row (ConversationPanel); nothing else to update here.
+    useVisionOffRequestStore.getState().append({ id: `srv-${e.seq}`, ts: e.ts * 1000 });
+    return;
+  }
+  if (e.action === "vision_result" && e.detail !== null) {
+    // Legacy backends send the outcome as a bare string; newer ones send an
+    // object carrying the look details (outcome defaults to "ok" there).
+    const payload = typeof e.detail === "object" ? e.detail : null;
+    const outcome = typeof e.detail === "string" ? e.detail : typeof payload?.outcome === "string" ? payload.outcome : "ok";
+    const id = `srv-${e.seq}`;
+    const fromEvent: VisionLookDetails = {
+      describeMs: typeof payload?.describe_ms === "number" ? payload.describe_ms : null,
+      lookId: typeof payload?.id === "string" ? payload.id : null,
+      framesSent: typeof payload?.frames_sent === "number" ? payload.frames_sent : null,
+      mode: parseVisionMode(payload?.mode)
+    };
+    useVisionPhaseStore.getState().setPhase(outcome === "ok" ? "done" : "failed");
+    useVisionResultStore.getState().append({ id, ts: e.ts * 1000, outcome, describeMs: null, ...(payload ? fromEvent : {}) });
+    const complete = fromEvent.lookId !== null && fromEvent.describeMs !== null && fromEvent.framesSent !== null && fromEvent.mode !== null;
+    // The GET only fills what the event did not carry; its failure is harmless.
+    if (!complete) {
+      void queryClient
+        .fetchQuery({ queryKey: VISION_QUERY_KEY, queryFn: getVision, staleTime: 0 })
+        .then((data) => {
+          const last = data.status.last_result;
+          if (last?.outcome !== outcome) return;
+          useVisionResultStore.getState().setLookDetails(id, {
+            describeMs: fromEvent.describeMs ?? (typeof last.describe_ms === "number" ? last.describe_ms : null),
+            lookId: fromEvent.lookId ?? (typeof last.id === "string" ? last.id : null),
+            framesSent: fromEvent.framesSent ?? (typeof last.frames_sent === "number" ? last.frames_sent : null),
+            mode: fromEvent.mode ?? parseVisionMode(last.mode)
+          });
+        })
+        .catch(() => undefined);
+    }
+    void queryClient.invalidateQueries({ queryKey: VISION_QUERY_KEY });
+  }
 }

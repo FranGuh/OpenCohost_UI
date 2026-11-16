@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useUiLocale } from "../i18n/locale.js";
+import { primaryLocale } from "./profiles.js";
 import { ApiError, ValidationError, authFetch, getApiBaseUrl } from "./client.js";
 
 /**
@@ -44,8 +46,19 @@ async function extractDetail(res: Response, fallback: string): Promise<string> {
   }
 }
 
-export async function getPersonalization(): Promise<PersonalizationResponse> {
-  const res = await fetch(`${getApiBaseUrl()}/api/personalization`);
+function normalizeLocale(locale?: string): string | undefined {
+  const trimmed = locale?.trim();
+  if (!trimmed) return undefined;
+  return primaryLocale(trimmed) || undefined;
+}
+
+function withLocale(path: string, locale?: string): string {
+  const normalized = normalizeLocale(locale);
+  return normalized ? `${path}?locale=${encodeURIComponent(normalized)}` : path;
+}
+
+export async function getPersonalization(locale?: string): Promise<PersonalizationResponse> {
+  const res = await fetch(withLocale(`${getApiBaseUrl()}/api/personalization`, locale));
   if (!res.ok) {
     throw new ApiError(`GET /api/personalization failed with ${res.status}`, res.status);
   }
@@ -58,8 +71,11 @@ export async function getPersonalization(): Promise<PersonalizationResponse> {
  * field cap violation (main.py:871-885), 503 on a genuine write failure
  * (`personalization_write_failed`, never swallowed).
  */
-export async function putPersonalization(body: PersonalizationUpdateRequest): Promise<PersonalizationResponse> {
-  const res = await authFetch(`${getApiBaseUrl()}/api/personalization`, {
+export async function putPersonalization(
+  body: PersonalizationUpdateRequest,
+  locale?: string
+): Promise<PersonalizationResponse> {
+  const res = await authFetch(withLocale(`${getApiBaseUrl()}/api/personalization`, locale), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -78,8 +94,10 @@ export async function putPersonalization(body: PersonalizationUpdateRequest): Pr
 
 /** DELETE /api/personalization — clears the store to empty defaults (the
  * "clear personalization" purge action). 503 on a genuine write failure. */
-export async function deletePersonalization(): Promise<ClearPersonalizationResponse> {
-  const res = await authFetch(`${getApiBaseUrl()}/api/personalization`, { method: "DELETE" });
+export async function deletePersonalization(locale?: string): Promise<ClearPersonalizationResponse> {
+  const res = await authFetch(withLocale(`${getApiBaseUrl()}/api/personalization`, locale), {
+    method: "DELETE"
+  });
   if (res.status === 503) {
     throw new ApiError(await extractDetail(res, "personalization_write_failed"), 503);
   }
@@ -89,21 +107,30 @@ export async function deletePersonalization(): Promise<ClearPersonalizationRespo
   return (await res.json()) as ClearPersonalizationResponse;
 }
 
-export function usePersonalizationQuery() {
+export function personalizationQueryKey(locale: string) {
+  return [...PERSONALIZATION_QUERY_KEY, normalizeLocale(locale) ?? locale] as const;
+}
+
+export function usePersonalizationQuery(localeArg?: string, options: { enabled?: boolean } = {}) {
+  const { locale: activeLocale } = useUiLocale();
+  const locale = normalizeLocale(localeArg) ?? activeLocale;
   return useQuery({
-    queryKey: PERSONALIZATION_QUERY_KEY,
-    queryFn: getPersonalization
+    queryKey: personalizationQueryKey(locale),
+    queryFn: () => getPersonalization(locale),
+    enabled: options.enabled ?? true
   });
 }
 
 /** Writes the returned document straight into the cache (mirrors
  * useUpdateAvatarConfigMutation) — no full refetch needed after a save. */
-export function useUpdatePersonalizationMutation() {
+export function useUpdatePersonalizationMutation(localeArg?: string) {
+  const { locale: activeLocale } = useUiLocale();
+  const locale = normalizeLocale(localeArg) ?? activeLocale;
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: putPersonalization,
+    mutationFn: (body: PersonalizationUpdateRequest) => putPersonalization(body, locale),
     onSuccess: (data) => {
-      queryClient.setQueryData(PERSONALIZATION_QUERY_KEY, data);
+      queryClient.setQueryData(personalizationQueryKey(locale), data);
     }
   });
 }
@@ -111,12 +138,14 @@ export function useUpdatePersonalizationMutation() {
 /** Clear only returns `{ok: true}` (no document), so invalidate instead of
  * setQueryData — the refetch picks up the real cleared defaults from GET
  * (mirrors useMemoriaPurgeMutation's stats invalidation). */
-export function useClearPersonalizationMutation() {
+export function useClearPersonalizationMutation(localeArg?: string) {
+  const { locale: activeLocale } = useUiLocale();
+  const locale = normalizeLocale(localeArg) ?? activeLocale;
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: deletePersonalization,
+    mutationFn: () => deletePersonalization(locale),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: PERSONALIZATION_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: personalizationQueryKey(locale) });
     }
   });
 }

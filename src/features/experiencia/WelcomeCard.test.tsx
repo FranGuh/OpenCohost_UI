@@ -7,7 +7,7 @@ describe("WelcomeCard modal carousel", () => {
   it("exposes accessible modal semantics and focuses the close action", () => {
     render(<WelcomeCard onDismiss={vi.fn()} />);
 
-    expect(screen.getByRole("dialog", { name: "Conocé a Kira" })).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("dialog", { name: "Conoce a Kira" })).toHaveAttribute("aria-modal", "true");
     expect(screen.getByRole("button", { name: "Cerrar bienvenida" })).toHaveFocus();
     expect(screen.getByText("1 de 5")).toBeInTheDocument();
   });
@@ -20,7 +20,7 @@ describe("WelcomeCard modal carousel", () => {
     expect(screen.getByRole("heading", { name: "Tu agenda, siempre presente" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Kira organizando la agenda del stream" })).toHaveAttribute("src", "/welcome/kira-agenda.png");
     await user.click(screen.getByRole("button", { name: "Anterior" }));
-    expect(screen.getByRole("heading", { name: "Conocé a Kira" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Conoce a Kira" })).toBeInTheDocument();
 
     for (let index = 0; index < 4; index += 1) await user.click(screen.getByRole("button", { name: "Siguiente" }));
     expect(screen.getByRole("heading", { name: "Tu flujo, tus reglas" })).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("WelcomeCard modal carousel", () => {
   it("offers labelled progress buttons for direct slide selection", async () => {
     const user = userEvent.setup();
     render(<WelcomeCard onDismiss={vi.fn()} />);
-    const first = screen.getByRole("button", { name: "Ir a la diapositiva 1: Conocé a Kira" });
+    const first = screen.getByRole("button", { name: "Ir a la diapositiva 1: Conoce a Kira" });
     expect(first).toHaveAttribute("aria-current", "step");
 
     await user.click(screen.getByRole("button", { name: "Ir a la diapositiva 4: Tu cockpit de streaming" }));
@@ -97,7 +97,7 @@ describe("WelcomeCard modal carousel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     const previous = screen.getByRole("button", { name: "Anterior" });
     previous.focus();
-    fireEvent.click(screen.getByRole("button", { name: "Ir a la diapositiva 1: Conocé a Kira" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ir a la diapositiva 1: Conoce a Kira" }));
     expect(document.activeElement).not.toBe(screen.getByRole("dialog"));
 
     fireEvent.keyDown(document, { key: "Tab" });

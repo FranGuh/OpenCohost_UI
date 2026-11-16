@@ -267,6 +267,21 @@ where
         )?;
         deadline.check(cancel)?;
         let managed_python = resolve_managed_python_path(&find, &python_stage)?;
+        if let Some(crt_dir) = self.config.msvc_crt_dir.as_deref() {
+            let python_root = managed_python.parent().ok_or_else(|| {
+                ProvisionError::new(
+                    ProvisionErrorCode::ProcessFailed,
+                    "managed Python interpreter has no parent directory",
+                    false,
+                )
+            })?;
+            super::native_runtime::materialize_msvc_crt(
+                crt_dir,
+                &self.config.data_root,
+                python_root,
+                python_root,
+            )?;
+        }
         let python_executable_stage = venv_stage.join(if cfg!(windows) {
             "Scripts/python.exe"
         } else {
@@ -290,6 +305,14 @@ where
                 sync.stderr,
                 true,
             ));
+        }
+        if let Some(crt_dir) = self.config.msvc_crt_dir.as_deref() {
+            super::native_runtime::materialize_msvc_crt(
+                crt_dir,
+                &self.config.data_root,
+                managed_python.parent().unwrap(),
+                &venv_stage.join("Scripts"),
+            )?;
         }
         self.progress
             .report(ProgressEvent::phase(ProvisionPhase::HealthCheck));

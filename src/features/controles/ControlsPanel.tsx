@@ -4,17 +4,25 @@ import { SettingsSection } from "../shell/SettingsSection.js";
 import { ProfileSwitcher } from "../perfiles/ProfileSwitcher.js";
 import { ModelCard } from "./ModelCard.js";
 import { ProviderCard } from "./ProviderCard.js";
+import { TavilyCard } from "./TavilyCard.js";
 import { VoiceCard } from "./VoiceCard.js";
+import { PronunciationCard } from "./PronunciationCard.js";
+import { GuardrailsCard } from "./GuardrailsCard.js";
+import { ReplyLengthCard } from "./ReplyLengthCard.js";
+import { DecisionsCard } from "./DecisionsCard.js";
+import { SelfKnowledgeCard } from "./SelfKnowledgeCard.js";
 import { PTTCard } from "./PTTCard.js";
+import { VisionCard } from "./VisionCard.js";
 import { AvatarCard } from "./AvatarCard.js";
 import { ObsCard } from "./ObsCard.js";
+import { LinkPhonePanel } from "../remote/LinkPhonePanel.js";
 
-type ControlesPane = "identity" | "voice" | "avatar";
+type ControlesPane = "identity" | "models" | "voice" | "vision" | "phone" | "avatar";
 
 const CONTROLES_PANE_KEY = "oc-controles-pane";
 
 /**
- * Controles panel — the six settings cards, grouped into three panes so
+ * Controles panel — settings grouped into six panes so
  * exactly one group is on screen at a time (same PaneSwitcher pattern
  * Memoria introduced). Replaces the former three-accordion layout
  * (ControlGroup + useCollapsible/persistKey, now deleted) — the
@@ -23,15 +31,16 @@ const CONTROLES_PANE_KEY = "oc-controles-pane";
  * pane's restored `<h2>` reuse the existing "controles.groups.*.title" keys
  * (they were the accordion headers) instead of adding new copy.
  *
- * All three panes stay MOUNTED — hidden via the `hidden` attribute, not
+ * All five panes stay MOUNTED — hidden via the `hidden` attribute, not
  * `pane === … &&` conditional rendering. `ControlGroup` (the deleted
  * accordion) never unmounted its children either (Collapsible.tsx keeps
  * collapsed content mounted with inert+aria-hidden), so this is a return to
  * that prior behaviour, not a new risk. It matters here because unmounting
  * silently destroys local component state that never round-trips through the
- * server: ObsCard's `password` is WRITE-ONLY (never re-hydrated), and
+ * server: ObsCard's `password` is WRITE-ONLY (never re-hydrated),
  * ProviderCard's apiKey/baseUrl/model/customId/editId are typed drafts with
- * no undo. `hidden` (not the Tailwind `.hidden` class) so the collapse holds
+ * no undo, and LinkPhonePanel's minted pairing code lives in mutation state.
+ * `hidden` (not the Tailwind `.hidden` class) so the collapse holds
  * even without CSS, and — like Tabs.tsx's TabPanel — an inline
  * `display: none` fallback, because the `flex` utility class on the same
  * element would otherwise outrank the `[hidden]` UA rule in a real browser
@@ -48,7 +57,10 @@ export function ControlsPanel() {
   const t = useT();
   const options = [
     { value: "identity" as const, label: t("controles.groups.identity.title") },
+    { value: "models" as const, label: t("controles.groups.models.title") },
     { value: "voice" as const, label: t("controles.groups.voice.title") },
+    { value: "vision" as const, label: t("controles.groups.vision.title") },
+    { value: "phone" as const, label: t("controles.groups.phone.title") },
     { value: "avatar" as const, label: t("controles.groups.avatar.title") }
   ];
   const { value: pane, switcher } = usePaneSwitcher<ControlesPane>(options, CONTROLES_PANE_KEY, t("controles.groups.segment.aria"));
@@ -61,10 +73,26 @@ export function ControlsPanel() {
         style={pane !== "identity" ? { display: "none" } : undefined}
         className="flex flex-col gap-3.5"
       >
-        <h2 className="text-sm font-bold text-foreground">{t("controles.groups.identity.title")}</h2>
+        <h2 className="text-sm font-bold text-foreground">{t("controles.groups.identity.heading")}</h2>
         <ProfileSwitcher />
+
+
+
+        <GuardrailsCard />
+        <ReplyLengthCard />
+        <DecisionsCard />
+        <SelfKnowledgeCard />
+      </div>
+      <div
+        data-testid="controles-pane-models"
+        hidden={pane !== "models"}
+        style={pane !== "models" ? { display: "none" } : undefined}
+        className="flex flex-col gap-3.5"
+      >
+        <h2 className="text-sm font-bold text-foreground">{t("controles.groups.models.heading")}</h2>
         <ModelCard />
         <ProviderCard />
+        <TavilyCard />
       </div>
       <div
         data-testid="controles-pane-voice"
@@ -74,7 +102,26 @@ export function ControlsPanel() {
       >
         <h2 className="text-sm font-bold text-foreground">{t("controles.groups.voice.title")}</h2>
         <VoiceCard />
+        <PronunciationCard />
         <PTTCard />
+      </div>
+      <div
+        data-testid="controles-pane-vision"
+        hidden={pane !== "vision"}
+        style={pane !== "vision" ? { display: "none" } : undefined}
+        className="flex flex-col gap-3.5"
+      >
+        <h2 className="text-sm font-bold text-foreground">{t("controles.groups.vision.heading")}</h2>
+        <VisionCard />
+      </div>
+      <div
+        data-testid="controles-pane-phone"
+        hidden={pane !== "phone"}
+        style={pane !== "phone" ? { display: "none" } : undefined}
+        className="flex flex-col gap-3.5"
+      >
+        <h2 className="text-sm font-bold text-foreground">{t("controles.groups.phone.heading")}</h2>
+        <LinkPhonePanel />
       </div>
       <div
         data-testid="controles-pane-avatar"

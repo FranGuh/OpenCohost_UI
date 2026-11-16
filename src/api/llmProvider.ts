@@ -21,6 +21,8 @@ export interface LlmProviderProfile {
   base_url: string;
   model: string;
   preset: string;
+  /** The owner ticked "this model sees images" (custom models). Absent on an older backend. */
+  model_vision?: boolean;
   /** True when a key is stored for THIS profile id (OAuthStore). The key
    * itself is never returned — this bool is the only signal. */
   api_key_set: boolean;
@@ -31,6 +33,10 @@ export interface LlmProviderResponse {
   active_provider: string;
   fallback_mode: "auto" | "manual";
   pregen_enabled: boolean;
+  /** T4 (live_session_fixes_20260925): "discard stale speech when a
+   * regenerated reply arrives" -- default false (today's behavior,
+   * byte-identical). See ProviderCard's "Al llegar la respuesta" toggle. */
+  discard_stale_speech_on_regenerated_reply: boolean;
   /** id → non-secret profile fields. Keyed by profile id (`openai`, `nvidia_nim`, custom). */
   profiles: Record<string, LlmProviderProfile>;
 }
@@ -47,10 +53,13 @@ export interface LlmProviderRequest {
   active_provider?: string;
   fallback_mode?: "auto" | "manual";
   pregen_enabled?: boolean;
+  discard_stale_speech_on_regenerated_reply?: boolean;
   profile_id?: string;
   base_url?: string | null;
   model?: string | null;
   preset?: string | null;
+  /** "This model sees images" checkbox for a custom model. */
+  model_vision?: boolean;
   /** WRITE-ONLY. Never send back a fetched value — there is none to send. */
   api_key?: string;
   /** WRITE-ONLY ACTION (owner amendment 2026-07-24). Names the profile id to
@@ -60,15 +69,89 @@ export interface LlmProviderRequest {
   delete_profile?: string | null;
 }
 
+export interface ProviderPresetModel {
+  id: string;
+  /** True when the model accepts images in a chat call. */
+  vision: boolean;
+}
+
+/** UI-facing provider template. Mirrors opencohost/api/models.py::LlmProviderPresetOut. */
+export interface ProviderPreset {
+  label: string;
+  base_url: string;
+  /** Provider page where the user creates an API key. */
+  key_url: string;
+  default_model: string;
+  /** Recommended models (may be empty: rely on the live list from the key test). */
+  models: ProviderPresetModel[];
+}
+
 /**
- * Client mirror of opencohost/config/settings.py::LLM_PROVIDER_PRESETS — used
- * only to prefill `base_url` and label the built-in providers in the UI. The
- * backend is the authority (an unknown preset 422s); this is a convenience
- * copy, not a source of truth. ponytail: keep in sync manually.
+ * Offline fallback for the provider templates. The backend is the authority:
+ * `useLlmProviderPresets` fetches GET /api/llm/provider/presets and only falls
+ * back to this copy while loading or against an older backend. Static
+ * consumers (setup flow, readiness card) read it directly.
+ * ponytail: keep in sync manually with opencohost/config/settings.py.
  */
-export const LLM_PROVIDER_PRESETS: Record<string, { label: string; base_url: string }> = {
-  openai: { label: "OpenAI", base_url: "https://api.openai.com/v1" },
-  nvidia_nim: { label: "NVIDIA NIM", base_url: "https://integrate.api.nvidia.com/v1" }
+export const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
+  openai: {
+    label: "OpenAI",
+    base_url: "https://api.openai.com/v1",
+    key_url: "https://platform.openai.com/api-keys",
+    default_model: "gpt-4o-mini",
+    models: [
+      { id: "gpt-4o-mini", vision: true },
+      { id: "gpt-4o", vision: true },
+      { id: "gpt-4.1-mini", vision: true }
+    ]
+  },
+  nvidia_nim: {
+    label: "NVIDIA NIM",
+    base_url: "https://integrate.api.nvidia.com/v1",
+    key_url: "https://build.nvidia.com/settings/api-keys",
+    default_model: "meta/llama-3.1-70b-instruct",
+    models: [
+      { id: "meta/llama-3.1-70b-instruct", vision: false },
+      { id: "deepseek-ai/deepseek-r1", vision: false }
+    ]
+  },
+  gemini: {
+    label: "Google Gemini",
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    key_url: "https://aistudio.google.com/apikey",
+    default_model: "gemini-3.5-flash-lite",
+    models: [
+      { id: "gemini-3.5-flash-lite", vision: true },
+      { id: "gemini-3.8-flash", vision: true }
+    ]
+  },
+  deepseek: {
+    label: "DeepSeek",
+    base_url: "https://api.deepseek.com",
+    key_url: "https://platform.deepseek.com/api_keys",
+    default_model: "deepseek-flash",
+    models: [
+      { id: "deepseek-flash", vision: true },
+      { id: "deepseek-v4-pro", vision: false }
+    ]
+  },
+  anthropic: {
+    label: "Anthropic Claude",
+    base_url: "https://api.anthropic.com/v1/",
+    key_url: "https://platform.claude.com/settings/keys",
+    default_model: "claude-haiku-5-5",
+    models: [
+      { id: "claude-haiku-5-5", vision: true },
+      { id: "claude-sonnet-5-5", vision: true }
+    ]
+  },
+  openrouter: {
+    label: "OpenRouter",
+    base_url: "https://openrouter.ai/api/v1",
+    key_url: "https://openrouter.ai/keys",
+    default_model: "",
+    models: []
+  }
 };
 
 /** Backend rule mirrored client-side (design: `[a-z0-9_]+`, `local` reserved).
@@ -103,7 +186,26 @@ export function suggestDuplicateId(sourceId: string, existingIds: string[]): str
   }
 }
 
+/** Why the direct cloud vision switch can or cannot be used. Mirrors the
+ * backend rule (opencohost/core/vision/direct_cloud.py::profile_model_vision). */
+export type DirectVisionAvailability = "ok" | "local" | "no_vision";
+
+export function directVisionAvailability(
+  provider: LlmProviderResponse | undefined,
+  presets: Record<string, ProviderPreset>
+): DirectVisionAvailability {
+  const active = provider?.active_provider;
+  if (!provider || !active || active === "local") return "local";
+  const profile = provider.profiles[active];
+  if (!profile) return "local";
+  if (profile.model_vision === true) return "ok";
+  const preset = profile.preset ? presets[profile.preset] : undefined;
+  const sees = preset?.models.some((m) => m.id === profile.model && m.vision) ?? false;
+  return sees ? "ok" : "no_vision";
+}
+
 export const LLM_PROVIDER_QUERY_KEY = ["llm-provider"] as const;
+export const LLM_PROVIDER_PRESETS_QUERY_KEY = ["llm-provider-presets"] as const;
 
 async function extractDetail(res: Response, fallback: string): Promise<string> {
   try {
@@ -249,6 +351,88 @@ export function useUpdateLlmProvider() {
       // mutation.state.variables (no cloning between mutate()/execute()) —
       // deleting api_key on it in place scrubs the secret from the retained
       // MutationCache entry, not just a copy.
+      if ("api_key" in variables) delete variables.api_key;
+    }
+  });
+}
+
+/** GET /api/llm/provider/presets — provider templates (open route, no secrets). */
+export async function getLlmProviderPresets(): Promise<Record<string, ProviderPreset>> {
+  const res = await fetch(`${getApiBaseUrl()}/api/llm/provider/presets`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/llm/provider/presets failed with ${res.status}`, res.status);
+  }
+  return ((await res.json()) as { presets: Record<string, ProviderPreset> }).presets;
+}
+
+/** Presets from the backend, falling back to the static copy while loading or
+ * against an older backend that lacks the route. */
+export function useLlmProviderPresets(): Record<string, ProviderPreset> {
+  const { data } = useQuery({
+    queryKey: LLM_PROVIDER_PRESETS_QUERY_KEY,
+    queryFn: getLlmProviderPresets,
+    staleTime: Infinity,
+    retry: false
+  });
+  return data ?? LLM_PROVIDER_PRESETS;
+}
+
+/** POST /api/llm/provider/test body. `api_key` is WRITE-ONLY; omit it to test
+ * the key stored for `profile_id`. */
+export interface LlmProviderTestRequest {
+  preset?: string;
+  base_url?: string;
+  api_key?: string;
+  profile_id?: string;
+  /** Also send ONE tiny chat completion to `model` (spends a few tokens). */
+  check_chat?: boolean;
+  model?: string;
+}
+
+export type LlmProviderChatErrorCode =
+  | "cloud_auth"
+  | "cloud_rate_limit"
+  | "cloud_bad_request"
+  | "timeout"
+  | "cloud_error";
+
+export type LlmProviderTestErrorCode = "invalid_key" | "unreachable" | "rate_limited" | "unexpected";
+
+/** Mirrors opencohost/api/models.py::LlmProviderTestResponse. Never carries a key. */
+export interface LlmProviderTestResponse {
+  ok: boolean;
+  error_code: LlmProviderTestErrorCode | null;
+  models: string[];
+  recommended: string[];
+  /** Stage 1 (GET /models) result; equals `ok`. */
+  models_ok?: boolean;
+  /** Stage 2 (one tiny chat completion): null/absent when it did not run. */
+  chat_ok?: boolean | null;
+  chat_error_code?: LlmProviderChatErrorCode | null;
+  http_status?: number | null;
+  /** Sanitized provider text of the failing stage; never carries the key. */
+  provider_message?: string | null;
+}
+
+export async function postLlmProviderTest(body: LlmProviderTestRequest): Promise<LlmProviderTestResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/llm/provider/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST /api/llm/provider/test failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as LlmProviderTestResponse;
+}
+
+/** Key test mutation. No meta.event: the result renders inline, and nothing
+ * secret may reach the feed. Like the PUT, it scrubs `api_key` off the
+ * variables TanStack retains after settle. */
+export function useTestLlmProvider() {
+  return useMutation({
+    mutationFn: postLlmProviderTest,
+    onSettled: (_data, _error, variables) => {
       if ("api_key" in variables) delete variables.api_key;
     }
   });

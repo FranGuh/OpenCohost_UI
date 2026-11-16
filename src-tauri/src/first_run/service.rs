@@ -17,8 +17,8 @@ use crate::first_run::status::{safe_message, FirstRunError, FirstRunStatus, Prog
 use crate::platform::windows::WindowsRegistryHandoff;
 use crate::provisioning::{
     ArtifactSource, BootstrapManifest, CancellationToken, CommandProcessRunner, HealthChecker,
-    ProgressEvent, ProgressSink, ProvisionDeadline, ProvisionError, ProvisionErrorCode,
-    Provisioner, ProvisionerConfig,
+    ProcessRunner, ProgressEvent, ProgressSink, ProvisionDeadline, ProvisionError,
+    ProvisionErrorCode, Provisioner, ProvisionerConfig,
 };
 use crate::runtime::RuntimeLocator;
 
@@ -413,10 +413,93 @@ impl ProgressSink for ControllerProgress {
     }
 }
 
-pub fn production_task(
+pub(crate) fn legacy_runtime_candidates(
+    resource_dir: Option<&Path>,
+    exe_dir: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let mut push_unique = |path: PathBuf| {
+        if !candidates.contains(&path) {
+            candidates.push(path);
+        }
+    };
+    if let Some(dir) = resource_dir {
+        push_unique(dir.join("runtime"));
+    }
+    if let Some(dir) = exe_dir {
+        push_unique(dir.join("resources").join("runtime"));
+        push_unique(dir.join("runtime"));
+        push_unique(dir.to_path_buf());
+    }
+    candidates
+}
+
+fn is_legacy_runtime_candidate(candidate: &Path) -> bool {
+    candidate.join("opencohost").is_dir()
+        && (candidate.join("python").join("python.exe").is_file()
+            || candidate
+                .join("venv")
+                .join("Scripts")
+                .join("python.exe")
+                .is_file())
+}
+
+pub(crate) fn adopt_legacy_from_dirs(
+    runtime_candidates: &[PathBuf],
+    data_root: &Path,
+) -> Result<(), FirstRunError> {
+    for candidate in runtime_candidates {
+        if !is_legacy_runtime_candidate(candidate) {
+            continue;
+        }
+        backend::legacy_state::validate_root(data_root).map_err(|_| {
+            FirstRunError::new(
+                "invalid_data_root",
+                "The data folder contains an unsafe link; choose a local data folder",
+                false,
+            )
+        })?;
+        backend::legacy_state::preserve(candidate, data_root).map_err(|_| {
+            FirstRunError::new(
+                "legacy_preservation_failed",
+                "Embedded user data could not be preserved safely",
+                true,
+            )
+        })?;
+    }
+    Ok(())
+}
+
+pub(crate) fn run_production_provisioning<S, R, H, P>(
+    config: ProvisionerConfig,
+    runtime_candidates: &[PathBuf],
+    source: S,
+    runner: R,
+    health: H,
+    progress: P,
+    cancel: CancellationToken,
+) -> Result<(), FirstRunError>
+where
+    S: ArtifactSource,
+    R: ProcessRunner,
+    H: HealthChecker,
+    P: ProgressSink,
+{
+    adopt_legacy_from_dirs(runtime_candidates, &config.data_root)?;
+    Provisioner::new(config, source, runner, health, progress)
+        .provision_first_install(cancel)
+        .map(|_| ())
+        .map_err(|error| {
+            FirstRunError::new(error.code().as_str(), error.to_string(), error.retryable())
+        })
+}
+
+pub(crate) fn production_task_with_candidates(
     data_root: PathBuf,
     install_id: String,
     bootstrap: BootstrapManifest,
+    msvc_crt_dir: PathBuf,
+    runtime_candidates: Vec<PathBuf>,
 ) -> impl FnOnce(
     CancellationToken,
     Arc<dyn Fn(ProgressSnapshot) + Send + Sync>,
@@ -426,6 +509,7 @@ pub fn production_task(
     move |cancel, callback| {
         let config = ProvisionerConfig {
             data_root,
+            msvc_crt_dir: Some(msvc_crt_dir),
             install_id,
             app_module: "opencohost.api.main:app".into(),
             preferred_port: 8765,
@@ -436,19 +520,45 @@ pub fn production_task(
             python_executable_name: "python.exe".into(),
             operation_timeout: Duration::from_secs(30 * 60),
         };
-        Provisioner::new(
+        run_production_provisioning(
             config,
+            &runtime_candidates,
             CurlArtifactSource,
             CommandProcessRunner,
             PythonHealthChecker,
             ControllerProgress { callback },
+            cancel,
         )
-        .provision_first_install(cancel)
-        .map(|_| ())
-        .map_err(|error| {
-            FirstRunError::new(error.code().as_str(), error.to_string(), error.retryable())
-        })
     }
+}
+
+pub fn production_task(
+    data_root: PathBuf,
+    install_id: String,
+    bootstrap: BootstrapManifest,
+    msvc_crt_dir: PathBuf,
+) -> impl FnOnce(
+    CancellationToken,
+    Arc<dyn Fn(ProgressSnapshot) + Send + Sync>,
+) -> Result<(), FirstRunError>
+       + Send
+       + 'static {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    let resource_dir = msvc_crt_dir
+        .parent()
+        .and_then(|runtime_dir| runtime_dir.parent())
+        .map(Path::to_path_buf);
+    let runtime_candidates =
+        legacy_runtime_candidates(resource_dir.as_deref(), exe_dir.as_deref());
+    production_task_with_candidates(
+        data_root,
+        install_id,
+        bootstrap,
+        msvc_crt_dir,
+        runtime_candidates,
+    )
 }
 
 #[cfg(windows)]
@@ -551,14 +661,25 @@ pub fn provision_start(
         let configured =
             configure_data_root_with_boundaries(&writer, Path::new(&data_root), None, &boundaries)
                 .map_err(|error| safe_message(&error.code).to_owned())?;
-        let bootstrap = bootstrap_from_resource(
-            &app.path()
-                .resource_dir()
-                .map_err(|_| safe_message("bootstrap_unavailable"))?,
-        )
-        .map_err(|error| safe_message(&error.code).to_owned())?;
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|_| safe_message("bootstrap_unavailable"))?;
+        let bootstrap = bootstrap_from_resource(&resource_dir)
+            .map_err(|error| safe_message(&error.code).to_owned())?;
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(Path::to_path_buf));
+        let runtime_candidates =
+            legacy_runtime_candidates(Some(&resource_dir), exe_dir.as_deref());
         let app_handle = app.clone();
-        let task = production_task(configured.data_root, configured.install_id, bootstrap);
+        let task = production_task_with_candidates(
+            configured.data_root,
+            configured.install_id,
+            bootstrap,
+            resource_dir.join("runtime/msvc-crt"),
+            runtime_candidates,
+        );
         controller
             .start_with_task(move |cancel, progress| {
                 let result = task(cancel, progress);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useT, type TKey } from "../../i18n/t.js";
+import { SupportLinks } from "../shell/SupportLinks.js";
 
 export interface WelcomeCardProps { onDismiss(): void }
 
@@ -128,6 +129,7 @@ export function WelcomeCard({ onDismiss }: WelcomeCardProps) {
               {current.bulletKeys.map((bulletKey) => <li key={bulletKey} className="flex items-center gap-3 text-sm text-foreground"><span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-primary"><Check size={14} /></span>{t(bulletKey)}</li>)}
             </ul>
           </div>
+          <SupportLinks className="-ml-2 mb-2" />
           <div>
             <div className="mb-4 flex gap-1" aria-label={t("experiencia.welcomeCard.progress.aria")}>{SLIDES.map((item, index) => <button key={item.titleKey} type="button" aria-label={t("experiencia.welcomeCard.progress.goto.aria", { n: index + 1, title: t(item.titleKey) })} aria-current={index === slide ? "step" : undefined} onClick={() => setSlide(index)} className="rounded-full p-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><span className={`block h-1.5 rounded-full transition-all duration-fast ease-io ${index === slide ? "w-8 bg-primary" : "w-2 bg-border"}`} /></button>)}</div>
             <div className="flex items-center justify-between">

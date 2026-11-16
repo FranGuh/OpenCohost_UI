@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
@@ -6,6 +7,8 @@ import { Input } from "../../ui/Input.js";
 import { Switch } from "../../ui/Switch.js";
 import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
 import { SubCollapsibleSection } from "../../ui/Collapsible.js";
+import { getI18nState } from "../../api/i18n.js";
+import { primaryLocale } from "../../api/profiles.js";
 import {
   PERSONALIZATION_INSTRUCTIONS_MAX,
   PERSONALIZATION_INTERESTS_MAX,
@@ -16,6 +19,7 @@ import {
   useUpdatePersonalizationMutation
 } from "../../api/personalization.js";
 import { useT } from "../../i18n/t.js";
+import { useUiLocale } from "../../i18n/locale.js";
 
 type PersonalizationForm = {
   enabled: boolean;
@@ -52,17 +56,38 @@ const SAVE_BUTTON_CLASS =
  */
 export function PersonalizationCard() {
   const t = useT();
-  const { data, isError: getError } = usePersonalizationQuery();
-  const updateMutation = useUpdatePersonalizationMutation();
-  const clearMutation = useClearPersonalizationMutation();
+  const { locale: uiLocale } = useUiLocale();
+  const i18nQuery = useQuery({ queryKey: ["i18n"], queryFn: getI18nState, staleTime: 60_000 });
+  const i18nSettled = !i18nQuery.isPending;
+  const runtimeLocale = primaryLocale((i18nQuery.data?.active_locale ?? "").trim() || uiLocale) || uiLocale;
+  const { data, isError: getError } = usePersonalizationQuery(runtimeLocale, { enabled: i18nSettled });
+  const updateMutation = useUpdatePersonalizationMutation(runtimeLocale);
+  const clearMutation = useClearPersonalizationMutation(runtimeLocale);
   const [form, setForm] = useState<PersonalizationForm>(EMPTY_FORM);
+  const [dirty, setDirty] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const prevLocaleRef = useRef(runtimeLocale);
+
+  function updateField<K extends keyof PersonalizationForm>(key: K, value: PersonalizationForm[K]) {
+    setDirty(true);
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
 
   // Seed the form once GET resolves (and again after a save/clear
-  // invalidation reloads it) — never clobbers in-progress typing since
-  // `data` only changes on a real fetch, not on every render.
+  // invalidation reloads it or on runtime locale change), never clobbering
+  // unsaved edits across background refetches while dirty.
   useEffect(() => {
-    if (!data) return;
+    const localeChanged = prevLocaleRef.current !== runtimeLocale;
+    if (localeChanged) {
+      prevLocaleRef.current = runtimeLocale;
+      setConfirmingClear(false);
+      setDirty(false);
+    }
+    if (dirty && !localeChanged) return;
+    if (!data) {
+      setForm(EMPTY_FORM);
+      return;
+    }
     setForm({
       enabled: data.enabled,
       nickname: data.nickname,
@@ -70,11 +95,13 @@ export function PersonalizationCard() {
       interests: data.interests,
       custom_instructions: data.custom_instructions
     });
-  }, [data]);
+  }, [data, runtimeLocale, dirty]);
 
   function handleConfirmClear() {
     setConfirmingClear(false);
-    clearMutation.mutate();
+    clearMutation.mutate(undefined, {
+      onSuccess: () => setDirty(false)
+    });
   }
 
   return (
@@ -110,7 +137,7 @@ export function PersonalizationCard() {
                   <Switch
                     aria-label={t("controles.personalization.enabled")}
                     checked={form.enabled}
-                    onChange={(checked) => setForm((prev) => ({ ...prev, enabled: checked }))}
+                    onChange={(checked) => updateField("enabled", checked)}
                   />
                 </section>
 
@@ -120,7 +147,7 @@ export function PersonalizationCard() {
                     aria-label={t("controles.personalization.nickname.aria")}
                     value={form.nickname}
                     maxLength={PERSONALIZATION_NICKNAME_MAX}
-                    onChange={(event) => setForm((prev) => ({ ...prev, nickname: event.target.value }))}
+                    onChange={(event) => updateField("nickname", event.target.value)}
                   />
                 </label>
 
@@ -130,7 +157,7 @@ export function PersonalizationCard() {
                     aria-label={t("controles.personalization.occupation.aria")}
                     value={form.occupation}
                     maxLength={PERSONALIZATION_OCCUPATION_MAX}
-                    onChange={(event) => setForm((prev) => ({ ...prev, occupation: event.target.value }))}
+                    onChange={(event) => updateField("occupation", event.target.value)}
                   />
                 </label>
 
@@ -140,7 +167,7 @@ export function PersonalizationCard() {
                     aria-label={t("controles.personalization.interests.aria")}
                     value={form.interests}
                     maxLength={PERSONALIZATION_INTERESTS_MAX}
-                    onChange={(event) => setForm((prev) => ({ ...prev, interests: event.target.value }))}
+                    onChange={(event) => updateField("interests", event.target.value)}
                   />
                 </label>
 
@@ -150,7 +177,7 @@ export function PersonalizationCard() {
                     aria-label={t("controles.personalization.instructions.aria")}
                     value={form.custom_instructions}
                     maxLength={PERSONALIZATION_INSTRUCTIONS_MAX}
-                    onChange={(event) => setForm((prev) => ({ ...prev, custom_instructions: event.target.value }))}
+                    onChange={(event) => updateField("custom_instructions", event.target.value)}
                     rows={4}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring resize-y overflow-y-auto min-h-[96px] max-h-[240px]"
                   />
@@ -161,7 +188,11 @@ export function PersonalizationCard() {
                     type="button"
                     className={SAVE_BUTTON_CLASS}
                     disabled={updateMutation.isPending}
-                    onClick={() => updateMutation.mutate(form)}
+                    onClick={() =>
+                      updateMutation.mutate(form, {
+                        onSuccess: () => setDirty(false)
+                      })
+                    }
                   >
                     {updateMutation.isPending
                       ? t("controles.personalization.save.pending")

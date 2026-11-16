@@ -4,6 +4,7 @@ pub mod cancellation;
 pub mod error;
 pub mod health;
 pub mod model;
+pub(crate) mod native_runtime;
 pub mod operation_lock;
 pub mod orchestrator;
 pub mod process;

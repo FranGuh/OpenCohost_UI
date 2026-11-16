@@ -4,8 +4,10 @@ import React from "react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
-import { eventsHandler } from "../test/handlers.js";
+import { http, HttpResponse } from "msw";
+import { API_BASE_URL, eventsHandler } from "../test/handlers.js";
 import { useEventStore } from "../store/eventStore.js";
+import { useVisionOffRequestStore, useVisionPhaseStore, useVisionResultStore } from "../store/visionStore.js";
 import { useAvatarLiveState } from "../store/avatarLiveStore.js";
 import { setToastSink } from "../lib/appEvents.js";
 import { useServerEventLog } from "./events.js";
@@ -252,5 +254,215 @@ describe("useServerEventLog", () => {
     const events = useEventStore.getState().events;
     expect(events).toHaveLength(1);
     expect(events[0].label).toBe("Motor: contexto saturado (82 %)");
+  });
+});
+
+describe("useServerEventLog vision events", () => {
+  function visionClient(looking = false) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["vision"], {
+      enabled: true,
+      status: { daemon_state: "running", armed: false, looking, state: "ready" }
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+    return { queryClient, wrapper };
+  }
+
+  it("applies vision_looking to the vision query cache immediately, with no feed row and no unknown-event warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const batch: EventLogResponse = {
+      events: [{ seq: 1, ts: 1, source: "vision", action: "vision_looking", detail: { looking: true } }],
+      cursor: 1,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+    const { queryClient, wrapper } = visionClient();
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    const cached = queryClient.getQueryData<{ status: { looking: boolean } }>(["vision"]);
+    expect(cached?.status.looking).toBe(true);
+    expect(useEventStore.getState().events).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("dropped unknown event"));
+    warn.mockRestore();
+  });
+
+  it("routes vision_off_request to the off-request store with no feed row, no warning, and dedupes a replay", async () => {
+    useVisionOffRequestStore.setState({ requests: [] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const batch: EventLogResponse = {
+      events: [{ seq: 9, ts: 1720000000, source: "vision", action: "vision_off_request", detail: { reason: "look_requested" } }],
+      cursor: 9,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+    const { wrapper } = visionClient();
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(useVisionOffRequestStore.getState().requests).toEqual([{ id: "srv-9", ts: 1720000000 * 1000 }]);
+    useVisionOffRequestStore.getState().append({ id: "srv-9", ts: 1720000000 * 1000 });
+    expect(useVisionOffRequestStore.getState().requests).toHaveLength(1);
+    expect(useEventStore.getState().events).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("dropped unknown event"));
+    warn.mockRestore();
+  });
+
+  it.each([
+    ["vision_looking", { looking: true }, "looking"],
+    ["vision_describing", { looking: true }, "describing"]
+  ])("maps %s to the %s phase and keeps looking true in the cache", async (action, detail, phase) => {
+    useVisionPhaseStore.setState({ phase: "idle" });
+    server.use(eventsHandler([{ events: [{ seq: 1, ts: 1, source: "vision", action, detail }], cursor: 1, boot: 100 }]));
+    const { queryClient, wrapper } = visionClient(true);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(useVisionPhaseStore.getState().phase).toBe(phase);
+    expect(queryClient.getQueryData<{ status: { looking: boolean } }>(["vision"])?.status.looking).toBe(true);
+    expect(useEventStore.getState().events).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("dropped unknown event"));
+    warn.mockRestore();
+  });
+
+  it.each([
+    ["ok", "done"],
+    ["describe_timeout", "failed"]
+  ])("maps a %s vision_result to the %s phase", async (outcome, phase) => {
+    useVisionResultStore.setState({ results: [] });
+    useVisionPhaseStore.setState({ phase: "describing" });
+    server.use(
+      eventsHandler([{ events: [{ seq: 3, ts: 1, source: "vision", action: "vision_result", detail: outcome }], cursor: 3, boot: 100 }])
+    );
+    const { wrapper } = visionClient(true);
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(useVisionPhaseStore.getState().phase).toBe(phase);
+  });
+
+  it("records vision_result in the result store (outcome and server time only) and invalidates the vision query", async () => {
+    useVisionResultStore.setState({ results: [] });
+    const batch: EventLogResponse = {
+      events: [{ seq: 7, ts: 1720000000, source: "vision", action: "vision_result", detail: "describe_timeout" }],
+      cursor: 7,
+      boot: 100
+    };
+    server.use(eventsHandler([batch]));
+    const { queryClient, wrapper } = visionClient(true);
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(useVisionResultStore.getState().results).toEqual([
+      { id: "srv-7", ts: 1720000000 * 1000, outcome: "describe_timeout", describeMs: null }
+    ]);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["vision"] });
+    expect(useEventStore.getState().events).toHaveLength(0);
+  });
+
+  it("reads the look id and frame count from GET /api/vision last_result when vision_result arrives", async () => {
+    useVisionResultStore.setState({ results: [] });
+    server.use(
+      http.get(`${API_BASE_URL}/api/vision`, () =>
+        HttpResponse.json({
+          enabled: true,
+          status: {
+            daemon_state: "running",
+            armed: false,
+            looking: false,
+            state: "ready",
+            last_result: { id: "look-42", outcome: "ok", capture_ms: 40, describe_ms: 2900, frames_sent: 3, at: "now" }
+          }
+        })
+      ),
+      eventsHandler([
+        { events: [{ seq: 9, ts: 1720000000, source: "vision", action: "vision_result", detail: "ok" }], cursor: 9, boot: 100 }
+      ])
+    );
+    const { wrapper } = visionClient(true);
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(50));
+
+    expect(useVisionResultStore.getState().results[0]).toMatchObject({ describeMs: 2900, lookId: "look-42", framesSent: 3 });
+  });
+
+  it("uses the vision_result payload directly and keeps it when the follow-up GET fails", async () => {
+    useVisionResultStore.setState({ results: [] });
+    server.use(
+      http.get(`${API_BASE_URL}/api/vision`, () => new HttpResponse(null, { status: 500 })),
+      eventsHandler([
+        {
+          events: [
+            {
+              seq: 11,
+              ts: 1720000000,
+              source: "vision",
+              action: "vision_result",
+              detail: { outcome: "ok", id: "look-77", describe_ms: 3900, frames_sent: 6, mode: "clip" }
+            }
+          ],
+          cursor: 11,
+          boot: 100
+        }
+      ])
+    );
+    const { wrapper } = visionClient(true);
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(50));
+
+    expect(useVisionResultStore.getState().results[0]).toMatchObject({
+      outcome: "ok",
+      lookId: "look-77",
+      describeMs: 3900,
+      framesSent: 6,
+      mode: "clip"
+    });
+    expect(useVisionPhaseStore.getState().phase).toBe("done");
+  });
+
+  it("fills only the missing fields from GET /api/vision when the payload is partial", async () => {
+    useVisionResultStore.setState({ results: [] });
+    server.use(
+      http.get(`${API_BASE_URL}/api/vision`, () =>
+        HttpResponse.json({
+          enabled: true,
+          status: {
+            daemon_state: "running",
+            armed: false,
+            looking: false,
+            state: "ready",
+            last_result: { id: "look-from-get", outcome: "ok", capture_ms: 1, describe_ms: 1111, frames_sent: 2, mode: "text", at: "now" }
+          }
+        })
+      ),
+      eventsHandler([
+        {
+          events: [{ seq: 12, ts: 1720000000, source: "vision", action: "vision_result", detail: { outcome: "ok", id: "look-payload", mode: "clip" } }],
+          cursor: 12,
+          boot: 100
+        }
+      ])
+    );
+    const { wrapper } = visionClient(true);
+
+    renderHook(() => useServerEventLog(), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(50));
+
+    expect(useVisionResultStore.getState().results[0]).toMatchObject({
+      lookId: "look-payload",
+      mode: "clip",
+      describeMs: 1111,
+      framesSent: 2
+    });
   });
 });

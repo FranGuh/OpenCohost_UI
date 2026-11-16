@@ -29,3 +29,24 @@ src-tauri/resources/*.zip
 src-tauri/resources/piper/
 src-tauri/resources/modelos_f5/
 src-tauri/resources/minilm_l12_onnx/
+src-tauri/resources/runtime/
+src-tauri/resources/models/
+src-tauri/resources/staging-inventory.json
+
+# pixiv VRoid pack (VRMA_01..07): kept locally, never distributed (see public/animations/THIRD_PARTY_LICENSES.md)
+public/animations/VRMA_*
+
+# Internal dev material, never published (owner decision 2026-11-16).
+# Files already on origin/master stay tracked; anything new in these paths is never added.
+/docs/developer/vrm-lipsync-diagnostics.md
+/docs/OPEN_WORK.md
+/docs/MEMORY_SURFACE_HANDOFF.md
+/docs/UI_CONSTRAINTS_LEARNED.md
+/docs/BACKEND_API_PROPOSAL.md
+/docs/BACKEND_ARCHITECTURE_DESIGN.md
+/docs/REDESIGN_PROPOSAL.md
+/docs/LAYOUT.md
+/docs/design/
+/docs/UI_DOMAIN_I18N_MIGRATION.md
+/ux-audit-proposal-*.html
+/preview-*.html

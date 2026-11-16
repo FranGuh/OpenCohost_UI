@@ -81,9 +81,12 @@ describe("StreamPanel", () => {
     // Let GET /api/stream/chat-live settle — AccionesCard's own hydration
     // (a sibling effect fed by the same query) is the observable signal.
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).toHaveTextContent(
-        String(defaultStreamChatLive.threshold_per_second)
-      )
+      expect(
+        within(screen.getByRole("group", { name: "Preset de reacciones" })).getByRole("button", {
+          name: "Medio (1 msg/s)",
+          pressed: true
+        })
+      ).toBeInTheDocument()
     );
     expect(screen.getByLabelText("URL del directo")).toHaveValue("https://twitch.tv/inflight");
   });
@@ -151,16 +154,31 @@ describe("StreamPanel", () => {
     expect(screen.getByLabelText("URL del directo")).not.toBeDisabled();
   });
 
-  it("hydrates the reaction threshold and cooldown selects from GET /api/stream/chat-live", async () => {
+  it("hydrates the reaction threshold and cooldown presets from GET /api/stream/chat-live", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
+        HttpResponse.json({ ...defaultStreamChatLive, cooldown_seconds: 60 })
+      )
+    );
     renderPanel();
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).toHaveTextContent(String(defaultStreamChatLive.threshold_per_second))
+      expect(
+        within(screen.getByRole("group", { name: "Preset de cooldown" })).getByRole("button", {
+          name: "Medio (60 s)",
+          pressed: true
+        })
+      ).toBeInTheDocument()
     );
-    expect(screen.getByRole("combobox", { name: "Cooldown entre reacciones" })).toHaveTextContent(String(defaultStreamChatLive.cooldown_seconds));
+    expect(
+      within(screen.getByRole("group", { name: "Preset de reacciones" })).getByRole("button", {
+        name: "Medio (1 msg/s)",
+        pressed: true
+      })
+    ).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Límite de spam" })).toHaveTextContent(String(defaultStreamChatLive.max_messages_per_user));
   });
 
-  it("changing the reaction threshold select fires PUT /api/stream/chat-live/limits", async () => {
+  it("changing the reaction threshold fires PUT /api/stream/chat-live/limits", async () => {
     let capturedBody: unknown;
     server.use(
       http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
@@ -169,12 +187,14 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled());
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    const altoButton = within(reactionGroup).getByRole("button", { name: "Alto (3 msg/s)" });
+    await waitFor(() => expect(altoButton).not.toBeDisabled());
 
-    selectCustomOption("Umbral de reacciones", "3 msg/s");
+    fireEvent.click(altoButton);
 
     await waitFor(() => expect(capturedBody).toEqual({ threshold_per_second: 3 }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).toHaveTextContent("3 msg/s"));
+    await waitFor(() => expect(altoButton).toHaveAttribute("aria-pressed", "true"));
   });
 
   it("selecting a reaction preset fires PUT /api/stream/chat-live/limits with the preset value", async () => {
@@ -186,15 +206,16 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled());
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    const altoButton = within(reactionGroup).getByRole("button", { name: "Alto (3 msg/s)" });
+    await waitFor(() => expect(altoButton).not.toBeDisabled());
 
-    const altoButtons = screen.getAllByRole("button", { name: "Alto" });
-    fireEvent.click(altoButtons[0]);
+    fireEvent.click(altoButton);
 
     await waitFor(() => expect(capturedBody).toEqual({ threshold_per_second: 3 }));
   });
 
-  it("changing the cooldown select fires PUT /api/stream/chat-live/limits", async () => {
+  it("changing the cooldown preset fires PUT /api/stream/chat-live/limits", async () => {
     let capturedBody: unknown;
     server.use(
       http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
@@ -203,11 +224,14 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Cooldown entre reacciones" })).not.toBeDisabled());
+    const cooldownGroup = screen.getByRole("group", { name: "Preset de cooldown" });
+    const bajoButton = within(cooldownGroup).getByRole("button", { name: "Bajo (30 s)" });
+    await waitFor(() => expect(bajoButton).not.toBeDisabled());
 
-    selectCustomOption("Cooldown entre reacciones", "30 s");
+    fireEvent.click(bajoButton);
 
     await waitFor(() => expect(capturedBody).toEqual({ cooldown_seconds: 30 }));
+    await waitFor(() => expect(bajoButton).toHaveAttribute("aria-pressed", "true"));
   });
 
   it("changing the spam select fires PUT /api/stream/chat-live/limits", async () => {
@@ -341,7 +365,7 @@ describe("StreamPanel", () => {
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
   });
 
-  it("does NOT grey out or lock the reaction Select or Small Stream switch while Adaptive is on", async () => {
+  it("does NOT grey out or lock the reaction preset or Small Stream switch while Adaptive is on", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/stream/chat-live`, () =>
         HttpResponse.json({ ...defaultStreamChatLive, adaptive_activation: true })
@@ -351,7 +375,8 @@ describe("StreamPanel", () => {
     await waitFor(() =>
       expect(screen.getByRole("switch", { name: "Activación adaptativa" })).toHaveAttribute("aria-checked", "true")
     );
-    expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled();
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    within(reactionGroup).getAllByRole("button").forEach((btn) => expect(btn).not.toBeDisabled());
     expect(screen.getByRole("switch", { name: "Stream pequeño" })).not.toBeDisabled();
   });
 
@@ -371,12 +396,14 @@ describe("StreamPanel", () => {
     const adaptiveToggle = screen.getByRole("switch", { name: "Activación adaptativa" });
     await waitFor(() => expect(adaptiveToggle).toHaveAttribute("aria-checked", "true"));
 
-    selectCustomOption("Umbral de reacciones", "3 msg/s");
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    const altoButton = within(reactionGroup).getByRole("button", { name: "Alto (3 msg/s)" });
+    fireEvent.click(altoButton);
 
     await waitFor(() => expect(adaptiveToggle).toHaveAttribute("aria-checked", "false"));
   });
 
-  it("shows a confirmation alert once a limit change lands", async () => {
+  it("shows a confirmation badge once a limit change lands", async () => {
     server.use(
       http.put(`${API_BASE_URL}/api/stream/chat-live/limits`, async ({ request }) => {
         const body = (await request.json()) as Record<string, unknown>;
@@ -384,9 +411,11 @@ describe("StreamPanel", () => {
       })
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled());
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    const altoButton = within(reactionGroup).getByRole("button", { name: "Alto (3 msg/s)" });
+    await waitFor(() => expect(altoButton).not.toBeDisabled());
 
-    selectCustomOption("Umbral de reacciones", "3 msg/s");
+    fireEvent.click(altoButton);
 
     await waitFor(() => expect(screen.getByText("Cambio aplicado.")).toBeInTheDocument());
   });
@@ -394,9 +423,11 @@ describe("StreamPanel", () => {
   it("shows an error alert when applying a limit change fails, instead of leaving no signal at all", async () => {
     server.use(streamLimitsValidationHandler());
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).not.toBeDisabled());
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    const altoButton = within(reactionGroup).getByRole("button", { name: "Alto (3 msg/s)" });
+    await waitFor(() => expect(altoButton).not.toBeDisabled());
 
-    selectCustomOption("Umbral de reacciones", "3 msg/s");
+    fireEvent.click(altoButton);
 
     await waitFor(() => expect(screen.getByText("No se pudo aplicar el cambio.")).toBeInTheDocument());
   });
@@ -411,7 +442,14 @@ describe("StreamPanel", () => {
       )
     );
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Umbral de reacciones" })).toHaveTextContent("3 msg/s"));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("group", { name: "Preset de reacciones" })).getByRole("button", {
+          name: "Alto (3 msg/s)",
+          pressed: true
+        })
+      ).toBeInTheDocument()
+    );
     expect(screen.getByRole("switch", { name: "Input Contract" })).toHaveAttribute("aria-checked", "true");
   });
 
@@ -528,17 +566,17 @@ describe("StreamPanel", () => {
     await waitFor(() => expect(screen.queryByText("La ventana real no es la que elegiste")).not.toBeInTheDocument());
   });
 
-  it("associates each threshold Select with its visible helper text via aria-describedby", async () => {
+  it("associates each threshold control with its visible helper text via aria-describedby", async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByLabelText("Umbral de reacciones")).not.toBeDisabled());
+    const reactionGroup = screen.getByRole("group", { name: "Preset de reacciones" });
+    await waitFor(() => expect(within(reactionGroup).getByRole("button", { name: "Medio (1 msg/s)" })).not.toBeDisabled());
 
-    const reactionSelect = screen.getByLabelText("Umbral de reacciones");
-    const reactionHelperId = reactionSelect.getAttribute("aria-describedby");
+    const reactionHelperId = reactionGroup.getAttribute("aria-describedby");
     expect(reactionHelperId).toBeTruthy();
     expect(document.getElementById(reactionHelperId!)).toHaveTextContent("Reaccionar si el chat supera");
 
-    const cooldownSelect = screen.getByLabelText("Cooldown entre reacciones");
-    const cooldownHelperId = cooldownSelect.getAttribute("aria-describedby");
+    const cooldownGroup = screen.getByRole("group", { name: "Preset de cooldown" });
+    const cooldownHelperId = cooldownGroup.getAttribute("aria-describedby");
     expect(cooldownHelperId).toBeTruthy();
     expect(document.getElementById(cooldownHelperId!)).toHaveTextContent("Esperar al menos, entre reacciones");
 

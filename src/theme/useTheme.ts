@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export const THEME_NAMES = ["cockpit", "aurora", "studio"] as const;
+export const THEME_NAMES = ["cockpit", "aurora", "studio", "kira-aurora"] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
 
 const STORAGE_KEY = "oc-theme";
@@ -53,6 +53,15 @@ export const useThemeStore = create<ThemeStoreState>((set) => ({
     set({ theme });
   }
 }));
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === STORAGE_KEY && event.newValue && isThemeName(event.newValue)) {
+      document.documentElement.dataset.theme = event.newValue;
+      useThemeStore.setState({ theme: event.newValue });
+    }
+  });
+}
 
 /**
  * Runtime theme switch (decision #2827, hardened by F4): backed by the

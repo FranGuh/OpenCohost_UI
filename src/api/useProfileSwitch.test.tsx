@@ -5,7 +5,7 @@ import React from "react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../test/server.js";
-import { API_BASE_URL, defaultStatus } from "../test/handlers.js";
+import { API_BASE_URL, defaultI18nState, defaultStatus } from "../test/handlers.js";
 import { useSwitchStore } from "../store/switchStore.js";
 import { ProfileSwitchProvider, useProfileSwitchContext } from "./useProfileSwitch.js";
 
@@ -70,8 +70,9 @@ describe("ProfileSwitchProvider context stability", () => {
       </Wrapper>
     );
 
-    // Let both queries (profiles + status) settle so the inputs are steady.
-    await act(() => vi.advanceTimersByTimeAsync(0));
+    // Let every query (i18n -> profiles, status) settle so the inputs are steady.
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    await act(() => vi.advanceTimersByTimeAsync(50));
     const settled = seen[seen.length - 1] as { switchTo: unknown; activeProfile?: string };
     expect(settled.activeProfile).toBeTruthy(); // guard: inputs really did settle
     const rendersAfterSettle = seen.length;
@@ -98,7 +99,8 @@ describe("ProfileSwitchProvider context stability", () => {
     );
 
     const { rerender } = render(tree());
-    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    await act(() => vi.advanceTimersByTimeAsync(50));
     const settled = seen[seen.length - 1] as { switchTo: unknown; activeProfile?: string };
     expect(settled.activeProfile).toBeTruthy();
     const rendersAfterSettle = seen.length;
@@ -116,5 +118,58 @@ describe("ProfileSwitchProvider context stability", () => {
     const latest = seen[seen.length - 1] as { switchTo: unknown };
     expect(latest).toBe(settled);
     expect(latest.switchTo).toBe(settled.switchTo);
+  });
+});
+
+describe("ProfileSwitchProvider locale + ordering", () => {
+  function setup(opts: { i18n?: "error"; profiles?: string[]; active?: string }) {
+    const locales: (string | null)[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles`, ({ request }) => {
+        locales.push(new URL(request.url).searchParams.get("locale"));
+        return HttpResponse.json({ profiles: opts.profiles ?? ["default", "Akira"] });
+      }),
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({ ...defaultStatus, active_profile: opts.active ?? "default" })
+      ),
+      http.get(`${API_BASE_URL}/api/i18n`, () =>
+        opts.i18n === "error"
+          ? HttpResponse.json({ detail: "x" }, { status: 500 })
+          : HttpResponse.json({ ...defaultI18nState, active_locale: "en-US" })
+      )
+    );
+    const Wrapper = createWrapper();
+    const seen: { profiles: string[] }[] = [];
+    function P() {
+      seen.push(useProfileSwitchContext());
+      return null;
+    }
+    render(
+      <Wrapper>
+        <ProfileSwitchProvider>
+          <P />
+        </ProfileSwitchProvider>
+      </Wrapper>
+    );
+    return { locales, seen };
+  }
+
+  it("filters by the backend (TTS) locale, never fetching unfiltered first", async () => {
+    const { locales } = setup({});
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    expect(locales).toEqual(["en"]);
+  });
+
+  it("falls back to the UI locale when GET /api/i18n fails", async () => {
+    const { locales } = setup({ i18n: "error" });
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    expect(locales).toEqual(["es"]);
+  });
+
+  it("puts the active profile first, keeping backend order for the rest", async () => {
+    const { seen } = setup({ profiles: ["a", "b", "c"], active: "c" });
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    expect(seen[seen.length - 1].profiles).toEqual(["c", "a", "b"]);
   });
 });

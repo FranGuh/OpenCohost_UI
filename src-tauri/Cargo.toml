@@ -1,8 +1,9 @@
 [package]
 name = "opencohost_tauri_shell"
-version = "0.0.0"
+version = "0.5.0"
 description = "OpenCohost Tauri shell prototype"
-authors = ["OpenCohost"]
+authors = ["Plynte Labs", "FranGuh", "OpenCohost Contributors"]
+license = "MIT"
 edition = "2021"
 
 [build-dependencies]
@@ -23,5 +24,10 @@ url = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 unicode-normalization = "0.1"
 
+# A second launch must focus the running window instead of starting a second
+# shell (and a second backend fighting over ports 8765/8770).
+[target."cfg(any(target_os = \"macos\", windows, target_os = \"linux\"))".dependencies]
+tauri-plugin-single-instance = "2"
+
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_System_JobObjects", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Registry"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_JobObjects", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }

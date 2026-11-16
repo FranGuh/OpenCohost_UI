@@ -107,9 +107,10 @@ pub fn phase_for_state(state: &RuntimeState) -> FirstRunPhase {
     }
 }
 
-pub fn status(
+pub fn status_with_default(
     phase: FirstRunPhase,
     data_root: Option<String>,
+    default_data_root: Option<String>,
     install_id: Option<String>,
     message: impl Into<String>,
     can_retry: bool,
@@ -120,12 +121,39 @@ pub fn status(
         launchable: phase == FirstRunPhase::Ready,
         phase,
         data_root,
-        default_data_root: crate::first_run::data_root::default_data_root()
-            .map(|path| path.to_string_lossy().into_owned()),
+        default_data_root,
         install_id,
         error_code: error_code.map(str::to_owned),
         message: message.into(),
         can_retry,
         progress,
     }
+}
+
+pub fn status(
+    phase: FirstRunPhase,
+    data_root: Option<String>,
+    install_id: Option<String>,
+    message: impl Into<String>,
+    can_retry: bool,
+    progress: Option<ProgressSnapshot>,
+    error_code: Option<&str>,
+) -> FirstRunStatus {
+    let boundaries: Vec<std::path::PathBuf> = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|parent| vec![parent.to_path_buf()]))
+        .unwrap_or_default();
+    let default_data_root =
+        crate::first_run::data_root::default_data_root_outside_boundaries(&boundaries)
+            .map(|path| path.to_string_lossy().into_owned());
+    status_with_default(
+        phase,
+        data_root,
+        default_data_root,
+        install_id,
+        message,
+        can_retry,
+        progress,
+        error_code,
+    )
 }

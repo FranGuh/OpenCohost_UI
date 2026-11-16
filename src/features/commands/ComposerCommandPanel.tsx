@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import type { RefObject } from "react";
+import { Component, useEffect, useState } from "react";
+import type { ReactNode, RefObject } from "react";
 import { CircleSlash, Terminal } from "lucide-react";
 import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
-import { COMMANDS, matchCommands, type Command } from "./registry.js";
+import { COMMANDS, commandArgs, matchCommands, type Command } from "./registry.js";
 import { Stepper } from "./Stepper.js";
 
 /**
@@ -187,14 +187,26 @@ export function CommandPalettePopover({
   const clampedIndex = matches.length === 0 ? 0 : Math.min(liveIndex, matches.length - 1);
   const activeCommand = matches[clampedIndex] ?? null;
   const activeDescendantId = activeCommand ? `cmd-opt-${activeCommand.id}` : null;
+  // Hand any words after the name to the command (e.g. "/setup voz") before it opens.
+  const pick = (id: string) => {
+    COMMANDS.find((command) => command.id === id)?.acceptArgs?.(commandArgs(query));
+    onSelect(id);
+  };
 
   useEffect(() => {
     onActiveDescendantChange?.(activeDescendantId);
   }, [activeDescendantId, onActiveDescendantChange]);
 
   useEffect(() => {
+    if (activeDescendantId) {
+      const el = document.getElementById(activeDescendantId);
+      el?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeDescendantId]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      const input = composerRef.current?.querySelector("input");
+      const input = composerRef.current?.querySelector("input, textarea");
       if (!input || event.target !== input) return;
       if (event.key === "Escape") {
         event.preventDefault();
@@ -210,23 +222,69 @@ export function CommandPalettePopover({
       } else if (event.key === "Enter") {
         if (activeCommand) {
           event.preventDefault();
-          onSelect(activeCommand.id);
+          pick(activeCommand.id);
         }
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [matches, activeCommand, onClose, onSelect, composerRef]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `pick` only closes over query and onSelect
+  }, [matches, activeCommand, onClose, onSelect, composerRef, query]);
 
   return (
-    <div className="absolute inset-x-0 bottom-full z-50 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel">
+    <div className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-[min(300px,calc(100vh-100px))] overflow-y-auto overscroll-contain animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel">
       <div className="mono mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
         <Terminal size={12} aria-hidden="true" />
         {t("commands.launcher.title")}
       </div>
-      <CommandList variant="launcher" matches={matches} activeIndex={clampedIndex} onPick={onSelect} />
+      <CommandList variant="launcher" matches={matches} activeIndex={clampedIndex} onPick={pick} />
     </div>
   );
+}
+
+interface CommandErrorBoundaryProps {
+  children: ReactNode;
+  onClose: () => void;
+}
+
+interface CommandErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+export class CommandErrorBoundary extends Component<
+  CommandErrorBoundaryProps,
+  CommandErrorBoundaryState
+> {
+  override state: CommandErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): CommandErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col gap-2 rounded-md border border-danger-bd bg-danger-bg p-3 text-xs text-danger">
+          <p className="font-semibold">Error al cargar el comando</p>
+          <p className="text-[11px] opacity-85">{this.state.error?.message}</p>
+          <div className="mt-1 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false });
+                this.props.onClose();
+              }}
+              className="rounded border border-border bg-surface-2 px-2.5 py-1 text-xs text-foreground hover:bg-card"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export function ComposerCommandPanel({
@@ -282,7 +340,9 @@ export function ComposerCommandPanel({
       <div aria-live="polite" className="flex flex-col gap-2">
         {active ? (
           ActiveScreen ? (
-            <ActiveScreen onClose={dismiss} />
+            <CommandErrorBoundary onClose={dismiss}>
+              <ActiveScreen onClose={dismiss} />
+            </CommandErrorBoundary>
           ) : (
             <Stepper key={active.id} command={active} onDiscard={returnToList} onCancel={dismiss} />
           )
@@ -306,7 +366,7 @@ export function ComposerCommandPanel({
     <div
       role="dialog"
       aria-label={t("commands.panel.title")}
-      className="absolute inset-x-0 bottom-full z-30 mb-2 animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
+      className="absolute inset-x-0 bottom-full z-30 mb-2 max-h-[calc(100vh-140px)] overflow-y-auto overscroll-contain animate-rise-in rounded-md border border-border-soft bg-card p-3 shadow-panel"
     >
       {content}
     </div>

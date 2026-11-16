@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useT, type TKey } from "../../i18n/t.js";
+import { SupportLinks } from "./SupportLinks.js";
 
 export type FirstRunPhase = "unconfigured" | "provisioning" | "ready" | "failed" | "degraded";
 
@@ -39,6 +40,16 @@ const SAFE_MESSAGE_KEYS: Record<string, TKey> = {
   deadline_exceeded: "shell.firstRun.message.deadline",
   download_failed: "shell.firstRun.message.downloadFailed",
   backend_launch_failed: "shell.firstRun.message.backendLaunch",
+  backend_ports_busy: "shell.firstRun.message.backendPortsBusy",
+  backend_foreign_instance: "shell.firstRun.message.backendForeign",
+  backend_exited: "shell.firstRun.message.backendExited",
+  invalid_data_root: "shell.firstRun.message.invalidDataRoot",
+  handoff_write_failed: "shell.firstRun.message.handoffWrite",
+  install_id_mismatch: "shell.firstRun.message.installIdMismatch",
+  health_check_failed: "shell.firstRun.message.healthCheck",
+  operation_busy: "shell.firstRun.message.runtimeNotReady",
+  bootstrap_unavailable: "shell.firstRun.message.bootstrapUnavailable",
+  bootstrap_invalid: "shell.firstRun.message.bootstrapUnavailable",
   cancellation_too_late: "shell.firstRun.message.cancellationTooLate",
   ipc_unavailable: "shell.firstRun.message.ipcUnavailable",
 };
@@ -92,6 +103,20 @@ function safeMessage(value: Pick<FirstRunStatus, "phase" | "error_code">, transl
   return translate("shell.firstRun.message.unconfigured");
 }
 
+/** The backend bootstrap reports closed codes; anything else (older builds,
+ * free text) is shown as the generic launch failure, never as raw text. */
+function backendErrorCode(value: string): string {
+  return value in SAFE_MESSAGE_KEYS ? value : "backend_launch_failed";
+}
+
+const INVALID_PREFILL_CODES = new Set([
+  "data_root_inside_install",
+  "invalid_data_root",
+  "invalid_handoff",
+  "runtime_invalid",
+  "install_id_mismatch",
+]);
+
 function ipcFailure(code: string): FirstRunStatus {
   return {
     phase: "degraded",
@@ -119,11 +144,20 @@ export function FirstRunGate({ onReady, backendError = null }: FirstRunGateProps
     try {
       const next = await invoke<FirstRunStatus>(operation ? "provision_status" : "first_run_status");
       const effective = backendError && next.phase === "ready"
-        ? { ...next, phase: "degraded" as const, launchable: false, message: "backend_launch_failed", can_retry: true, error_code: "backend_launch_failed" }
+        ? { ...next, phase: "degraded" as const, launchable: false, message: backendErrorCode(backendError), can_retry: true, error_code: backendErrorCode(backendError) }
         : next;
       setStatus(effective);
-      if (!userSelectedRoot.current && (next.data_root || next.default_data_root)) {
-        setSelectedRoot(next.data_root ?? next.default_data_root);
+      const effectiveErrorCode =
+        effective.error_code ?? (backendError ? backendErrorCode(backendError) : null);
+      const avoidPrefillDataRoot =
+        next.install_id === "embedded-install" ||
+        (effectiveErrorCode !== null && INVALID_PREFILL_CODES.has(effectiveErrorCode)) ||
+        (backendError !== null && INVALID_PREFILL_CODES.has(backendErrorCode(backendError)));
+      const suggestedRoot = avoidPrefillDataRoot
+        ? next.default_data_root
+        : (next.data_root ?? next.default_data_root);
+      if (!userSelectedRoot.current && suggestedRoot) {
+        setSelectedRoot(suggestedRoot);
       }
       if (operation && next.phase === "ready" && !backendError && !readyNotified.current) {
         readyNotified.current = true;
@@ -184,8 +218,9 @@ export function FirstRunGate({ onReady, backendError = null }: FirstRunGateProps
       try {
         await invoke("reload_backend_command");
         onReady();
-      } catch {
-        setStatus(ipcFailure("backend_launch_failed"));
+      } catch (error) {
+        // reload_backend_command rejects with the real closed code.
+        setStatus(ipcFailure(typeof error === "string" ? backendErrorCode(error) : "backend_launch_failed"));
       } finally {
         setBusy(false);
       }
@@ -259,7 +294,11 @@ export function FirstRunGate({ onReady, backendError = null }: FirstRunGateProps
               {status?.phase === "provisioning" ? (
                 <button type="button" onClick={() => void cancel()} className="rounded-md border border-border-soft px-3 py-2 text-sm hover:bg-[var(--accent-soft)]">{t("shell.firstRun.runtime.cancel")}</button>
               ) : status?.phase === "failed" || status?.phase === "degraded" ? (
-                <button type="button" disabled={busy} onClick={() => void retry()} className="rounded-md bg-[var(--kira-cyan)] px-3 py-2 text-sm font-semibold text-background disabled:opacity-60">{t("shell.firstRun.runtime.retry")}</button>
+                <>
+                  <button type="button" disabled={busy} onClick={() => void retry()} className="rounded-md bg-[var(--kira-cyan)] px-3 py-2 text-sm font-semibold text-background disabled:opacity-60">{t("shell.firstRun.runtime.retry")}</button>
+                  {/* Repair re-provisions into the folder chosen above (possibly a new one). */}
+                  <button type="button" disabled={busy || !selectedRoot} onClick={() => void start()} className="rounded-md border border-border-soft px-3 py-2 text-sm font-semibold hover:bg-[var(--accent-soft)] disabled:opacity-60">{t("shell.firstRun.runtime.repair")}</button>
+                </>
               ) : status?.phase !== "ready" ? (
                 <button type="button" disabled={busy || !selectedRoot} onClick={() => void start()} className="rounded-md bg-[var(--kira-cyan)] px-3 py-2 text-sm font-semibold text-background disabled:opacity-60">{busy ? t("shell.firstRun.runtime.label") : t("shell.firstRun.runtime.install")}</button>
               ) : null}
@@ -275,6 +314,7 @@ export function FirstRunGate({ onReady, backendError = null }: FirstRunGateProps
             <dt>{t("shell.firstRun.diagnostic.error")}</dt><dd className="mono break-all">{safeErrorCode(status?.error_code, t)}</dd>
           </dl>
         </details>
+        <SupportLinks className="mt-4 border-t border-border-soft pt-3" />
       </section>
     </main>
   );

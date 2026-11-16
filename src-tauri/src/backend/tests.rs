@@ -5,6 +5,182 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[test]
+fn launched_token_survives_runtime_residue_and_config_changes() {
+    const CHILD: &str = "OPENCOHOST_TOKEN_CONTEXT_TEST";
+    if env::var_os(CHILD).is_none() {
+        let root = env::temp_dir().join(format!(
+            "opencohost-token-context-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let output = std::process::Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "backend::tests::launched_token_survives_runtime_residue_and_config_changes",
+                "--nocapture",
+            ])
+            .env(CHILD, &root)
+            .env("APPDATA", root.join("appdata"))
+            .env("USERPROFILE", root.join("home"))
+            .env_remove("OPENCOHOST_DATA_ROOT")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    use std::io::{Read, Write};
+    let root = PathBuf::from(env::var_os(CHILD).unwrap());
+    let live = root.join("live");
+    fs::create_dir_all(live.join("config")).unwrap();
+    fs::write(
+        live.join("config/api_tokens.json"),
+        r#"{"operator":"synthetic-launch-token"}"#,
+    )
+    .unwrap();
+    let config_file = root.join("backend.json");
+    let config = BackendConfig {
+        python_path: "unused".into(),
+        working_dir: live.to_string_lossy().into_owned(),
+        app_module: "unused".into(),
+        port: 8765,
+        fallback_port: 8770,
+        spawn: false,
+        log_file: None,
+        data_root: Some(live.clone()),
+    };
+    fs::write(&config_file, serde_json::to_vec(&config).unwrap()).unwrap();
+    env::set_var("OPENCOHOST_BACKEND_CONFIG", &config_file);
+    let state = BackendState {
+        launch_config: std::sync::Mutex::new(Some(config.clone())),
+        info: std::sync::Mutex::new(BackendInfo {
+            base_url: "http://127.0.0.1:8765".into(),
+            managed: true,
+            error: None,
+        }),
+        child: std::sync::Mutex::new(None),
+        job: std::sync::Mutex::new(None),
+        ptt_child: std::sync::Mutex::new(None),
+        ptt_job: std::sync::Mutex::new(None),
+        watch_generation: std::sync::atomic::AtomicU64::new(0),
+        restarts: std::sync::atomic::AtomicU32::new(0),
+        last_exit: std::sync::Mutex::new(None),
+    };
+    assert_eq!(
+        token::api_token(&state).as_deref(),
+        Some("synthetic-launch-token")
+    );
+    fs::create_dir_all(root.join("runtime/data")).unwrap();
+    fs::write(
+        root.join("runtime/data/sessions.db"),
+        b"new runtime residue",
+    )
+    .unwrap();
+    let changed = BackendConfig {
+        working_dir: root.join("changed").to_string_lossy().into_owned(),
+        data_root: Some(root.join("changed")),
+        ..config
+    };
+    fs::write(&config_file, serde_json::to_vec(&changed).unwrap()).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let request = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut buffer = [0u8; 1024];
+            let size = stream.read(&mut buffer).unwrap();
+            if size == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..size]);
+            if request.windows(4).any(|part| part == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let body = r#"{"ok":true,"timed_out":false}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    let operator = state.operator_token(1, Duration::ZERO);
+    assert_eq!(operator, token::api_token(&state));
+    shutdown::graceful_shutdown(port, operator.as_deref(), false);
+    let request = request.join().unwrap();
+    assert!(request.starts_with("POST /api/system/shutdown HTTP/1.1\r\n"));
+    assert!(
+        request.contains("Authorization: Bearer synthetic-launch-token\r\n"),
+        "Shutdown must use its launched backend context, not rediscovered configuration"
+    );
+    fs::write(
+        live.join("config/api_tokens.json"),
+        r#"{"operator":"synthetic-rotated-token"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        token::api_token(&state).as_deref(),
+        Some("synthetic-rotated-token")
+    );
+    assert_eq!(
+        state.operator_token(1, Duration::ZERO).as_deref(),
+        Some("synthetic-rotated-token")
+    );
+    fs::write(live.join("config/api_tokens.json"), b"not valid token JSON").unwrap();
+    assert_eq!(
+        token::api_token(&state),
+        None,
+        "Retain paths, never a stale bearer value"
+    );
+}
+
+#[test]
+fn packaged_owner_reflection_defaults_on_only_without_explicit_override() {
+    use std::ffi::OsStr;
+    use std::process::Command;
+
+    for (installed, inherited, expected) in [
+        (true, None, Some("on")),
+        (true, Some("off"), Some("off")),
+        (true, Some(""), Some("")),
+        (true, Some("on"), Some("on")),
+        (false, None, None),
+        (false, Some("off"), Some("off")),
+        (false, Some(""), Some("")),
+        (false, Some("on"), Some("on")),
+    ] {
+        let mut command = Command::new("unused-unit-test-interpreter");
+        supervisor::apply_owner_reflection_default(
+            &mut command,
+            installed,
+            inherited.map(OsStr::new),
+        );
+        let actual = command
+            .get_envs()
+            .find(|(name, _)| *name == OsStr::new("OPENCOHOST_OWNER_REFLECTION"))
+            .and_then(|(_, value)| value);
+        assert_eq!(
+            actual,
+            expected.map(OsStr::new),
+            "installed={installed}, inherited={inherited:?}"
+        );
+    }
+}
+
+#[test]
 fn missing_installed_runtime_becomes_degraded_backend_state() {
     let outcome = supervisor::degraded_outcome("runtime_not_ready: run Provision or Repair", 8765);
     assert!(!outcome.info.managed);
@@ -522,7 +698,7 @@ fn dev_token_file_path_joins_working_dir_config_api_tokens_json() {
 
 #[test]
 fn resolve_token_file_candidates_checks_working_dir_before_appdata() {
-    let candidates = token::resolve_token_file_candidates("C:\\App");
+    let candidates = token::resolve_token_file_candidates("C:\\App", None);
     assert_eq!(candidates.len(), 2);
     assert_eq!(
         candidates[0],
@@ -533,6 +709,30 @@ fn resolve_token_file_candidates_checks_working_dir_before_appdata() {
             .join("config")
             .join("api_tokens.json")
     ));
+}
+
+#[test]
+fn resolve_token_file_candidates_checks_data_root_first_when_set() {
+    // With a data root set, the backend mints its token under
+    // <data_root>/config (opencohost/config/storage.py), so it must win.
+    let candidates = token::resolve_token_file_candidates("C:\\App", Some(Path::new("D:\\Data")));
+    assert_eq!(candidates.len(), 3);
+    assert_eq!(
+        candidates[0],
+        Path::new("D:\\Data").join("config").join("api_tokens.json")
+    );
+    assert_eq!(
+        candidates[1],
+        Path::new("C:\\App").join("config").join("api_tokens.json")
+    );
+}
+
+#[test]
+fn effective_data_root_prefers_the_configured_root() {
+    assert_eq!(
+        token::effective_data_root(Some(Path::new("D:\\Data"))),
+        Some(PathBuf::from("D:\\Data"))
+    );
 }
 
 #[test]
@@ -555,4 +755,175 @@ fn read_operator_token_with_retry_finds_token_at_a_later_candidate_when_an_earli
 
     assert_eq!(token, Some("dev-mode-token".to_string()));
     let _ = fs::remove_file(&present);
+}
+
+
+// ---- identity-aware reuse (S8) -------------------------------------------
+
+#[test]
+fn foreign_primary_spawns_on_a_free_fallback() {
+    assert_eq!(
+        health::decide_action(
+            health::HealthProbe::HealthyForeign,
+            Some(health::HealthProbe::NotListening),
+            true
+        ),
+        health::ResolveAction::Spawn(health::PortChoice::Fallback)
+    );
+    assert_eq!(
+        health::decide_action(health::HealthProbe::HealthyForeign, None, true),
+        health::ResolveAction::Spawn(health::PortChoice::Fallback)
+    );
+}
+
+#[test]
+fn foreign_primary_reuses_a_matching_fallback() {
+    assert_eq!(
+        health::decide_action(
+            health::HealthProbe::HealthyForeign,
+            Some(health::HealthProbe::Healthy),
+            true
+        ),
+        health::ResolveAction::ReuseHealthy(health::PortChoice::Fallback)
+    );
+}
+
+#[test]
+fn foreign_everywhere_is_reported_not_reused_and_not_spawned_over() {
+    for fallback in [
+        health::HealthProbe::HealthyForeign,
+        health::HealthProbe::ListeningNotHealthy,
+    ] {
+        assert_eq!(
+            health::decide_action(health::HealthProbe::HealthyForeign, Some(fallback), true),
+            health::ResolveAction::ForeignBackend
+        );
+    }
+    assert_eq!(
+        health::decide_action(
+            health::HealthProbe::ListeningNotHealthy,
+            Some(health::HealthProbe::HealthyForeign),
+            true
+        ),
+        health::ResolveAction::ForeignBackend
+    );
+}
+
+#[test]
+fn foreign_primary_with_spawn_disabled_stays_unmanaged() {
+    // The owner pointed the shell at an external backend on purpose.
+    assert_eq!(
+        health::decide_action(health::HealthProbe::HealthyForeign, None, false),
+        health::ResolveAction::Unmanaged
+    );
+}
+
+#[test]
+fn new_startup_failures_have_their_own_closed_diagnostics() {
+    for code in ["backend_foreign_instance", "backend_exited"] {
+        let diagnostic = backend_diagnostic(code);
+        assert_eq!(diagnostic.code, code);
+        assert_eq!(diagnostic.message_key, code);
+        assert_eq!(diagnostic.action, "retry");
+    }
+}
+
+#[test]
+fn spawned_backend_gets_deterministic_python_environment() {
+    let mut command = std::process::Command::new("python");
+    supervisor::apply_python_env(&mut command);
+    let envs: std::collections::HashMap<_, _> = command
+        .get_envs()
+        .map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned())))
+        .collect();
+    assert_eq!(envs.get("PYTHONDONTWRITEBYTECODE"), Some(&Some("1".to_string())));
+    assert_eq!(envs.get("PYTHONUTF8"), Some(&Some("1".to_string())));
+}
+
+#[test]
+fn backend_log_is_appended_across_spawns_not_truncated() {
+    let dir = env::temp_dir().join(format!(
+        "opencohost-log-append-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let log = dir.join("logs").join("backend.log");
+    fs::create_dir_all(log.parent().unwrap()).unwrap();
+    fs::write(&log, "previous run\n").unwrap();
+    let _ = supervisor::log_stdio(&log);
+    assert_eq!(fs::read_to_string(&log).unwrap(), "previous run\n");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn watcher_respawns_once_then_gives_up() {
+    use supervisor::{watch_decision, WatchAction};
+    assert_eq!(watch_decision(false, 0, 1), WatchAction::KeepWatching);
+    assert_eq!(watch_decision(true, 0, 1), WatchAction::Respawn);
+    assert_eq!(watch_decision(true, 1, 1), WatchAction::GiveUp);
+    assert_eq!(watch_decision(true, 5, 1), WatchAction::GiveUp);
+}
+
+#[test]
+fn child_liveness_distinguishes_running_exited_and_absent() {
+    use supervisor::{child_liveness, ChildLiveness};
+    let mut quick = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" });
+    if cfg!(windows) {
+        quick.args(["/C", "exit 3"]);
+    } else {
+        quick.args(["-c", "exit 3"]);
+    }
+    let mut child = quick.spawn().unwrap();
+    let _ = child.wait();
+    let slot = std::sync::Mutex::new(Some(child));
+    assert!(matches!(child_liveness(&slot), ChildLiveness::Exited(_)));
+    assert_eq!(child_liveness(&std::sync::Mutex::new(None)), ChildLiveness::Absent);
+}
+
+#[test]
+fn status_flags_separate_a_respawn_in_flight_from_a_final_crash() {
+    use supervisor::status_flags;
+    // Alive child: nothing to report.
+    assert_eq!(status_flags(true, true, false, None), (false, false));
+    // Died, respawn still pending: keep waiting, do not fail fast.
+    assert_eq!(status_flags(true, false, true, None), (true, false));
+    // Gave up: fail fast.
+    assert_eq!(
+        status_flags(false, false, true, Some("backend_exited")),
+        (false, true)
+    );
+    // Never managed (external backend): neither.
+    assert_eq!(status_flags(false, false, false, None), (false, false));
+}
+
+#[test]
+fn bridge_restarts_only_after_a_successful_backend_start_with_spawn_enabled() {
+    use supervisor::should_restart_bridge;
+    // Successful respawn/reload with a managed (spawn) config: bridge comes back.
+    assert!(should_restart_bridge(true, true));
+    // Failed respawn/reload: never spawn a bridge against a dead backend.
+    assert!(!should_restart_bridge(false, true));
+    // Externally managed backend (spawn == false): no bridge, as at startup.
+    assert!(!should_restart_bridge(true, false));
+    assert!(!should_restart_bridge(false, false));
+}
+
+#[test]
+fn classify_backend_error_routes_install_boundary_and_repair_separately() {
+    let inside = diagnostics::classify_backend_error(
+        "Choose a writable data folder outside the application install directory; run Repair",
+    );
+    assert_eq!(inside.code, "data_root_inside_install");
+    assert_eq!(inside.stage, "runtime");
+    assert_eq!(inside.action, "provision_or_repair");
+    assert_eq!(inside.message_key, "data_root_inside_install");
+
+    let repair = diagnostics::classify_backend_error(
+        "The existing runtime handoff is invalid; run Repair to preserve the configured data folder",
+    );
+    assert_eq!(repair.code, "runtime_not_ready");
+    assert_eq!(repair.action, "provision_or_repair");
 }

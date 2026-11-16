@@ -36,6 +36,23 @@ describe("sanitizeDetail", () => {
 });
 
 describe("emitAppEvent", () => {
+  it("assigns non-ok default tones to terminal cloud and PTT failures while respecting an explicit caller tone", () => {
+    const cases: Array<[AppEventInput, "warn" | "danger"]> = [
+      [{ source: "motor", action: "cloud_llm_error" }, "warn"],
+      [{ source: "motor", action: "turn_dropped" }, "warn"],
+      [{ source: "motor", action: "cloud_bad_key" }, "danger"],
+      [{ source: "motor", action: "cloud_probe_gave_up" }, "warn"],
+      [{ source: "ptt", action: "error" }, "danger"]
+    ];
+
+    for (const [input] of cases) emitAppEvent(input);
+
+    expect(useEventStore.getState().events.map((event) => event.tone)).toEqual(cases.map(([, tone]) => tone));
+    emitAppEvent({ source: "motor", action: "cloud_llm_error", tone: "info" });
+    const events = useEventStore.getState().events;
+    expect(events[events.length - 1]?.tone).toBe("info");
+  });
+
   it("with a whitelisted key: appends exactly one store event with the template label and calls the toast sink once with (label, tone)", () => {
     const sink = vi.fn();
     setToastSink(sink);
@@ -85,7 +102,7 @@ describe("emitAppEvent — KNOWN_SILENT drop + ptt toast exception", () => {
     const sink = vi.fn();
     setToastSink(sink);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    for (const key of ["motor.speaking_start", "motor.speaking_end", "motor.idle", "ptt.flushed", "ptt.auto_stopped"]) {
+    for (const key of ["motor.speaking_start", "motor.speaking_end", "motor.idle", "ptt.auto_stopped"]) {
       const [source, action] = key.split(".");
       emitAppEvent({ source: source as AppEventSource, action }, "srv-x", { toast: false });
     }
@@ -110,8 +127,33 @@ describe("emitAppEvent — KNOWN_SILENT drop + ptt toast exception", () => {
     emitAppEvent({ source: "ptt", action: "error" }, "srv-9", { toast: false });
     expect(sink).toHaveBeenCalledTimes(3);
     expect(sink).toHaveBeenNthCalledWith(1, "PTT escuchando", "ok");
-    expect(sink).toHaveBeenNthCalledWith(2, "PTT enviado a Kira", "ok");
+    expect(sink).toHaveBeenNthCalledWith(2, "PTT: procesando…", "ok");
     expect(useEventStore.getState().events).toHaveLength(3); // also in the feed
+  });
+
+  it("ptt.empty shows the 'No te escuché' row (toasted); ptt.flushed is the quiet 'enviado' confirmation", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    emitAppEvent({ source: "ptt", action: "empty" }, "srv-e", { toast: false });
+    emitAppEvent({ source: "ptt", action: "flushed" }, "srv-f", { toast: false });
+    const labels = useEventStore.getState().events.map((e) => e.label);
+    expect(labels).toEqual(["No te escuché, intenta de nuevo", "PTT enviado a Kira"]);
+    expect(sink).toHaveBeenCalledTimes(1); // only the empty row toasts
+  });
+
+  it("ptt.dictated is a quiet feed row; ptt.dictation_lost toasts as a warning (ptt-dictation-20261111)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    emitAppEvent({ source: "ptt", action: "dictated" }, "srv-d", { toast: false });
+    emitAppEvent({ source: "ptt", action: "dictation_lost" });
+    const events = useEventStore.getState().events;
+    expect(events.map((e) => e.label)).toEqual([
+      "PTT: texto escrito en el chat",
+      "No se capturó el dictado de PTT; no se envió nada"
+    ]);
+    expect(events[1].tone).toBe("warn");
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink).toHaveBeenCalledWith("No se capturó el dictado de PTT; no se envió nada", "warn");
   });
 
   it("still suppresses the toast for a NON-ptt server echo with toast:false (feed only)", () => {
@@ -128,7 +170,7 @@ describe("emitAppEvent — KNOWN_SILENT drop + ptt toast exception", () => {
     emitAppEvent({ source: "ptt", action: "buffer_full" }, "srv-x", { toast: false });
     expect(sink).toHaveBeenCalledTimes(1);
     expect(sink).toHaveBeenCalledWith(
-      "Buffer de voz lleno — lo que sigas diciendo en este envío se pierde. Soltá F10 para mandar.",
+      "Buffer de voz lleno — lo que sigas diciendo en este envío se pierde. Suelta F10 para mandar.",
       "ok"
     );
     expect(useEventStore.getState().events).toHaveLength(1);
@@ -187,11 +229,59 @@ describe("emitAppEvent — motor.cloud_llm_error (item 2: cloud fallback notice,
     const events = useEventStore.getState().events;
     expect(events).toHaveLength(1);
     expect(events[0].label).toBe(
-      "Proveedor cloud falló — seguís en cloud; revisá el proveedor o cambiá a Local"
+      "Proveedor cloud falló — sigues en cloud; revisa el proveedor o cambia a Local"
     );
     expect(events[0].source).toBe("motor");
     expect(sink).not.toHaveBeenCalled(); // motor.* is feed-only, never toasted
     expect(warn).not.toHaveBeenCalled(); // it IS mapped now — not an unknown key
+    warn.mockRestore();
+  });
+});
+
+describe("emitAppEvent — motor.reasoning_budget_exhausted (terminal reasoning failure notice, feed-only)", () => {
+  it("maps motor.reasoning_budget_exhausted to a feed-visible localized line with warn tone (no toast, no DEV warn)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    emitAppEvent({ source: "motor", action: "reasoning_budget_exhausted" }, "srv-1", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBe(
+      "Motor: el modelo pensó demasiado y no llegó a responder"
+    );
+    expect(events[0].source).toBe("motor");
+    expect(events[0].tone).toBe("warn");
+    expect(sink).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("deduplicates identical events by id in the event store", () => {
+    emitAppEvent({ source: "motor", action: "reasoning_budget_exhausted" }, "srv-1", { toast: false });
+    emitAppEvent({ source: "motor", action: "reasoning_budget_exhausted" }, "srv-1", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+  });
+});
+
+describe("emitAppEvent — motor.turn_dropped (terminal timeout/dropped turn notice, feed-only)", () => {
+  it("maps motor.turn_dropped to a feed-visible localized line with warn tone (no toast, no DEV warn)", () => {
+    const sink = vi.fn();
+    setToastSink(sink);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    emitAppEvent({ source: "motor", action: "turn_dropped" }, "srv-1", { toast: false });
+
+    const events = useEventStore.getState().events;
+    expect(events).toHaveLength(1);
+    // turn_dropped carries no reason (detail is always null server-side), so
+    // the line must not name a cause such as a timeout.
+    expect(events[0].label).toBe("Kira no respondió a este turno");
+    expect(events[0].source).toBe("motor");
+    expect(events[0].tone).toBe("warn");
+    expect(sink).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 });

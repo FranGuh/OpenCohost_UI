@@ -66,7 +66,9 @@ export interface CollapsibleBodyProps {
    *  to a generated id (React useId) when the caller doesn't supply one, so
    *  the element always has a stable id even without aria-controls wiring. */
   id?: string;
+  className?: string;
   children: ReactNode;
+
 }
 
 /**
@@ -79,7 +81,7 @@ export interface CollapsibleBodyProps {
  * doesn't enforce `inert`) plus `aria-hidden` close that hole while keeping
  * the content mounted so the grid-rows height animation still works.
  */
-export function CollapsibleBody({ isOpen, id, children }: CollapsibleBodyProps) {
+export function CollapsibleBody({ isOpen, id, className, children }: CollapsibleBodyProps) {
   const fallbackId = useId();
   const bodyId = id ?? fallbackId;
   return (
@@ -89,7 +91,8 @@ export function CollapsibleBody({ isOpen, id, children }: CollapsibleBodyProps) 
       aria-hidden={!isOpen}
       className={cn(
         "grid transition-all duration-base ease-io",
-        isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0 pointer-events-none"
+        isOpen ? "grid-rows-[1fr] opacity-100 mt-3.5" : "grid-rows-[0fr] opacity-0 mt-0 pointer-events-none",
+        className
       )}
     >
       {/* overflow-hidden only while collapsed so the grid-rows animation clips

@@ -1,164 +1,113 @@
-# OpenCohost UI — Tauri + React front end
+# OpenCohost UI
 
-> ### 🧪 This is an open beta
->
-> OpenCohost is built by one developer orchestrating AI agents, in the open, and this is the first
-> release anyone outside can run. Things will break. Some panels are further
-> along than others, and a few rough edges are known and not yet fixed.
->
-> That is exactly why it is out here: **bug reports, questions and feature
-> ideas are wanted**, not tolerated. If something breaks, misbehaves, or just
-> feels wrong to use, [open an issue](../../issues) — a screenshot and what you
-> were doing is plenty. Front-end contributions are welcome too (see below).
->
-> Please contact me, if you have any problem or bugs.
+The desktop front end of [OpenCohost](https://github.com/plynte-labs/OpenCohost), a local-first AI streaming co-host (Kira): a Tauri 2 shell around a React app. It is the product surface, and the only one.
 
-![Opencohost App](pictures/Interface.png)
-This is **the** OpenCohost user interface: a Tauri 2 desktop shell wrapping a
-React app, and the surface the product actually ships on. It is not a mockup and
-not an alternative to anything — the older CustomTkinter shell in the Python repo
-was frozen as legacy on 2026-08-13 and is no longer maintained.
+> Open beta. Things will break and some panels are further along than others. Bug reports, questions and front-end contributions are welcome: [open an issue](../../issues) with a screenshot and what you were doing.
 
-![Agenda Panel](pictures/AgendaPanel.png)
-It lives in its own repository on purpose. The Python engine is a separate
-concern; front-end work — styling, layout, accessibility, component structure,
-bug fixes — can happen here without touching the core. **Contributions of that
-kind are welcome.**
-
-The Python backend is wired in as a submodule consumer: this repo is embedded at
-`OpenCohost_UI/` inside [plynte-labs/OpenCohost](https://github.com/plynte-labs/OpenCohost),
-which holds the engine, the HTTP API, and the product documentation.
+![OpenCohost app](pictures/Interface.png)
 
 ## How it fits together
-![Alternative theme](pictures/AlternativeTheme.png)
-The React app never talks to a model. It drives the engine entirely over a local
-HTTP API, and the Tauri shell is what puts that API there:
+
+This repo is a git submodule of the [OpenCohost repository](https://github.com/plynte-labs/OpenCohost), checked out at `OpenCohost_UI/`. That repo holds the Python engine, the HTTP API (`opencohost.api.main:app`), the installer pipeline and the product documentation. This repo holds only the UI.
+
+The React app never talks to a model. It drives the engine over a local HTTP API, and the Tauri shell puts that API there:
 
 ```
-React (src/)  ──HTTP──▶  127.0.0.1:8765  ◀──spawns──  src-tauri/src/backend.rs
+React (src/)  --HTTP-->  127.0.0.1:8765  <--spawns--  src-tauri/src/backend/
                          opencohost.api.main:app
 ```
 
-`pnpm tauri:debug` needs nothing else running. On startup `backend.rs` probes
-ports 8765 and 8770; if a healthy backend already answers it reuses that one,
-and otherwise it spawns `python -m uvicorn opencohost.api.main:app` itself and
-kills it again on exit (via a Windows Job Object, so it dies even on a crash).
+On startup the shell probes ports 8765 and 8770. If a healthy backend already answers it reuses it. Otherwise it spawns `python -m uvicorn opencohost.api.main:app` itself and stops it on exit. On first run, a setup wizard (`src/features/setup/`) walks the user through language, model and persona choices.
 
-## Requirements
+## Prerequisites
 
-| Requirement | Notes |
-|---|---|
-| [Node.js](https://nodejs.org/) | Any current LTS |
-| [pnpm](https://pnpm.io/) `11.5.2` | Pinned via `packageManager`; `corepack enable` picks it up |
-| [Rust + Cargo](https://rustup.rs/) | Unpinned — any recent stable toolchain |
-| [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) | Ships with Windows 11; install manually on Windows 10 |
-| MSVC Build Tools (C++ workload) | For the `rustc` MSVC target on Windows |
-| A working Python backend | See the engine repo's setup — the `api` extra is required |
+- [Node.js](https://nodejs.org/) (current LTS) and [pnpm](https://pnpm.io/) 11.5.2 (pinned in `packageManager`; `corepack enable` picks it up)
+- [Rust](https://rustup.rs/) (stable, unpinned) and the MSVC C++ Build Tools
+- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (included in Windows 11)
+- A working Python environment for the engine, set up as described in the root repo (the `api` extra is required)
 
-## Setup
+## Development
+
+Clone the root repo with submodules, then:
 
 ```powershell
+cd OpenCohost_UI
 pnpm install
+pnpm tauri:debug
 ```
+
+`pnpm tauri:debug` needs nothing else running. It starts `tauri dev` with `OPENCOHOST_DEBUG=1` and warns you if something already listens on 8765/8770, because the shell would reuse that backend and debug-only logging would not reach it.
 
 ### Pointing at your Python interpreter
 
-`src-tauri/backend.config.json` is gitignored, because it holds machine-specific
-paths. Without one, the build falls back to the tracked, portable
-`backend.config.default.json`, whose `python_path` is just `"python"` — resolved
-from `PATH`. If your project environment is a conda env or a venv that is not
-first on `PATH`, create your own:
+By default the shell uses the tracked `src-tauri/backend.config.default.json` (`python` from `PATH`, working directory `..`). If your engine lives in a conda env or venv that is not first on `PATH`, create `src-tauri/backend.config.json` (git-ignored):
 
 ```jsonc
-// src-tauri/backend.config.json
 {
   "python_path": "C:\\path\\to\\your\\env\\python.exe",
-  "working_dir": "C:\\path\\to\\the\\engine\\repo",
+  "working_dir": "C:\\path\\to\\OpenCohost",
+  "app_module": "opencohost.api.main:app",
   "port": 8765,
   "fallback_port": 8770,
   "spawn": true
 }
 ```
 
-Debug builds read that file directly from `src-tauri/`. `OPENCOHOST_BACKEND_CONFIG`
-takes precedence over everything if you want to keep the file elsewhere. A
-relative `working_dir` is resolved by walking up from the executable to the
-engine repo root, never against the current directory.
+`OPENCOHOST_BACKEND_CONFIG` overrides both files if you keep the config elsewhere.
 
-## Run
+## Scripts
 
-```powershell
-pnpm tauri:debug
-```
+| Script | What it does |
+|---|---|
+| `pnpm tauri:debug` | Desktop app in dev mode (spawns the backend) |
+| `pnpm dev` | Vite dev server on `:1420`, for front-end work against a backend you started yourself |
+| `pnpm build` | `tsc` plus `vite build` |
+| `pnpm test` | `vitest run` |
+| `pnpm gen:api` | Regenerate `src/api/types.gen.ts` from a live backend on `:8765` |
+| `pnpm gen:api:offline` | Regenerate the types from the committed `openapi.snapshot.json` (runs before `build` and `test`) |
+| `pnpm check:api` | Fail if the live backend has drifted from the snapshot |
+| `pnpm build:phone-avatar` | Build the phone avatar bundle |
 
-The script warns you first if something is already listening on 8765/8770, since
-Tauri will reuse that backend rather than spawn its own — which means
-`OPENCOHOST_DEBUG=1` never reaches it and debug-only log lines go missing.
+If `check:api` fails, the backend contract changed: run `pnpm gen:api` and commit the snapshot and the regenerated types together with the engine-side change.
 
-For front-end-only work against a backend you started yourself, `pnpm dev` serves
-the React app on its own at `:1420`.
-
-## Building an installer
-
-`pnpm tauri build` writes an NSIS installer to
-`src-tauri/target/release/bundle/nsis/`, but it packages **the desktop shell
-only** — no Python engine, no `opencohost` package, no `pyproject.toml`. Install
-that output on a machine without the engine and the app comes up, fails to spawn
-`python -m uvicorn opencohost.api.main:app`, and tells you the engine is missing
-along with the interpreter and working directory it tried; fix it by installing
-the engine and pointing `backend.config.json` at it.
-
-The end-user installer is `OpenCohost-Setup-<version>.exe`, published on the
-[engine repository's](https://github.com/plynte-labs/OpenCohost) releases. It is
-a bootstrapper: it provisions a virtualenv, installs the `opencohost` wheel, and
-starts the engine's own `opencohost` entry point — which today is still the
-legacy CustomTkinter shell, so it does not yet ship this front end.
-
-## Surfaces
-
-One folder per product surface under `src/features/`:
-
-`agenda` · `commands` · `controles` · `experiencia` · `memoria` · `musica` ·
-`perfiles` · `shell` · `stream`
-
-`shell` holds the composition root, the window chrome, and `BackendGate` — the
-component that blocks the app until `GET /api/health` reports `engine_alive`.
-
-## API types are generated, not hand-written
-
-`src/api/types.gen.ts` is generated from the backend's OpenAPI schema. The
-committed `openapi.snapshot.json` is the source of truth for offline builds, so
-`pnpm install` and CI never need a running backend.
+## Tests
 
 ```powershell
-pnpm gen:api      # regenerate from a LIVE backend on :8765
-pnpm check:api    # fail if the live backend has drifted from the snapshot
+pnpm exec tsc --noEmit
+pnpm exec vitest run
+cd src-tauri; cargo test
 ```
 
-If `check:api` fails, the backend contract changed: re-run `pnpm gen:api`, commit
-both the snapshot and the regenerated types, and make sure the engine-side change
-lands too.
+## Project layout
 
-## Testing
-
-```powershell
-pnpm test           # vitest, 89 test files
-pnpm build          # tsc + vite build — type errors fail here
-cd src-tauri && cargo test
+```
+src/
+  api/        typed API client and generated types
+  features/   one folder per surface
+  i18n/       English and Spanish bundles (per-surface .en.ts / .es.ts)
+src-tauri/
+  src/        Rust shell: backend supervisor, first run, provisioning,
+              runtime, desktop companion
+  resources/  bundled resources, including the Kira VRM
+public/       animations, avatar states, boot and brand art
 ```
 
-## Contributing
+Surfaces under `src/features/`: `agenda`, `avatar-vrm`, `commands`, `controles`, `desktop-companion`, `experiencia`, `memoria`, `models`, `musica`, `perfiles`, `remote`, `setup`, `shell`, `stream`, plus `shared`. `shell` holds the composition root and `BackendGate`, which blocks the app until `GET /api/health` reports the engine alive.
 
-Design, styling, accessibility, and UI bug fixes are exactly what this repo is
-for — open an issue or a PR. Two things to keep in mind:
+Rule of thumb: do not reach around the API. The UI owns no engine state; if an endpoint is missing, that is a backend change in the root repo.
 
-- **Do not reach around the API.** The React app owns no engine state; anything
-  that needs the engine goes through an endpoint. If the endpoint does not exist,
-  that is a backend change in the engine repo, not a workaround here.
-- **`preview-static.html` and `preview-alt-aurora.html` are historical.** They
-  are the original design explorations, kept as a record. They are not built, not
-  served, and not a spec for the current UI.
+`preview-static.html` and `preview-alt-aurora.html` are historical design explorations. They are not built and not a spec for the current UI.
 
-## License
+## Installer
 
-MIT — see [`LICENSE`](LICENSE).
+`pnpm tauri build` produces an NSIS installer for the desktop shell only. The end-user installer, which also bundles the engine, is built by CI in the root repo and published on its [releases page](https://github.com/plynte-labs/OpenCohost/releases). Release builds are unsigned, so Windows SmartScreen may show an "Unrecognized app" warning. See the root README for installation and upgrade notes.
+
+## Assets and licenses
+
+The code is MIT, see [`LICENSE`](LICENSE). Some assets carry other terms:
+
+- **Kira VRM** (`src-tauri/resources/vrm/`): first-party, VRM Public License 1.0 with the permissions embedded in the file (attribution required: "Kira by FranGuh"; see the root THIRD-PARTY-NOTICES.md).
+- **Animations** (`public/animations/`): the `.vrma` clips come from a CC0 motion pack by rerofumi (credited anyway) plus a CC0 idle loop. The pixiv VRoid motion pack is not distributed; without it the avatar falls back to the CC0 clips. Per-file terms: [`public/animations/THIRD_PARTY_LICENSES.md`](public/animations/THIRD_PARTY_LICENSES.md).
+- **Kira artwork** (`kira-*` images in `public/`): AI-generated for this project, not MIT and not covered by the VRM license. It is distributed only as part of OpenCohost and may not be reused outside it without the owner's permission.
+
+The root repo's `THIRD-PARTY-NOTICES.md` is the full statement of record.

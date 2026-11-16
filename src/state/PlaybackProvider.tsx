@@ -32,7 +32,7 @@ export interface PlaybackContextValue {
 // use usePlaybackContext / PlaybackProvider, not this directly.
 export const PlaybackContext = createContext<PlaybackContextValue | null>(null);
 
-const VOLUME_STORAGE_KEY = "oc-music-volume";
+export const VOLUME_STORAGE_KEY = "oc-music-volume";
 const DEFAULT_VOLUME = 70;
 
 // CTK parity: opencohost/core/audio_bed.py's AudioBedPolicy defaults
@@ -46,6 +46,27 @@ const DUCK_FRACTION = 0.3;
 const VOLUME_RAMP_MS = 300;
 const VOLUME_RAMP_STEP_MS = 16;
 
+export const PLAYBACK_CHANNEL_NAME = "oc-playback-sync";
+
+type PlaybackMessage =
+  | { type: "REQUEST_STATE" }
+  | {
+      type: "STATE";
+      payload: {
+        currentTrackId: string | null;
+        currentLabel: string | null;
+        playing: boolean;
+        volume: number;
+        ducked: boolean;
+      };
+    }
+  | { type: "CMD_PLAY"; trackId: string; label?: string }
+  | { type: "CMD_PAUSE" }
+  | { type: "CMD_TOGGLE" }
+  | { type: "CMD_STOP" }
+  | { type: "CMD_SET_VOLUME"; volume: number }
+  | { type: "CMD_SET_DUCKED"; ducked: boolean };
+
 function clampUnit(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
@@ -55,27 +76,58 @@ function clampVolumePercent(value: number): number {
 }
 
 function readStoredVolume(): number {
-  const stored = window.localStorage.getItem(VOLUME_STORAGE_KEY);
-  if (stored === null) return DEFAULT_VOLUME;
-  const parsed = Number(stored);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) return DEFAULT_VOLUME;
-  return parsed;
+  try {
+    const stored = window.localStorage.getItem(VOLUME_STORAGE_KEY);
+    if (stored === null) return DEFAULT_VOLUME;
+    const parsed = Number(stored);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) return DEFAULT_VOLUME;
+    return parsed;
+  } catch {
+    return DEFAULT_VOLUME;
+  }
+}
+
+function createBroadcastChannel(): BroadcastChannel | null {
+  try {
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      return new window.BroadcastChannel(PLAYBACK_CHANNEL_NAME);
+    }
+    if (typeof globalThis !== "undefined" && "BroadcastChannel" in globalThis) {
+      return new globalThis.BroadcastChannel(PLAYBACK_CHANNEL_NAME);
+    }
+  } catch {
+    // Unsupported or security restricted
+  }
+  return null;
+}
+
+export type PlaybackMode = "host" | "client";
+
+export interface PlaybackProviderProps {
+  children?: ReactNode;
+  /**
+   * "host": Owns the real <audio> element, receives cross-window commands, broadcasts playback state.
+   * "client": Does not own an <audio> element; listens to the host for state and sends commands to the host.
+   * Defaults to "host".
+   */
+  mode?: PlaybackMode;
 }
 
 /**
- * Owns the single shared <audio> element for the whole app session (bug fix:
- * MusicPanel used to own it directly, so switching Sidebar sections unmounted
- * MusicPanel — and with it the <audio> element — killing playback mid-track).
+ * Coordinates audio playback across all application windows.
  *
- * Mount this ABOVE the section-switched subtree (AppLayout's persistent
- * chrome), so the element's lifetime matches the session, not whichever
- * panel happens to be visible. The element is a plain `new Audio()` instance
- * held in a ref — it is never rendered into the JSX tree, so there is no DOM
- * node for a re-render/unmount elsewhere in the app to tear down.
+ * In host mode (default, used by AppLayout in the main Tauri window), it owns the
+ * single shared <audio> element for the entire application session, executes audio
+ * playback, ramps volume, and broadcasts state changes over BroadcastChannel.
+ *
+ * In client mode (used by auxiliary windows like DesktopCompanion), it delegates
+ * audio execution to the host window to guarantee there is never more than ONE
+ * physical audio stream playing simultaneously in the OS.
  */
-export function PlaybackProvider({ children }: { children: ReactNode }) {
+export function PlaybackProvider({ children, mode = "host" }: PlaybackProviderProps) {
+  const isHost = mode !== "client";
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  if (!audioRef.current) {
+  if (isHost && !audioRef.current) {
     audioRef.current = new Audio();
   }
 
@@ -83,24 +135,87 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [currentLabel, setCurrentLabel] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [volume, setVolumeState] = useState<number>(() => readStoredVolume());
-  const [ducked, setDucked] = useState(false);
+  const [ducked, setDuckedState] = useState(false);
   const rampIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const hasHostRef = useRef(false);
+
+  const currentTrackIdRef = useRef(currentTrackId);
+  currentTrackIdRef.current = currentTrackId;
+
+  const currentLabelRef = useRef(currentLabel);
+  currentLabelRef.current = currentLabel;
+
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+
+  const duckedRef = useRef(ducked);
+  duckedRef.current = ducked;
+
+  const broadcastState = useCallback(
+    (overrides?: Partial<{
+      currentTrackId: string | null;
+      currentLabel: string | null;
+      playing: boolean;
+      volume: number;
+      ducked: boolean;
+    }>) => {
+      const ch = channelRef.current;
+      if (!ch) return;
+      try {
+        ch.postMessage({
+          type: "STATE",
+          payload: {
+            currentTrackId:
+              overrides && "currentTrackId" in overrides
+                ? (overrides.currentTrackId ?? null)
+                : currentTrackIdRef.current,
+            currentLabel:
+              overrides && "currentLabel" in overrides
+                ? (overrides.currentLabel ?? null)
+                : currentLabelRef.current,
+            playing:
+              overrides && "playing" in overrides
+                ? overrides.playing!
+                : playingRef.current,
+            volume:
+              overrides && "volume" in overrides
+                ? overrides.volume!
+                : volumeRef.current,
+            ducked:
+              overrides && "ducked" in overrides
+                ? overrides.ducked!
+                : duckedRef.current
+          }
+        });
+      } catch {
+        // Channel closed or posting error
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const handleEnded = () => setPlaying(false);
-    // Covers async decode/network failures that surface AFTER play() already
-    // resolved (e.g. a 404/unsupported media type discovered mid-buffer) —
-    // without this, `playing` stays stuck true with no visible audio.
-    const handleError = () => setPlaying(false);
+    const handleEnded = () => {
+      setPlaying(false);
+      broadcastState({ playing: false });
+    };
+    const handleError = () => {
+      setPlaying(false);
+      broadcastState({ playing: false });
+    };
     audio.addEventListener("ended", handleEnded);
     audio.addEventListener("error", handleError);
     return () => {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, []);
+  }, [broadcastState]);
 
   // Ramps the shared element's volume toward (volume/100) * (ducked ? 0.3 : 1)
   // whenever either input changes. Storing the interval in a ref (rather than
@@ -119,10 +234,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const intervalId = setInterval(() => {
       tick += 1;
       if (tick >= steps) {
-        audio.volume = target; // snap exactly on the final tick — avoids
-        // float drift from the interpolation formula pushing volume
-        // fractionally outside [0,1], which jsdom's HTMLMediaElement (per
-        // spec) rejects with an IndexSizeError.
+        audio.volume = target;
         clearInterval(intervalId);
         rampIntervalRef.current = null;
         return;
@@ -137,61 +249,236 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     };
   }, [volume, ducked]);
 
-  const setVolume = useCallback((value: number) => {
-    const clamped = clampVolumePercent(value);
-    setVolumeState(clamped);
-    window.localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
-  }, []);
+  const setVolume = useCallback(
+    (value: number) => {
+      const clamped = clampVolumePercent(value);
+      setVolumeState(clamped);
+      try {
+        window.localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
+      } catch {}
+      if (!isHost && hasHostRef.current) {
+        try {
+          channelRef.current?.postMessage({ type: "CMD_SET_VOLUME", volume: clamped });
+        } catch {}
+        return;
+      }
+      broadcastState({ volume: clamped });
+    },
+    [isHost, broadcastState]
+  );
 
-  const playTrack = useCallback((id: string, label?: string) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.src = trackAudioUrl(id);
-    // Apply the current effective (possibly ducked) volume immediately,
-    // BEFORE play() — a freshly started track must begin at the correct
-    // level right away instead of waiting for the ramp effect's next 16ms
-    // tick (the element's `.volume` otherwise carries over whatever the
-    // previous track last had it at).
-    audio.volume = clampUnit((volume / 100) * (ducked ? DUCK_FRACTION : 1));
-    setCurrentTrackId(id);
-    setCurrentLabel(label ?? null);
-    setPlaying(true);
-    // AbortError means a newer play() superseded this one (rapid track
-    // switch) — benign, must not flip `playing` back to false for the new
-    // track. Any other rejection (e.g. NotSupportedError from a 404/bad
-    // media URL) means playback genuinely never started.
-    audio.play().catch((err) => {
-      if ((err as { name?: string })?.name !== "AbortError") setPlaying(false);
-    });
-  }, [volume, ducked]);
+  const setDucked = useCallback(
+    (value: boolean) => {
+      setDuckedState(value);
+      if (!isHost && hasHostRef.current) {
+        try {
+          channelRef.current?.postMessage({ type: "CMD_SET_DUCKED", ducked: value });
+        } catch {}
+        return;
+      }
+      broadcastState({ ducked: value });
+    },
+    [isHost, broadcastState]
+  );
+
+  const playTrack = useCallback(
+    (id: string, label?: string) => {
+      if (!isHost) {
+        if (hasHostRef.current) {
+          setCurrentTrackId(id);
+          setCurrentLabel(label ?? null);
+          setPlaying(true);
+          try {
+            channelRef.current?.postMessage({ type: "CMD_PLAY", trackId: id, label });
+          } catch {}
+          return;
+        }
+        // Standalone fallback if no host is running in the background
+        if (!audioRef.current) {
+          audioRef.current = new Audio();
+        }
+      }
+
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.src = trackAudioUrl(id);
+      audio.volume = clampUnit((volume / 100) * (ducked ? DUCK_FRACTION : 1));
+      setCurrentTrackId(id);
+      setCurrentLabel(label ?? null);
+      setPlaying(true);
+      broadcastState({ currentTrackId: id, currentLabel: label ?? null, playing: true });
+      audio.play().catch((err) => {
+        if ((err as { name?: string })?.name !== "AbortError") {
+          setPlaying(false);
+          broadcastState({ playing: false });
+        }
+      });
+    },
+    [isHost, volume, ducked, broadcastState]
+  );
 
   const toggle = useCallback(() => {
+    if (!isHost) {
+      if (hasHostRef.current) {
+        try {
+          channelRef.current?.postMessage({ type: "CMD_TOGGLE" });
+        } catch {}
+        setPlaying((prev) => !prev);
+        return;
+      }
+    }
     const audio = audioRef.current;
     if (!audio || !audio.src) return;
     setPlaying((wasPlaying) => {
+      const next = !wasPlaying;
       if (wasPlaying) {
         audio.pause();
-        return false;
+      } else {
+        audio.play().catch((err) => {
+          if ((err as { name?: string })?.name !== "AbortError") {
+            setPlaying(false);
+            broadcastState({ playing: false });
+          }
+        });
       }
-      audio.play().catch((err) => {
-        if ((err as { name?: string })?.name !== "AbortError") setPlaying(false);
-      });
-      return true;
+      broadcastState({ playing: next });
+      return next;
     });
-  }, []);
+  }, [isHost, broadcastState]);
 
   const pause = useCallback(() => {
+    if (!isHost) {
+      if (hasHostRef.current) {
+        setPlaying(false);
+        try {
+          channelRef.current?.postMessage({ type: "CMD_PAUSE" });
+        } catch {}
+        return;
+      }
+    }
     const audio = audioRef.current;
     if (audio) audio.pause();
     setPlaying(false);
-  }, []);
+    broadcastState({ playing: false });
+  }, [isHost, broadcastState]);
 
   const stop = useCallback(() => {
+    if (!isHost) {
+      if (hasHostRef.current) {
+        setPlaying(false);
+        setCurrentTrackId(null);
+        setCurrentLabel(null);
+        try {
+          channelRef.current?.postMessage({ type: "CMD_STOP" });
+        } catch {}
+        return;
+      }
+    }
     const audio = audioRef.current;
     if (audio) audio.pause();
     setPlaying(false);
     setCurrentTrackId(null);
     setCurrentLabel(null);
+    broadcastState({ currentTrackId: null, currentLabel: null, playing: false });
+  }, [isHost, broadcastState]);
+
+  const actionsRef = useRef({ playTrack, pause, toggle, stop, setVolume, setDucked });
+  actionsRef.current = { playTrack, pause, toggle, stop, setVolume, setDucked };
+
+  useEffect(() => {
+    const ch = createBroadcastChannel();
+    if (!ch) return undefined;
+    channelRef.current = ch;
+
+    const handleMessage = (event: MessageEvent<PlaybackMessage>) => {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+
+      if (isHost) {
+        switch (data.type) {
+          case "REQUEST_STATE":
+            ch.postMessage({
+              type: "STATE",
+              payload: {
+                currentTrackId: currentTrackIdRef.current,
+                currentLabel: currentLabelRef.current,
+                playing: playingRef.current,
+                volume: volumeRef.current,
+                ducked: duckedRef.current
+              }
+            });
+            break;
+          case "CMD_PLAY":
+            actionsRef.current.playTrack(data.trackId, data.label);
+            break;
+          case "CMD_PAUSE":
+            actionsRef.current.pause();
+            break;
+          case "CMD_TOGGLE":
+            actionsRef.current.toggle();
+            break;
+          case "CMD_STOP":
+            actionsRef.current.stop();
+            break;
+          case "CMD_SET_VOLUME":
+            actionsRef.current.setVolume(data.volume);
+            break;
+          case "CMD_SET_DUCKED":
+            actionsRef.current.setDucked(data.ducked);
+            break;
+        }
+      } else {
+        if (data.type === "STATE") {
+          hasHostRef.current = true;
+          setCurrentTrackId(data.payload.currentTrackId);
+          setCurrentLabel(data.payload.currentLabel);
+          setPlaying(data.payload.playing);
+          setVolumeState(data.payload.volume);
+          setDuckedState(data.payload.ducked);
+        }
+      }
+    };
+
+    ch.addEventListener("message", handleMessage);
+
+    if (isHost) {
+      // Announce initial state in case clients are already listening
+      ch.postMessage({
+        type: "STATE",
+        payload: {
+          currentTrackId: currentTrackIdRef.current,
+          currentLabel: currentLabelRef.current,
+          playing: playingRef.current,
+          volume: volumeRef.current,
+          ducked: duckedRef.current
+        }
+      });
+    } else {
+      // Request current state from host
+      ch.postMessage({ type: "REQUEST_STATE" });
+    }
+
+    return () => {
+      ch.removeEventListener("message", handleMessage);
+      ch.close();
+      if (channelRef.current === ch) {
+        channelRef.current = null;
+      }
+    };
+  }, [isHost]);
+
+  // Synchronize cross-window storage event for volume
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === VOLUME_STORAGE_KEY && e.newValue !== null) {
+        const parsed = Number(e.newValue);
+        if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 100) {
+          setVolumeState(parsed);
+        }
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   const value: PlaybackContextValue = {
@@ -206,8 +493,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     ducked,
     setDucked
   };
-  // currentLabel is tracked for future consumers (e.g. a now-playing display)
-  // but not part of the required context shape yet — kept internal on purpose.
+
   void currentLabel;
 
   return <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>;

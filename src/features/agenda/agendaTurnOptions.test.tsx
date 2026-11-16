@@ -44,12 +44,11 @@ describe("AGENDA_TURN_OPTIONS is the single source for the turn-limit dropdown",
     expect(turnosStep?.options).toBe(AGENDA_TURN_OPTIONS);
   });
 
-  it("AgendaPanel's 'Intentos por tema' Select renders the full 1..20 range, not a stale subset", async () => {
+  it("AgendaPanel's 'Intentos por tema' input enforces the 1..20 range", async () => {
     renderAgendaPanel();
-    fireEvent.click(await screen.findByRole("combobox", { name: "Intentos por tema" }));
-    // Strip the selected-option "✓" decoration (aria-hidden, but textContent
-    // doesn't know that) so this compares labels only.
-    const options = screen.getAllByRole("option").map((el) => el.textContent?.replace("✓", "").trim());
-    expect(options).toEqual(AGENDA_TURN_OPTIONS.map((o) => o.label));
+    const input = await screen.findByRole("spinbutton", { name: "Intentos por tema" });
+    expect(input).toHaveAttribute("type", "number");
+    expect(input).toHaveAttribute("min", "1");
+    expect(input).toHaveAttribute("max", "20");
   });
 });

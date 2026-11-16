@@ -23,7 +23,7 @@ export interface DialogProps {
   className?: string;
 }
 
-const DEFAULT_DIALOG_CLASS = "relative flex max-h-[85vh] w-[44rem] max-w-[92vw] overflow-hidden rounded-xl";
+const DEFAULT_DIALOG_CLASS = "relative flex max-h-[85vh] w-[44rem] max-w-[92vw] overflow-hidden rounded-xl bg-background/95 shadow-2xl";
 
 /**
  * Generic modal shell — extracted from ProfileEditor, the first (and most
@@ -97,7 +97,7 @@ export function Dialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}

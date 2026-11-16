@@ -18,6 +18,7 @@ import {
 } from "../../api/stream.js";
 import { composeStreamUrl } from "../commands/wire.js";
 import { useT, type TKey } from "../../i18n/t.js";
+import { ToggleLeft } from "lucide-react";
 
 // Wired to GET /api/stream/chat-live, POST .../connect, POST .../disconnect,
 // PUT .../limits (opencohost/api/main.py ~549-624) — CTK parity:
@@ -256,22 +257,32 @@ const SMALL_STREAM_ON = { threshold_per_second: 0.2, cooldown_seconds: 20, max_m
 // of CTK's behavior, chosen here rather than inherited from it.
 const SMALL_STREAM_OFF = { threshold_per_second: 1, cooldown_seconds: 45, max_messages_per_user: 10 } as const;
 
-function buildReactionOptions(t: ReturnType<typeof useT>) {
-  return [
-    { value: REACTION_PRESET_VALUES.bajo, label: t("stream.acciones.reactionOption.0_5") },
-    { value: REACTION_PRESET_VALUES.medio, label: t("stream.acciones.reactionOption.1") },
-    { value: REACTION_PRESET_VALUES.alto, label: t("stream.acciones.reactionOption.3") }
-  ] as const;
+const REACTION_PRESET_LABEL_KEYS: Record<StreamPresetLevel, TKey> = {
+  bajo: "stream.acciones.reactions.preset.bajo",
+  medio: "stream.acciones.reactions.preset.medio",
+  alto: "stream.acciones.reactions.preset.alto"
+};
+
+function buildReactionPresetOptions(t: ReturnType<typeof useT>): ReadonlyArray<{ value: StreamPresetLevel; label: string }> {
+  return STREAM_FIXTURE.presets.map((preset) => ({
+    value: preset.level,
+    label: t(REACTION_PRESET_LABEL_KEYS[preset.level])
+  }));
 }
 
-function buildCooldownOptions(t: ReturnType<typeof useT>) {
-  return [
-    { value: COOLDOWN_PRESET_VALUES.bajo, label: t("stream.chatLive.cooldownOption.30") },
-    // 45s is Select-only — it deliberately has no preset button.
-    { value: "45", label: t("stream.chatLive.cooldownOption.45") },
-    { value: COOLDOWN_PRESET_VALUES.medio, label: t("stream.chatLive.cooldownOption.60") },
-    { value: COOLDOWN_PRESET_VALUES.alto, label: t("stream.chatLive.cooldownOption.120") }
-  ] as const;
+
+
+const COOLDOWN_PRESET_LABEL_KEYS: Record<StreamPresetLevel, TKey> = {
+  bajo: "stream.acciones.cooldown.preset.bajo",
+  medio: "stream.acciones.cooldown.preset.medio",
+  alto: "stream.acciones.cooldown.preset.alto"
+};
+
+function buildCooldownPresetOptions(t: ReturnType<typeof useT>): ReadonlyArray<{ value: StreamPresetLevel; label: string }> {
+  return STREAM_FIXTURE.presets.map((preset) => ({
+    value: preset.level,
+    label: t(COOLDOWN_PRESET_LABEL_KEYS[preset.level])
+  }));
 }
 
 function buildSpamOptions(t: ReturnType<typeof useT>) {
@@ -296,18 +307,6 @@ function buildTtlOptions(t: ReturnType<typeof useT>) {
   ] as const;
 }
 
-// Preset labels are resolved locally by `level` — the fixture's own `label`
-// field is left untouched (it's mock data shaped like a future API
-// response), see the batch report for why.
-const PRESET_LABEL_KEYS: Record<StreamPresetLevel, TKey> = {
-  bajo: "stream.acciones.preset.bajo",
-  medio: "stream.acciones.preset.medio",
-  alto: "stream.acciones.preset.alto"
-};
-
-function buildPresetOptions(t: ReturnType<typeof useT>): ReadonlyArray<{ value: StreamPresetLevel; label: string }> {
-  return STREAM_FIXTURE.presets.map((preset) => ({ value: preset.level, label: t(PRESET_LABEL_KEYS[preset.level]) }));
-}
 
 // Preset highlight is derived from the current value (not tracked as its
 // own state) so it can never drift out of sync with the Select — returns
@@ -325,11 +324,10 @@ function AccionesCard() {
   const [isOpen, toggle] = useCollapsible(true, "stream-acciones");
   const chatLiveQuery = useStreamChatLiveQuery();
   const limitsMutation = useStreamLimitsMutation();
-  const reactionOptions = buildReactionOptions(t);
-  const cooldownOptions = buildCooldownOptions(t);
+  const reactionPresetOptions = buildReactionPresetOptions(t);
+  const cooldownPresetOptions = buildCooldownPresetOptions(t);
   const spamOptions = buildSpamOptions(t);
   const ttlOptions = buildTtlOptions(t);
-  const presetOptions = buildPresetOptions(t);
 
   const [reactionThreshold, setReactionThreshold] = useState(STREAM_FIXTURE.reaction_threshold);
   const [cooldown, setCooldown] = useState(STREAM_FIXTURE.cooldown);
@@ -382,59 +380,44 @@ function AccionesCard() {
   return (
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground">{t("stream.acciones.title")}</h2>
-        {pending && <Badge tone="info">{t("stream.acciones.status.applying")}</Badge>}
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold text-foreground">{t("stream.acciones.title")}</h2>
+          {pending && <Badge tone="info">{t("stream.acciones.status.applying")}</Badge>}
+          {limitsMutation.isSuccess && !pending && (
+            <Badge tone="ok">{t("stream.acciones.status.applied")}</Badge>
+          )}
+        </div>
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
         <div className="flex flex-col gap-3">
-          {/* Owner report: "applying…" vanished with nothing left behind, so a
-              failed apply and a successful one looked identical once the
-              badge cleared. isSuccess/isError reflect the LAST attempt and
-              reset the moment the next mutate() call fires — no separate
-              timer/toast state needed. */}
-          {limitsMutation.isSuccess && (
-            <Alert tone="ok" role="status" className="mb-3.5">
-              {t("stream.acciones.status.applied")}
-            </Alert>
-          )}
           {limitsMutation.isError && (
             <Alert tone="danger" className="mb-3.5">
               {t("stream.acciones.status.error")}
             </Alert>
           )}
 
-          <section aria-labelledby="stream-reactions-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
-            <span id="stream-reactions-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              {t("stream.acciones.reactions.eyebrow")}
+          <section aria-labelledby="stream-small-stream-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span
+              id="stream-small-stream-label"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("stream.acciones.smallStream.eyebrow")}
             </span>
             <div className="space-y-2">
-              <span id="stream-reaction-helper" className="text-xs text-muted-foreground">
-                {t("stream.acciones.reactions.helper")}
+              <span id="stream-small-stream-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.smallStream.helper")}
               </span>
-              <Select
-                aria-label={t("stream.acciones.reactions.select.aria")}
-                aria-describedby="stream-reaction-helper"
-                options={reactionOptions}
-                value={reactionThreshold}
-                disabled={limitsMutation.isPending}
-                onChange={(value) => {
-                  setReactionThreshold(value);
-                  limitsMutation.mutate({ threshold_per_second: Number(value) });
-                }}
-              />
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.smallStream.label")}</span>
+                <Switch
+                  checked={smallStreamOn}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => limitsMutation.mutate(value ? SMALL_STREAM_ON : SMALL_STREAM_OFF)}
+                  aria-label={t("stream.acciones.smallStream.aria")}
+                />
+              </div>
             </div>
-            <Segmented
-              ariaLabel={t("stream.acciones.reactions.preset.aria")}
-              options={presetOptions}
-              value={reactionPreset}
-              disabled={limitsMutation.isPending}
-              onChange={(level) => {
-                const value = REACTION_PRESET_VALUES[level];
-                setReactionThreshold(value);
-                limitsMutation.mutate({ threshold_per_second: Number(value) });
-              }}
-            />
           </section>
 
           <section aria-labelledby="stream-adaptive-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
@@ -460,6 +443,80 @@ function AccionesCard() {
             </div>
           </section>
 
+          <section aria-labelledby="stream-order-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-order-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              {t("stream.acciones.order.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-order-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.order.helper")}
+              </span>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.order.label")}</span>
+                <Switch
+                  checked={streamOverAgenda}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => {
+                    setStreamOverAgenda(value);
+                    limitsMutation.mutate({ stream_over_agenda: value });
+                  }}
+                  aria-label={t("stream.acciones.order.aria")}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="stream-input-contract-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span
+              id="stream-input-contract-label"
+              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
+            >
+              {t("stream.acciones.inputContract.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-input-contract-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.inputContract.helper")}
+              </span>
+              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                <span className="text-[13px] text-foreground">{t("stream.acciones.inputContract.label")}</span>
+                <Switch
+                  checked={inputContract}
+                  disabled={limitsMutation.isPending}
+                  onChange={(value) => {
+                    setInputContract(value);
+                    limitsMutation.mutate({ input_contract: value });
+                  }}
+                  aria-label={t("stream.acciones.inputContract.aria")}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section aria-labelledby="stream-reactions-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
+            <span id="stream-reactions-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              {t("stream.acciones.reactions.eyebrow")}
+            </span>
+            <div className="space-y-2">
+              <span id="stream-reaction-helper" className="text-xs text-muted-foreground">
+                {t("stream.acciones.reactions.helper")}
+              </span>
+              <div>
+                <Segmented
+                  ariaLabel={t("stream.acciones.reactions.preset.aria")}
+                  ariaDescribedBy="stream-reaction-helper"
+                  options={reactionPresetOptions}
+                  value={reactionPreset}
+                  disabled={limitsMutation.isPending}
+                  onChange={(level) => {
+                    const value = REACTION_PRESET_VALUES[level];
+                    setReactionThreshold(value);
+                    limitsMutation.mutate({ threshold_per_second: Number(value) });
+                  }}
+                />
+              </div>
+            </div>
+          </section>
+
           <section aria-labelledby="stream-cooldown-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
             <span id="stream-cooldown-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
               {t("stream.acciones.cooldown.eyebrow")}
@@ -468,29 +525,21 @@ function AccionesCard() {
               <span id="stream-cooldown-helper" className="text-xs text-muted-foreground">
                 {t("stream.acciones.cooldown.helper")}
               </span>
-              <Select
-                aria-label={t("stream.acciones.cooldown.select.aria")}
-                aria-describedby="stream-cooldown-helper"
-                options={cooldownOptions}
-                value={cooldown}
-                disabled={limitsMutation.isPending}
-                onChange={(value) => {
-                  setCooldown(value);
-                  limitsMutation.mutate({ cooldown_seconds: Number(value) });
-                }}
-              />
+              <div>
+                <Segmented
+                  ariaLabel={t("stream.acciones.cooldown.preset.aria")}
+                  ariaDescribedBy="stream-cooldown-helper"
+                  options={cooldownPresetOptions}
+                  value={cooldownPreset}
+                  disabled={limitsMutation.isPending}
+                  onChange={(level) => {
+                    const value = COOLDOWN_PRESET_VALUES[level];
+                    setCooldown(value);
+                    limitsMutation.mutate({ cooldown_seconds: Number(value) });
+                  }}
+                />
+              </div>
             </div>
-            <Segmented
-              ariaLabel={t("stream.acciones.cooldown.preset.aria")}
-              options={presetOptions}
-              value={cooldownPreset}
-              disabled={limitsMutation.isPending}
-              onChange={(level) => {
-                const value = COOLDOWN_PRESET_VALUES[level];
-                setCooldown(value);
-                limitsMutation.mutate({ cooldown_seconds: Number(value) });
-              }}
-            />
           </section>
 
           <section aria-labelledby="stream-spam-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
@@ -512,52 +561,6 @@ function AccionesCard() {
                   limitsMutation.mutate({ max_messages_per_user: Number(value) });
                 }}
               />
-            </div>
-          </section>
-
-          <section aria-labelledby="stream-small-stream-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
-            <span
-              id="stream-small-stream-label"
-              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-            >
-              {t("stream.acciones.smallStream.eyebrow")}
-            </span>
-            <div className="space-y-2">
-              <span id="stream-small-stream-helper" className="text-xs text-muted-foreground">
-                {t("stream.acciones.smallStream.helper")}
-              </span>
-              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <span className="text-[13px] text-foreground">{t("stream.acciones.smallStream.label")}</span>
-                <Switch
-                  checked={smallStreamOn}
-                  disabled={limitsMutation.isPending}
-                  onChange={(value) => limitsMutation.mutate(value ? SMALL_STREAM_ON : SMALL_STREAM_OFF)}
-                  aria-label={t("stream.acciones.smallStream.aria")}
-                />
-              </div>
-            </div>
-          </section>
-
-          <section aria-labelledby="stream-order-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
-            <span id="stream-order-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              {t("stream.acciones.order.eyebrow")}
-            </span>
-            <div className="space-y-2">
-              <span id="stream-order-helper" className="text-xs text-muted-foreground">
-                {t("stream.acciones.order.helper")}
-              </span>
-              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <span className="text-[13px] text-foreground">{t("stream.acciones.order.label")}</span>
-                <Switch
-                  checked={streamOverAgenda}
-                  disabled={limitsMutation.isPending}
-                  onChange={(value) => {
-                    setStreamOverAgenda(value);
-                    limitsMutation.mutate({ stream_over_agenda: value });
-                  }}
-                  aria-label={t("stream.acciones.order.aria")}
-                />
-              </div>
             </div>
           </section>
 
@@ -593,32 +596,6 @@ function AccionesCard() {
                 })}
               </Alert>
             )}
-          </section>
-
-          <section aria-labelledby="stream-input-contract-label" className="space-y-2.5 border-t border-border-soft pt-3.5">
-            <span
-              id="stream-input-contract-label"
-              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-            >
-              {t("stream.acciones.inputContract.eyebrow")}
-            </span>
-            <div className="space-y-2">
-              <span id="stream-input-contract-helper" className="text-xs text-muted-foreground">
-                {t("stream.acciones.inputContract.helper")}
-              </span>
-              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                <span className="text-[13px] text-foreground">{t("stream.acciones.inputContract.label")}</span>
-                <Switch
-                  checked={inputContract}
-                  disabled={limitsMutation.isPending}
-                  onChange={(value) => {
-                    setInputContract(value);
-                    limitsMutation.mutate({ input_contract: value });
-                  }}
-                  aria-label={t("stream.acciones.inputContract.aria")}
-                />
-              </div>
-            </div>
           </section>
         </div>
       </CollapsibleBody>
@@ -670,24 +647,36 @@ function DeferredStreamAdminNote() {
  */
 export function StreamPanel() {
   const t = useT();
+  const [isOpen, toggle] = useCollapsible(false, "stream-emision");
   return (
     <>
-      <Alert tone="info" title={t("stream.chatReadout.title")} role="status">
-        {t("stream.chatReadout.body")}
-      </Alert>
-      {/* Three themed alerts (not one, not a list-in-a-p — Alert.tsx wraps
-          children in a single <p>) so the two consequential clauses, ban
-          risk and the cloud-provider data disclosure, each get their own
-          bold title instead of hiding inside a wall of caveats. */}
-      <Alert tone="warn" title={t("stream.riskDisclaimer.beta.title")} role="status">
-        {t("stream.riskDisclaimer.beta.body")}
-      </Alert>
-      <Alert tone="danger" title={t("stream.riskDisclaimer.platform.title")} role="status">
-        {t("stream.riskDisclaimer.platform.body")}
-      </Alert>
-      <Alert tone="info" title={t("stream.riskDisclaimer.dataDisclosure.title")} role="status">
-        {t("stream.riskDisclaimer.dataDisclosure.body")}
-      </Alert>
+      <Card className="flex flex-col p-4 space-y-4">
+        <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
+          <h2 className="text-sm font-bold text-foreground w-full justify-between">{t("stream.acciones.emision.disclaimer")}</h2>
+        </CollapsibleHeader>
+
+        <CollapsibleBody className="gap-3 space-y-4" isOpen={isOpen}>
+          <div className="space-y-4">
+              <Alert tone="info" title={t("stream.chatReadout.title")} role="status">
+            {t("stream.chatReadout.body")}
+            </Alert>
+            {/* Three themed alerts (not one, not a list-in-a-p — Alert.tsx wraps
+                children in a single <p>) so the two consequential clauses, ban
+                risk and the cloud-provider data disclosure, each get their own
+                bold title instead of hiding inside a wall of caveats. */}
+            <Alert tone="warn" title={t("stream.riskDisclaimer.beta.title")} role="status">
+              {t("stream.riskDisclaimer.beta.body")}
+            </Alert>
+            <Alert tone="danger" title={t("stream.riskDisclaimer.platform.title")} role="status">
+              {t("stream.riskDisclaimer.platform.body")}
+            </Alert>
+            <Alert tone="info" title={t("stream.riskDisclaimer.dataDisclosure.title")} role="status">
+              {t("stream.riskDisclaimer.dataDisclosure.body")}
+            </Alert>
+          </div>
+        </CollapsibleBody>
+      </Card>
+      
       <ChatLiveCard />
       <AccionesCard />
       <DeferredStreamAdminNote />

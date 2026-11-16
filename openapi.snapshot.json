@@ -1561,6 +1561,60 @@
         }
       }
     },
+    "/api/memoria/settings": {
+      "get": {
+        "summary": "Get Memoria Settings",
+        "operationId": "get_memoria_settings_api_memoria_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Post Memoria Settings",
+        "operationId": "post_memoria_settings_api_memoria_settings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoriaSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoriaSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ptt/start": {
       "post": {
         "summary": "Post Ptt Start",
@@ -2244,6 +2298,369 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StreamChatLiveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/avatar/image": {
+      "get": {
+        "summary": "Get Avatar Image",
+        "description": "Serve the resolved image bytes for an avatar *state* (Tauri KiraCover).\n\nResolution: configured map → user assets_folder → bundled defaults → idle\nfallbacks (`resolve_state_image`). Unknown state -> 422, nothing found ->\n404 (the client falls back to its static art). Conditional GET via ETag\n(`st_mtime_ns`-`st_size`) so the 700ms speaking flap revalidates cheaply.",
+        "operationId": "get_avatar_image_api_avatar_image_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/avatar/upload": {
+      "post": {
+        "summary": "Post Avatar Upload",
+        "description": "Upload avatar image bytes for one state (Tauri `AvatarCard`).\n\nJSON+base64 on purpose: no `python-multipart` in the dependency set and no\nother multipart endpoint exists — one image (~1-2MB) fits JSON fine. The\nbytes are validated (state/extension/10MB cap/magic) and copied into the\nuser avatar dir, so the source file can be moved or deleted afterwards.",
+        "operationId": "post_avatar_upload_api_avatar_upload_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/remote/pair-code": {
+      "post": {
+        "summary": "Post Remote Pair Code",
+        "operationId": "post_remote_pair_code_api_remote_pair_code_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemotePairCodeResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "gateway_disabled"
+          }
+        }
+      }
+    },
+    "/api/remote/devices": {
+      "get": {
+        "summary": "Get Remote Devices",
+        "operationId": "get_remote_devices_api_remote_devices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteDevicesResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "gateway_disabled"
+          }
+        }
+      }
+    },
+    "/api/remote/devices/{device_id}": {
+      "delete": {
+        "summary": "Delete Remote Device",
+        "operationId": "delete_remote_device_api_remote_devices__device_id__delete",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteRevokeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "unknown_device"
+          },
+          "409": {
+            "description": "gateway_disabled"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/web-fetch/tavily": {
+      "get": {
+        "summary": "Get Tavily Settings",
+        "description": "Return presence/source only, without testing or returning the credential.",
+        "operationId": "get_tavily_settings_api_web_fetch_tavily_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TavilyKeyResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Tavily Settings",
+        "description": "Store/remove a credential locally. Saving is not provider validation.",
+        "operationId": "put_tavily_settings_api_web_fetch_tavily_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TavilyKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TavilyKeyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/usage/summary": {
+      "get": {
+        "summary": "Get Usage Summary",
+        "operationId": "get_usage_summary_api_usage_summary_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/usage/export": {
+      "get": {
+        "summary": "Get Usage Export",
+        "operationId": "get_usage_export_api_usage_export_get",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "json",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response (attachment: every daily row as JSON or CSV)",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/usage/purge": {
+      "post": {
+        "summary": "Post Usage Purge",
+        "operationId": "post_usage_purge_api_usage_purge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsagePurgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsagePurgeResponse"
                 }
               }
             }
@@ -3099,7 +3516,7 @@
         },
         "type": "object",
         "title": "AvatarConfigRequest",
-        "description": "PUT /api/avatar/config body — a partial update.\n\n`state_images` keys are validated against `VALID_STATES` server-side\n(unknown state -> 422) before anything is applied. Image UPLOAD is\ndeferred (owner decision) — values are paths only, never multipart."
+        "description": "PUT /api/avatar/config body — a partial update.\n\n`state_images` keys are validated against `VALID_STATES` server-side\n(unknown state -> 422) before anything is applied. Values are paths only.\nFor real uploads (bytes copied server-side into user-data) use\nPOST /api/avatar/upload (`AvatarUploadRequest`)."
       },
       "AvatarConfigResponse": {
         "properties": {
@@ -3315,11 +3732,37 @@
         "title": "ChatLiveMessagesResponse",
         "description": "GET /api/stream/chat-live/messages?since=cursor (RF3).\n\nSame cursor/boot contract as EventLogResponse. `messages` is capped at\n50 per poll (oldest-after-cursor first); when the sink held more than\nthat, `more_pending` is True and `cursor` advances only to the last\nmessage actually returned, so a client polling in a loop catches up\ngradually instead of skipping the backlog.\n\n`session` changes on every chat-source connect (ChatFeedSink.new_session)\nand is REQUIRED, not optional: absent, it would be indistinguishable from\nsession 0, and a client would keep appending #canalB's chat onto\n#canalA's. `cursor` does NOT reset with it -- see that docstring."
       },
+      "ChatTurnImage": {
+        "properties": {
+          "data": {
+            "type": "string",
+            "title": "Data"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "ChatTurnImage",
+        "description": "One pasted image: base64 (or a data URL) plus its mime type."
+      },
       "ChatTurnRequest": {
         "properties": {
           "text": {
             "type": "string",
-            "title": "Text"
+            "title": "Text",
+            "default": ""
           },
           "idempotency_key": {
             "anyOf": [
@@ -3331,12 +3774,19 @@
               }
             ],
             "title": "Idempotency Key"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatTurnImage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
-        "required": [
-          "text"
-        ],
         "title": "ChatTurnRequest",
         "description": "Wire shape for POST /api/chat/turn (design v2.1 build-order step 4).\n\n`text` is the raw viewer/operator message — dispatched verbatim as the\n`process_context` payload (see `MotorVocalIA._dispatch_command` in\nllm_engine.py). R8: `text` is NEVER echoed back in any response."
       },
@@ -3622,6 +4072,23 @@
           "engine_alive": {
             "type": "boolean",
             "title": "Engine Alive"
+          },
+          "engine_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "starting",
+                  "loading_model",
+                  "ready",
+                  "unavailable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine State"
           }
         },
         "type": "object",
@@ -4249,6 +4716,17 @@
           "promoted": {
             "type": "boolean",
             "title": "Promoted"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
           }
         },
         "type": "object",
@@ -4413,6 +4891,75 @@
         ],
         "title": "MemoriaRowResponse",
         "description": "GET /api/memoria/row/{id} response body (WU-H, operator viewing decision).\n\nThe ONLY memoria surface that returns `content` — on-demand, one row at a\ntime, never preloaded alongside GET /api/memoria/list. Mirrors the\nownership-guard shape used by POST /api/memoria/{delete,update}: the\nhandler's store.get(raising=True) pre-check owns the 404 for a\nmissing/wrong-profile row (R7: identical 404 body either way)."
+      },
+      "MemoriaSettingsRequest": {
+        "properties": {
+          "facts": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Facts"
+          },
+          "episodes": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episodes"
+          },
+          "semantic": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic"
+          }
+        },
+        "type": "object",
+        "title": "MemoriaSettingsRequest",
+        "description": "POST /api/memoria/settings body — partial update. An omitted layer is\nleft unchanged; a body with every layer omitted is a 422 no-op."
+      },
+      "MemoriaSettingsResponse": {
+        "properties": {
+          "memorias_enabled": {
+            "type": "boolean",
+            "title": "Memorias Enabled"
+          },
+          "facts": {
+            "type": "boolean",
+            "title": "Facts"
+          },
+          "episodes": {
+            "type": "boolean",
+            "title": "Episodes"
+          },
+          "semantic": {
+            "type": "boolean",
+            "title": "Semantic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "memorias_enabled",
+          "facts",
+          "episodes",
+          "semantic"
+        ],
+        "title": "MemoriaSettingsResponse",
+        "description": "GET/POST /api/memoria/settings response — per-layer memory controls\n(memory-semantic-recall T4), the effective runtime flags.\n\n`memorias_enabled` is the read-only master switch; when False no layer\nreaches the prompt. `facts` = fact-notebook rows; `episodes` = v5\nepisodic recall lines; `semantic` = MiniLM ranking/recall — off means\nlexical-only facts and no episodes (episodic recall is embedding-only)."
       },
       "MemoriaStatsResponse": {
         "properties": {
@@ -5045,6 +5592,16 @@
               }
             ],
             "title": "Locale"
+          },
+          "extended_responses": {
+            "type": "boolean",
+            "title": "Extended Responses",
+            "default": false
+          },
+          "max_turns": {
+            "type": "integer",
+            "title": "Max Turns",
+            "default": 3
           }
         },
         "type": "object",
@@ -5083,6 +5640,21 @@
               }
             ],
             "title": "Locale"
+          },
+          "extended_responses": {
+            "type": "boolean",
+            "title": "Extended Responses",
+            "default": false
+          },
+          "max_turns": {
+            "type": "integer",
+            "title": "Max Turns",
+            "default": 3
+          },
+          "max_turns_cap": {
+            "type": "integer",
+            "title": "Max Turns Cap",
+            "default": 10
           }
         },
         "type": "object",
@@ -5090,7 +5662,10 @@
           "name",
           "id",
           "prompt",
-          "use_system"
+          "use_system",
+          "extended_responses",
+          "max_turns",
+          "max_turns_cap"
         ],
         "title": "ProfileDetailResponse",
         "description": "GET /api/perfiles/{name} response (R8/D5).\n\n`id` is included so the FE can target this (possibly non-active)\nprofile's memoria rows, which are stored keyed by the stable uuid `id`,\nnot the display name. prompt/use_system/id ONLY — never chat content or\nany other field. The handler builds this from explicit field picks\n(never `**data`), so a new persisted field can never leak through this\nendpoint."
@@ -5140,6 +5715,28 @@
               }
             ],
             "title": "Locale"
+          },
+          "extended_responses": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extended Responses"
+          },
+          "max_turns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Turns"
           }
         },
         "type": "object",
@@ -5746,6 +6343,568 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "AvatarUploadRequest": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "content_b64": {
+            "type": "string",
+            "title": "Content B64"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "filename",
+          "content_b64"
+        ],
+        "title": "AvatarUploadRequest",
+        "description": "POST /api/avatar/upload body — Tauri avatar upload (bytes, not paths).\n\n`content_b64` is the raw image file bytes (base64). The server validates\nstate/extension/size/magic and copies into the user avatar dir as\n`<state><ext>`, so the original file can be moved or deleted afterwards.\nCap: 10MB (`MAX_UPLOAD_BYTES`)."
+      },
+      "RemotePairCodeResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "expires_at": {
+            "type": "number",
+            "title": "Expires At"
+          },
+          "gateway_port": {
+            "type": "integer",
+            "title": "Gateway Port"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "expires_at",
+          "gateway_port"
+        ],
+        "title": "RemotePairCodeResponse",
+        "description": "POST /api/remote/pair-code: a one-time code, valid until expires_at (epoch s)."
+      },
+      "RemoteDevicesResponse": {
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/RemoteDevice"
+            },
+            "type": "array",
+            "title": "Devices"
+          }
+        },
+        "type": "object",
+        "required": [
+          "devices"
+        ],
+        "title": "RemoteDevicesResponse"
+      },
+      "RemoteDevice": {
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "title": "Device Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "number",
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked": {
+            "type": "boolean",
+            "title": "Revoked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "device_id",
+          "name",
+          "created_at",
+          "revoked"
+        ],
+        "title": "RemoteDevice"
+      },
+      "RemoteRevokeResponse": {
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "title": "Device Id"
+          },
+          "revoked": {
+            "type": "boolean",
+            "title": "Revoked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "device_id",
+          "revoked"
+        ],
+        "title": "RemoteRevokeResponse"
+      },
+      "TavilyKeyRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "maxLength": 4096,
+            "format": "password",
+            "title": "Api Key",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "TavilyKeyRequest",
+        "description": "Write-only credential. Empty deletes only the stored key; never probes Tavily."
+      },
+      "TavilyKeyResponse": {
+        "properties": {
+          "api_key_set": {
+            "type": "boolean",
+            "title": "Api Key Set"
+          },
+          "stored_key_set": {
+            "type": "boolean",
+            "title": "Stored Key Set"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "none",
+              "keyring",
+              "environment",
+              "environment_disabled"
+            ],
+            "title": "Source"
+          },
+          "storage_available": {
+            "type": "boolean",
+            "title": "Storage Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key_set",
+          "stored_key_set",
+          "source",
+          "storage_available"
+        ],
+        "title": "TavilyKeyResponse"
+      },
+      "UsageDayRow": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "compute_ms"
+        ],
+        "title": "UsageDayRow",
+        "description": "One day with activity in GET /api/usage/summary."
+      },
+      "UsageModelRow": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "local",
+              "cloud"
+            ],
+            "title": "Provider"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "provider",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "compute_ms"
+        ],
+        "title": "UsageModelRow",
+        "description": "Usage totals for one model (local or cloud)."
+      },
+      "UsageKindRow": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "turn",
+              "guardrail_retry",
+              "vision",
+              "web_search",
+              "topic_scout",
+              "memoria_judge",
+              "reflection"
+            ],
+            "title": "Kind"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "compute_ms"
+        ],
+        "title": "UsageKindRow",
+        "description": "Usage totals for one call kind. web_search rows carry calls only."
+      },
+      "UsageSourceRow": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "ptt",
+              "chat",
+              "agenda",
+              "accumulated",
+              "other"
+            ],
+            "title": "Source"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "compute_ms"
+        ],
+        "title": "UsageSourceRow",
+        "description": "Usage totals for one turn source."
+      },
+      "UsageProfileRow": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "compute_ms"
+        ],
+        "title": "UsageProfileRow",
+        "description": "Usage totals for one profile id."
+      },
+      "UsageCache": {
+        "properties": {
+          "estimated_reused_tokens": {
+            "type": "integer",
+            "title": "Estimated Reused Tokens"
+          },
+          "real_available": {
+            "type": "boolean",
+            "title": "Real Available"
+          },
+          "real_prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Prompt Tokens"
+          },
+          "real_reused_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Reused Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "estimated_reused_tokens",
+          "real_available"
+        ],
+        "title": "UsageCache",
+        "description": "KV-cache reuse: always an estimate, plus the real figure when the runner log is available."
+      },
+      "UsageDecisionRow": {
+        "properties": {
+          "decision_id": {
+            "type": "string",
+            "title": "Decision Id"
+          },
+          "asked": {
+            "type": "integer",
+            "title": "Asked"
+          },
+          "laya_acted": {
+            "type": "integer",
+            "title": "Laya Acted"
+          },
+          "rule_acted": {
+            "type": "integer",
+            "title": "Rule Acted"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision_id",
+          "asked",
+          "laya_acted",
+          "rule_acted",
+          "by_status"
+        ],
+        "title": "UsageDecisionRow",
+        "description": "LAYA decision-layer activity for one decision id."
+      },
+      "UsageSummaryResponse": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "title": "To"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "first_recorded": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Recorded"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/UsageDayRow"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "by_model": {
+            "items": {
+              "$ref": "#/components/schemas/UsageModelRow"
+            },
+            "type": "array",
+            "title": "By Model"
+          },
+          "by_kind": {
+            "items": {
+              "$ref": "#/components/schemas/UsageKindRow"
+            },
+            "type": "array",
+            "title": "By Kind"
+          },
+          "by_source": {
+            "items": {
+              "$ref": "#/components/schemas/UsageSourceRow"
+            },
+            "type": "array",
+            "title": "By Source"
+          },
+          "by_profile": {
+            "items": {
+              "$ref": "#/components/schemas/UsageProfileRow"
+            },
+            "type": "array",
+            "title": "By Profile"
+          },
+          "cache": {
+            "$ref": "#/components/schemas/UsageCache"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/UsageDecisionRow"
+            },
+            "type": "array",
+            "title": "Decisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "enabled",
+          "days",
+          "by_model",
+          "by_kind",
+          "by_source",
+          "by_profile",
+          "cache",
+          "decisions"
+        ],
+        "title": "UsageSummaryResponse",
+        "description": "GET /api/usage/summary. Content-free: numbers, fixed enum labels, model names and profile ids only. `days` holds only days with activity."
+      },
+      "UsagePurgeRequest": {
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "title": "Confirm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "title": "UsagePurgeRequest",
+        "description": "POST /api/usage/purge body. `confirm` must be DELETE_USAGE."
+      },
+      "UsagePurgeResponse": {
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "UsagePurgeResponse",
+        "description": "POST /api/usage/purge response body."
       }
     }
   }

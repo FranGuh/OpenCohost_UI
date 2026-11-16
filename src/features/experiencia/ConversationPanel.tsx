@@ -1,28 +1,54 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { subscribeAcceptedCompanionTurns } from "../desktop-companion/operatorTurnChannel.js";
 import type {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from "react";
-import { ChevronDown, MessageSquareOff, Mic, MicOff } from "lucide-react";
+import { Check, ChevronDown, Copy, ExternalLink, Eye, Mic, MicOff, Smartphone, TriangleAlert, Volume2, X } from "lucide-react";
 import { Alert } from "../../ui/Alert.js";
 import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "../commands/ComposerCommandPanel.js";
-import { Input } from "../../ui/Input.js";
+import { Textarea } from "../../ui/Textarea.js";
 import { KiraFace } from "../../ui/KiraFace.js";
 import { Markdown } from "../../ui/Markdown.js";
+import { Switch } from "../../ui/Switch.js";
 import { Tab, TabList, TabPanel, Tabs } from "../../ui/Tabs.js";
 import { matchCommands } from "../commands/registry.js";
 import { LogsPanel } from "./LogsPanel.js";
+import { SpeechPlaybackBar } from "./SpeechPlaybackBar.js";
+import { VisionLookControl } from "./VisionLookControl.js";
+import { VisionThumbnails } from "./VisionThumbnails.js";
+import { VisionInlineThumbnails } from "./VisionInlineThumbnails.js";
+import { attachVisionBadges, type VisionBadge } from "./visionBadge.js";
+import { VisionSeen } from "./VisionSeen.js";
+import { ImageSendStatus, SentImages, type ImageSendState } from "./SentImage.js";
+import { VisionStateIndicator } from "./VisionStateIndicator.js";
+import { chatImageErrorKey } from "./chatImageError.js";
+import { createPreviewUrl } from "./imagePreview.js";
+import { usePreviewUrlGc } from "./usePreviewUrlGc.js";
+import { useVisionReadyNotice } from "./useVisionReadyNotice.js";
+import { ChatImageError, type ChatTurnImage, type WebSource } from "../../api/client.js";
+import { SourceChips } from "./SourceChips.js";
+import { useLookNow, useVisionQuery, useVisionUpdate, visionComposerState, visionMaxImages, visionReadiness, visionReasonKey } from "../../api/vision.js";
+import { useVisionOffRequestStore, useVisionResultStore } from "../../store/visionStore.js";
+import { executeVisionCommand, isComposerCommandPrefix, parseVisionCommand } from "../../lib/visionCommand.js";
+import { KIRA_TURN_ATTR, useKiraSelection } from "./useKiraSelection.js";
+import { segmentReply } from "./segmentReply.js";
 import { StreamChatPanel } from "./StreamChatPanel.js";
 import { useLogsPref } from "../../store/useLogsPref.js";
 import { useAgendaEvents } from "../../api/agenda.js";
-import { useLastReply, useSendChatTurn } from "../../api/chat.js";
+import { useLastReply, useLastReplyByTurn, useSendChatTurn } from "../../api/chat.js";
+import { useRemoteMessages } from "../../api/remote.js";
 import { useLiveTranscript } from "../../api/liveTranscript.js";
-import { usePttHold, type PttUiState } from "../../api/ptt.js";
+import { usePttHold, usePttStateQuery, type PttUiState } from "../../api/ptt.js";
+import { emitAppEvent } from "../../lib/appEvents.js";
+import { insertDictation, type ComposerSelection } from "./dictation.js";
+import { SPEECH_TEXT_MAX_LENGTH, useReadAloud, useSpeechState, type SpeechErrorKind, type SpeechSayMode } from "../../api/speech.js";
 import { useStatusQuery } from "../../api/status.js";
 import { usePersonalizationQuery } from "../../api/personalization.js";
-import { useTtsConfigQuery } from "../../api/tts.js";
 import { useLlmReadiness } from "../shared/useLlmReadiness.js";
 import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
 import { Button } from "../../ui/Button.js";
@@ -31,6 +57,8 @@ import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
 import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
 import { selectStreamChatLatestSeq, useStreamChatStore } from "../../store/streamChatStore.js";
+import { useSpeechProgressStore } from "../../store/speechProgressStore.js";
+import { useChatStatsStore } from "../../store/chatStatsStore.js";
 
 /** Owner layout correction (2026-07-18): ONE unified strip
  * `Todo | Chat | Comandos | Alertas | Stream` (+ `Logs` when the pref is on).
@@ -109,6 +137,8 @@ function providerLabel(provider: string): string {
   return provider === "local" ? "Ollama local" : provider;
 }
 
+const VOICE_PENDING_ID = "voice-pending";
+
 type TurnKind = "chat" | "alert";
 
 interface Turn {
@@ -127,14 +157,30 @@ interface Turn {
    * Client arrival time only where nothing better is available (agenda diffs,
    * operator composer sends — which ARE local actions, so arrival IS the truth). */
   ts?: number;
+  /** Voice echo still waiting for the backend to confirm Kira received it
+   * (`ptt.flushed`). Rendered dimmed/italic; removed if the hold is discarded. */
+  pending?: boolean;
   /** True when this Kira reply came from an autonomous agenda turn
    * (last-reply `source` startsWith "kira-agenda") rather than a reply to
    * operator/viewer chat — drives a distinct KIRA · AGENDA label. */
   fromAgenda?: boolean;
+  /** V1.9: outcome of the look that preceded this Kira reply (metadata only —
+   * never an image or description). Attached in `visibleTurns`. */
+  visionBadge?: VisionBadge;
+  /** Operator turn sent with pasted images (up to the backend limit, T7). Owner
+   * decision 2026-11-10: the images ARE shown in the conversation, as thumbnails
+   * from `imagePreviewUrls`. Those URLs live in this panel's memory for the
+   * session only (revoked when the turn leaves the transcript or the panel
+   * unmounts); the bytes are never put in history, storage or any request but the
+   * image-turn POST. Without preview URLs the bubble shows a neutral "image" chip. */
+  hasImage?: boolean;
+  imagePreviewUrls?: string[];
+  /** In-flight or failed image send; absent once the engine accepted the turn. */
+  imageSend?: ImageSendState;
   /** Marks an operator turn that arrived by voice (PTT hold echoed from
    * LiveAudio's transcript WS) rather than the composer — drives the
    * "Vos · voz" label above the bubble. */
-  source?: "voice";
+  source?: "voice" | "remote";
   /** Unit 4.2 (runtime_findings_batch_20260731, D3b/F12): how long this reply
    * sat queued before the engine dequeued it (GET /api/chat/last-reply
    * `queue_wait_ms`), and which provider actually answered. Undefined/null
@@ -153,7 +199,21 @@ interface Turn {
   /** Tone the app-event carries (agenda events have none → neutral). Drives the
    * event line's Alert tone. */
   tone?: AppEventTone;
+  /** Owner asked Kira to look while vision was off (`vision_off_request`):
+   * rendered as an inline action row instead of an Alert line. */
+  visionOff?: boolean;
+  /** Sentence fragments for deterministic line-tracking while TTS is speaking. */
+  fragments?: string[];
+  /** Real sources of a web answer (last-reply `web_sources`), shown as chips under
+   * the reply. In this panel's memory for the session only: never stored. */
+  sources?: WebSource[];
 }
+
+/** Mirrors the backend contract (opencohost/api/chat_image.py). */
+const IMAGE_MIME_TYPES: ReadonlyArray<ChatTurnImage["mime_type"]> = ["image/png", "image/jpeg", "image/webp"];
+const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+type AttachedImage = ChatTurnImage & { previewUrl: string; seq: number };
 
 function matchesTab(tab: TabValue, kind: TurnKind): boolean {
   if (tab === "chat") return kind === "chat";
@@ -184,10 +244,10 @@ function TurnTime({ ts, className = "" }: TurnTimeProps) {
   );
 }
 
-function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
+function KiraBadgeLabel({ fromAgenda = false, id }: { fromAgenda?: boolean; id?: string }) {
   const t = useT();
   return (
-    <span className="mono inline-flex w-fit items-center gap-[6px] text-[11px] font-semibold tracking-[0.06em] text-[var(--kira-cyan)]">
+    <span id={id} className="mono inline-flex w-fit items-center gap-[6px] text-[11px] font-semibold tracking-[0.06em] text-[var(--kira-cyan)]">
       <KiraFace size={22} aria-hidden />
       {fromAgenda ? t("experiencia.conversationPanel.turn.agendaBadge") : "KIRA"}
     </span>
@@ -197,11 +257,387 @@ function KiraBadgeLabel({ fromAgenda = false }: { fromAgenda?: boolean }) {
 interface ConversationTurnProps {
   turn: Turn;
   operatorName?: string;
+  isSpeakingTurn?: boolean;
+  /** True while this turn's reply is still being streamed by the backend. */
+  isStreamingTurn?: boolean;
+  autoFollow?: boolean;
+  /** Queue the full turn text through the read-aloud endpoint. */
+  onReadAloud?: (text: string, mode: SpeechSayMode) => void;
+  /** Failed image turn: resend the same image and text, or drop the message. */
+  onRetryImage?: (turnId: string) => void;
+  onDiscardImage?: (turnId: string) => void;
 }
 
-function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
+/**
+ * Renders nothing; fetches `last-reply?turn_id=N` while mounted and reports its
+ * fragments. Mounted only while the spoken turn's feed fragments are missing or
+ * stale, so the panel itself carries no idle query. A 404 reports nothing.
+ */
+function SpokenTurnFragmentsLoader({
+  turnId,
+  version,
+  onLoaded
+}: {
+  turnId: number;
+  version: number;
+  onLoaded: (value: { turnId: number; fragments: string[] } | null) => void;
+}) {
+  const query = useLastReplyByTurn(turnId, true, version);
+  const fragments = query.data?.fragments;
+  useEffect(() => {
+    onLoaded(fragments?.length ? { turnId, fragments } : null);
+  }, [turnId, fragments, onLoaded]);
+  return null;
+}
+
+interface KiraTurnContentProps {
+  text: string;
+  fragments?: string[];
+  isSpeakingTurn: boolean;
+  autoFollow?: boolean;
+  /** Id of the reply's header: names the bubble group for screen readers. */
+  labelledBy?: string;
+}
+
+interface DomWord {
+  clean: string;
+  node: Text;
+  start: number;
+  end: number;
+}
+
+const WORD_SPLIT_REGEX = /[\p{L}\p{N}]+/gu;
+
+function findTextRange(root: HTMLElement, searchText: string): { range: Range; blockElement: HTMLElement | null } | null {
+  if (!searchText) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let n: Text | null;
+  while ((n = walker.nextNode() as Text | null)) {
+    if (n.nodeValue && n.nodeValue.length > 0) {
+      textNodes.push(n);
+    }
+  }
+  if (textNodes.length === 0) return null;
+
+  // 1. Fast path: exact raw substring match if present
+  let fullText = "";
+  const slices: { node: Text; start: number; end: number }[] = [];
+  for (const tn of textNodes) {
+    const val = tn.nodeValue || "";
+    const start = fullText.length;
+    fullText += val;
+    slices.push({ node: tn, start, end: start + val.length });
+  }
+
+  const trimmed = searchText.trim();
+  const directIdx = fullText.indexOf(trimmed);
+  if (directIdx !== -1) {
+    const targetStart = directIdx;
+    const targetEnd = directIdx + trimmed.length;
+    let startNode: Text | null = null;
+    let startOffset = 0;
+    let endNode: Text | null = null;
+    let endOffset = 0;
+    for (const s of slices) {
+      if (!startNode && targetStart >= s.start && targetStart < s.end) {
+        startNode = s.node;
+        startOffset = targetStart - s.start;
+      }
+      if (targetEnd > s.start && targetEnd <= s.end) {
+        endNode = s.node;
+        endOffset = targetEnd - s.start;
+        break;
+      }
+    }
+    if (startNode && endNode) {
+      try {
+        const range = document.createRange();
+        range.setStart(startNode, startOffset);
+        range.setEnd(endNode, endOffset);
+        const blockElement = (startNode.parentElement?.closest("p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, tr") ??
+          startNode.parentElement) as HTMLElement | null;
+        return { range, blockElement };
+      } catch {}
+    }
+  }
+
+  // 2. Resilient word-level alignment: handles stripped quotation marks,
+  // typography differences, markdown tags, and punctuation-evading splits.
+  const domWords: DomWord[] = [];
+  for (const node of textNodes) {
+    const text = node.nodeValue || "";
+    WORD_SPLIT_REGEX.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = WORD_SPLIT_REGEX.exec(text)) !== null) {
+      domWords.push({
+        clean: m[0].toLowerCase(),
+        node,
+        start: m.index,
+        end: m.index + m[0].length
+      });
+    }
+  }
+
+  const searchWords: string[] = [];
+  WORD_SPLIT_REGEX.lastIndex = 0;
+  let sm: RegExpExecArray | null;
+  while ((sm = WORD_SPLIT_REGEX.exec(searchText)) !== null) {
+    searchWords.push(sm[0].toLowerCase());
+  }
+
+  if (domWords.length === 0 || searchWords.length === 0) return null;
+
+  // Contiguous run of DOM words equal to ALL the fragment's words. No partial
+  // or "first long word" fallback: a wrong highlight is worse than none.
+  let bestStart = -1;
+  for (let i = 0; i + searchWords.length <= domWords.length; i++) {
+    let k = 0;
+    while (k < searchWords.length && domWords[i + k].clean === searchWords[k]) k++;
+    if (k === searchWords.length) {
+      bestStart = i;
+      break;
+    }
+  }
+
+  if (bestStart === -1) return null;
+
+  const startWord = domWords[bestStart];
+  const matchedSpan = searchWords.length;
+  const endWord = domWords[bestStart + matchedSpan - 1];
+
+  try {
+    const range = document.createRange();
+    range.setStart(startWord.node, startWord.start);
+    range.setEnd(endWord.node, endWord.end);
+    const blockElement = (startWord.node.parentElement?.closest("p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, tr") ??
+      startWord.node.parentElement) as HTMLElement | null;
+    return { range, blockElement };
+  } catch {
+    return null;
+  }
+}
+
+function KiraTurnContent({ text, fragments, isSpeakingTurn, autoFollow = true, labelledBy }: KiraTurnContentProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const prevBlockRef = useRef<HTMLElement | null>(null);
+  const speaking = useSpeechProgressStore((s) => (isSpeakingTurn ? s.speaking : false));
+  const currentIdx = useSpeechProgressStore((s) => (isSpeakingTurn ? s.currentIdx : null));
+  // Exact fragment the backend reports as playing now; preferred over fragments[currentIdx].
+  const spokenFragment = useSpeechProgressStore((s) => (isSpeakingTurn ? s.fragment : null));
+  const jobEpoch = useSpeechProgressStore((s) => s.jobEpoch);
+
+  useEffect(() => {
+    // Cleanup previous active block styling
+    if (prevBlockRef.current) {
+      prevBlockRef.current.classList.remove("oc-reading-active");
+      prevBlockRef.current = null;
+    }
+
+    // The backend's spoken fragment is the source of truth; the feed's
+    // fragments[currentIdx] is only the fallback when it is absent.
+    const idxFragment =
+      currentIdx !== null && currentIdx >= 0 && fragments && currentIdx < fragments.length
+        ? fragments[currentIdx]
+        : null;
+    const currentFrag = spokenFragment || idxFragment;
+    const shouldHighlight = isSpeakingTurn && speaking && Boolean(currentFrag);
+
+    if (!shouldHighlight || !containerRef.current) {
+      if (typeof CSS !== "undefined" && "highlights" in CSS) {
+        CSS.highlights.delete("kira-speech-highlight");
+      }
+      return;
+    }
+
+    const match = findTextRange(containerRef.current, currentFrag as string);
+
+    if (match) {
+      const { range, blockElement } = match;
+
+      // 1. CSS Custom Highlight API for exact sentence range
+      if (typeof Highlight !== "undefined" && typeof CSS !== "undefined" && "highlights" in CSS) {
+        try {
+          const highlight = new Highlight(range);
+          CSS.highlights.set("kira-speech-highlight", highlight);
+        } catch {}
+      }
+
+      // 2. Subtle accent on the active paragraph/block
+      if (blockElement) {
+        blockElement.classList.add("oc-reading-active");
+        prevBlockRef.current = blockElement;
+
+        // 3. Auto-follow scroll ("check de seguimiento para evitar scrolear")
+        if (autoFollow) {
+          blockElement.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+        }
+      }
+    }
+
+    return () => {
+      if (typeof CSS !== "undefined" && "highlights" in CSS) {
+        CSS.highlights.delete("kira-speech-highlight");
+      }
+      if (prevBlockRef.current) {
+        prevBlockRef.current.classList.remove("oc-reading-active");
+        prevBlockRef.current = null;
+      }
+    };
+  }, [isSpeakingTurn, speaking, fragments, spokenFragment, currentIdx, jobEpoch, autoFollow]);
+
+  // A few calm bubbles instead of one wall of text (segmentReply.ts). Closed
+  // segments never change while the reply streams, so index keys keep their
+  // DOM (and Markdown memo) stable and only the last bubble grows. One
+  // container still wraps the whole reply: the speech highlight and the
+  // in-turn selection both work across bubbles, and screen readers get one
+  // group named by the reply header.
+  const segments = useMemo(() => {
+    const parts = segmentReply(text);
+    return parts.length > 0 ? parts : [text];
+  }, [text]);
+  const last = segments.length - 1;
+  return (
+    <div
+      ref={containerRef}
+      {...{ [KIRA_TURN_ATTR]: "" }}
+      role="group"
+      aria-labelledby={labelledBy}
+      data-segment-count={segments.length}
+      className="oc-turn-content flex w-full min-w-0 flex-col gap-1"
+    >
+      {segments.map((segment, index) => (
+        <div
+          key={index}
+          data-reply-segment=""
+          className={cn(
+            "w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-foreground",
+            index < last && "rounded-bl-sm",
+            index > 0 && "oc-reply-segment-enter"
+          )}
+        >
+          <Markdown content={segment} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Inline "vision is off" action (owner asked Kira to look while it was off).
+ * Only the most recent request gets the live button; older rows are static. */
+function VisionOffRow({ turn }: { turn: Turn }) {
   const t = useT();
+  const { data } = useVisionQuery();
+  const update = useVisionUpdate();
+  const isLatest = useVisionOffRequestStore((s) => s.requests[s.requests.length - 1]?.id === turn.id);
+  const readiness = visionReadiness(data);
+  let status: string;
+  let button = false;
+  if (readiness === "starting" || readiness === "warming") status = t("experiencia.vision.off.starting");
+  else if (readiness === "ready") status = t("experiencia.vision.off.ready");
+  else if (readiness === "failed") status = t("experiencia.vision.off.failed");
+  else if (!isLatest) status = t("experiencia.vision.off.earlier");
+  else {
+    status = t("experiencia.vision.off.message");
+    button = true;
+  }
+  return (
+    <div className="flex flex-row items-center justify-between gap-2">
+      <div role="status" data-vision-off-row="" data-tone="warn" className="oc-alert oc-alert-row min-w-0 flex-1">
+        <TriangleAlert className="oc-alert-icon" size={16} aria-hidden="true" />
+        <span className="oc-alert-row-msg" aria-live="polite">
+          {status}
+        </span>
+        {button && (
+          <Button variant="ghost" className="oc-alert-row-action h-7 px-4" disabled={update.isPending} onClick={() => update.mutate({ enabled: true })}>
+            {t("experiencia.vision.off.enable")}
+          </Button>
+        )}
+        <TurnTime ts={turn.ts} className="oc-alert-row-time" />
+      </div>
+    </div>
+  );
+}
+
+function VisionTurnBadge({ badge }: { badge: VisionBadge }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const ok = badge.outcome === "ok";
+  const seconds = badge.describeMs != null ? (badge.describeMs / 1000).toFixed(1) : null;
+  const multi = badge.framesSent != null && badge.framesSent > 1;
+  const clip = badge.mode === "clip";
+  const label = ok
+    ? clip
+      ? badge.framesSent != null && badge.framesSent > 1
+        ? t("experiencia.vision.badge.clip.frames", { frames: badge.framesSent })
+        : t("experiencia.vision.badge.clip")
+      : seconds === null
+      ? t("experiencia.vision.badge.ok.noTime")
+      : multi
+        ? t("experiencia.vision.badge.ok.frames", { frames: badge.framesSent as number, seconds })
+        : t("experiencia.vision.badge.ok", { seconds })
+    : t("experiencia.vision.badge.failed", { reason: t(visionReasonKey(badge.outcome)) });
+  const { data: visionData } = useVisionQuery();
+  const inline = visionData?.show_thumbnails === true;
+  const hasLook = ok && Boolean(badge.lookId);
+  // With "show thumbnails" on, frames render inline; the toggle is the fallback.
+  const canExpand = hasLook && !inline;
+  const toggleLabel = t(open ? "experiencia.vision.thumbs.hide" : "experiencia.vision.thumbs.show");
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <p className={cn("mono inline-flex w-fit items-center gap-1 text-[10px]", ok ? "text-dim" : "text-warn")}>
+        <Eye size={10} aria-hidden="true" />
+        {label}
+        {canExpand && (
+          <button
+            type="button"
+            aria-label={toggleLabel}
+            aria-expanded={open}
+            title={toggleLabel}
+            onClick={() => setOpen((v) => !v)}
+            className="rounded p-0.5 hover:text-foreground"
+          >
+            <ChevronDown size={10} aria-hidden="true" className={cn("transition-transform", open && "rotate-180")} />
+          </button>
+        )}
+      </p>
+      {hasLook && (inline || open) && <VisionSeen lookId={badge.lookId as string} />}
+      {canExpand && open && <VisionThumbnails lookId={badge.lookId as string} mode={badge.mode} framesSent={badge.framesSent} />}
+      {hasLook && inline && <VisionInlineThumbnails lookId={badge.lookId as string} mode={badge.mode} framesSent={badge.framesSent} />}
+    </div>
+  );
+}
+
+function ConversationTurnImpl({
+  turn,
+  operatorName,
+  isSpeakingTurn = false,
+  isStreamingTurn = false,
+  autoFollow = true,
+  onReadAloud,
+  onRetryImage,
+  onDiscardImage
+}: ConversationTurnProps) {
+  const t = useT();
+  // Read aloud is blocked while this reply streams or is being spoken, and for
+  // text over the backend cap (the endpoint would answer 422).
+  const turnSpeaking = useSpeechProgressStore((s) => (isSpeakingTurn ? s.speaking : false));
+  const readAloudTooLong = (turn.text?.length ?? 0) > SPEECH_TEXT_MAX_LENGTH;
+  const readAloudDisabled = isStreamingTurn || turnSpeaking || readAloudTooLong;
+  const readAloudLabel = t("experiencia.readaloud.action");
   const effectiveOperatorName = operatorName || t("experiencia.conversationPanel.turn.anonymous");
+  // T7: copies the RAW reply text (turn.text, the LLM's actual markdown
+  // source), never the rendered DOM — a code block's copy control (inside
+  // Markdown.tsx) handles per-block copies separately.
+  const [copied, setCopied] = useState(false);
+  const headerId = useId();
+  function handleCopyMessage() {
+    const text = turn.text ?? "";
+    if (!text) return;
+    void navigator.clipboard?.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
   if (turn.role === "kira" && turn.text === undefined) {
     return (
       <div className="flex flex-col gap-1.5">
@@ -227,12 +663,47 @@ function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
     return (
       <div className="flex flex-col gap-1.5">
         <span className="flex items-center gap-2">
-          <KiraBadgeLabel fromAgenda={turn.fromAgenda} />
+          <KiraBadgeLabel fromAgenda={turn.fromAgenda} id={headerId} />
           <TurnTime ts={turn.ts}/>
+          {onReadAloud && (
+            <button
+              type="button"
+              onClick={() => onReadAloud(turn.text ?? "", "queue")}
+              disabled={readAloudDisabled}
+              aria-label={readAloudLabel}
+              title={readAloudTooLong ? t("experiencia.readaloud.action.tooLong") : readAloudLabel}
+              className={cn(
+                "ml-auto inline-flex items-center justify-center rounded-md border border-transparent p-1 text-muted-foreground transition-colors",
+                "hover:border-border-soft hover:bg-surface-2 hover:text-foreground disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              )}
+            >
+              <Volume2 size={12} aria-hidden="true" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleCopyMessage}
+            aria-label={copied ? t("experiencia.conversationPanel.turn.copied") : t("experiencia.conversationPanel.turn.copy")}
+            title={copied ? t("experiencia.conversationPanel.turn.copied") : t("experiencia.conversationPanel.turn.copy")}
+            className={cn(
+              "inline-flex items-center justify-center rounded-md border border-transparent p-1 text-muted-foreground transition-colors",
+              !onReadAloud && "ml-auto",
+              "hover:border-border-soft hover:bg-surface-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+              copied && "text-ok"
+            )}
+          >
+            {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+          </button>
         </span>
-        <div className="w-full min-w-0 rounded-md rounded-tl-sm border border-border bg-surface-2 px-3 py-2 text-foreground">
-          <Markdown content={turn.text ?? ""} />
-        </div>
+        <KiraTurnContent
+          text={turn.text ?? ""}
+          fragments={turn.fragments}
+          isSpeakingTurn={isSpeakingTurn}
+          autoFollow={autoFollow}
+          labelledBy={headerId}
+        />
+        {turn.visionBadge && <VisionTurnBadge badge={turn.visionBadge} />}
+        <SourceChips sources={turn.sources} />
         {(hasWaitNote || hasProviderNote) && (
           <p className="mono text-[10px] text-dim">
             {hasWaitNote &&
@@ -257,6 +728,11 @@ function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
               <Mic size={11} aria-hidden="true" />
               {t("experiencia.conversationPanel.turn.operatorVoice", { name: effectiveOperatorName })}
             </span>
+          ) : turn.source === "remote" ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-dim">
+              <Smartphone size={11} aria-hidden="true" />
+              {t("experiencia.conversationPanel.turn.operatorRemote", { name: effectiveOperatorName })}
+            </span>
           ) : (
             <span className="text-[11px] font-semibold text-dim">{effectiveOperatorName}</span>
           )}
@@ -264,9 +740,20 @@ function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
         </span>
         {/* text-[15px] + leading-relaxed: same legibility bump as Kira's
             Markdown bubble; break-words so a pasted long token can't widen it. */}
-        <p className="w-full break-words rounded-md rounded-tr-sm border border-ok-bd bg-ok-bg px-3 py-2 text-[15px] leading-relaxed text-foreground">
-          {turn.text}
-        </p>
+        <div
+          data-pending={turn.pending ? "true" : undefined}
+          className={`w-full break-words rounded-md rounded-tr-sm border border-ok-bd bg-ok-bg px-3 py-2 text-[15px] leading-relaxed text-foreground${turn.pending ? " italic opacity-60" : ""}`}
+        >
+          {turn.text !== "" && <Markdown content={turn.text} breaks />}
+          {turn.hasImage && <SentImages previewUrls={turn.imagePreviewUrls} />}
+          {turn.imageSend && (
+            <ImageSendStatus
+              state={turn.imageSend}
+              onRetry={() => onRetryImage?.(turn.id)}
+              onDiscard={() => onDiscardImage?.(turn.id)}
+            />
+          )}
+        </div>
       </div>
     );
   }
@@ -283,6 +770,10 @@ function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
   // single <p>, so a nested <time> would fold into that element's text content
   // and every exact-match assertion on an event label would start matching
   // "Modelo → qwen3:8b 14:05" instead.
+  if (turn.visionOff) {
+    return <VisionOffRow turn={turn} />;
+  }
+
   if (turn.event !== undefined) {
     return (
       <div className="flex flex-row items-center justify-between gap-2">
@@ -304,6 +795,77 @@ function ConversationTurnImpl({ turn, operatorName }: ConversationTurnProps) {
  * stable across renders now that visibleTurns is memoized, so this actually
  * bails out instead of just adding a comparison. */
 const ConversationTurn = memo(ConversationTurnImpl);
+
+const READ_ALOUD_ERROR_KEY = {
+  guard: "experiencia.readaloud.error.guard",
+  unavailable: "experiencia.readaloud.error.unavailable",
+  invalid: "experiencia.readaloud.error.invalid",
+  generic: "experiencia.readaloud.error.generic"
+} as const;
+
+interface ReadAloudControlsProps {
+  state: Parameters<typeof SpeechPlaybackBar>[0]["state"];
+  selectedText: string | null;
+  busy: boolean;
+  errorKind: SpeechErrorKind | null;
+  onSay: (text: string, mode: SpeechSayMode) => void;
+  onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
+}
+
+/** Selection actions + playback bar + error line, stacked above the composer.
+ * Inline (not floating) so it needs no pointer geometry and stays keyboard reachable. */
+function ReadAloudControls({ state, selectedText, busy, errorKind, onSay, onStop, onPause, onResume }: ReadAloudControlsProps) {
+  const t = useT();
+  const tooLong = (selectedText?.length ?? 0) > SPEECH_TEXT_MAX_LENGTH;
+  const btn = cn(
+    "inline-flex h-7 items-center rounded-md border border-border-soft px-2 text-xs font-semibold text-foreground transition-colors",
+    "hover:bg-surface-2 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+  );
+  // Keep the text selection alive while the button takes the click.
+  const keepSelection = (e: ReactMouseEvent) => e.preventDefault();
+  return (
+    <>
+      {selectedText && (
+        <div
+          role="group"
+          aria-label={t("experiencia.readaloud.selection.group")}
+          className="mx-3 mb-2 flex items-center gap-2"
+        >
+          <button
+            type="button"
+            className={btn}
+            disabled={busy || tooLong}
+            title={tooLong ? t("experiencia.readaloud.selection.tooLong") : undefined}
+            onMouseDown={keepSelection}
+            onClick={() => onSay(selectedText, "queue")}
+          >
+            {t("experiencia.readaloud.selection.queue")}
+          </button>
+          <button
+            type="button"
+            className={btn}
+            disabled={busy || tooLong}
+            title={tooLong ? t("experiencia.readaloud.selection.tooLong") : undefined}
+            onMouseDown={keepSelection}
+            onClick={() => onSay(selectedText, "now")}
+          >
+            {t("experiencia.readaloud.selection.now")}
+          </button>
+        </div>
+      )}
+      <SpeechPlaybackBar state={state} busy={busy} onStop={onStop} onPause={onPause} onResume={onResume} />
+      {errorKind && (
+        <div className="px-3 pb-2">
+          <Alert tone="warn" role="status">
+            {t(READ_ALOUD_ERROR_KEY[errorKind])}
+          </Alert>
+        </div>
+      )}
+    </>
+  );
+}
 
 /** <aside> queue region — the real POST /api/chat/turn composer (useSendChatTurn)
  * plus Kira's accumulated last-reply turns and interleaved agenda/app events.
@@ -332,6 +894,25 @@ export function ConversationPanel() {
   // mounted by Tabs, src/ui/Tabs.tsx), so the dot can light up from off-tab.
   const [seenStreamSeq, setSeenStreamSeq] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  // Pasted image (route A): held in memory only until the turn is sent. The
+  // backend has the vision model describe it; Kira only ever gets text.
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  // Slots taken in the composer: attached images plus pastes still being read.
+  // A ref, so two quick pastes see each other before React re-renders.
+  const imageSlotsRef = useRef(0);
+  const imageSeqRef = useRef(0);
+  // The text and bytes of image turns that have not been accepted yet, so Retry
+  // can resend exactly the same thing. Memory only; dropped on success/discard.
+  const imageDraftsRef = useRef(new Map<string, { text: string; images: ChatTurnImage[] }>());
+  const [imageHint, setImageHint] = useState<"visionOff" | "unsupported" | "tooLarge" | "tooMany" | "onlyOne" | null>(null);
+  // V1.10: look commands (/mira, !mira, /look, !look) arm a look, then send the rest.
+  const { data: visionData } = useVisionQuery();
+  const composerVision = visionComposerState(visionData);
+  useVisionReadyNotice(composerVision.phase);
+  const lookNow = useLookNow();
+  const visionResults = useVisionResultStore((s) => s.results);
+  const visionOffRequests = useVisionOffRequestStore((s) => s.requests);
+  const [visionCommandBlocked, setVisionCommandBlocked] = useState(false);
   // Composer command palette (mockup): a live, prefix-based detection — the
   // panel shows whenever the trimmed composer value starts with "/" or "!".
   const composerRef = useRef<HTMLDivElement>(null);
@@ -342,7 +923,7 @@ export function ConversationPanel() {
   // a command from the launcher must not move the operator off the chat, and
   // must not disturb whatever that tab was showing.
   const [launcherCommandId, setLauncherCommandId] = useState<string | null>(null);
-  const showCommandPanel = /^[/!]/.test(message.trim());
+  const showCommandPanel = isComposerCommandPrefix(message);
   // F1: the popover only renders an actual `role="listbox"` when at least one
   // command matches (zero matches shows the "comando desconocido" status hint
   // instead, no listbox) — the input's combobox expanded/controls state must
@@ -356,12 +937,65 @@ export function ConversationPanel() {
   // F3: the composer input's aria-activedescendant follows the popover's
   // keyboard-highlighted option (combobox pattern).
   const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
+  const [autoFollow, setAutoFollow] = useState(() => {
+    try {
+      const saved = localStorage.getItem("oc-autofollow-reading");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleAutoFollow = useCallback((enabled: boolean) => {
+    setAutoFollow(enabled);
+    try {
+      localStorage.setItem("oc-autofollow-reading", String(enabled));
+    } catch {}
+  }, []);
+
   // Session-local transcript: operator turns (appended on successful send)
   // interleaved with accumulated Kira replies (appended as new turn_ids land
   // on the last-reply poll). This is the fix for the "each new reply erases
   // the previous one" bug — the old implementation only ever kept ONE Kira
   // turn around, replacing it on every poll instead of accumulating.
   const [transcript, setTranscript] = useState<Turn[]>([]);
+  // Preview URLs still referenced by the composer or the transcript; the rest
+  // (a removed attachment, a discarded or capped-out turn, unmount) are revoked.
+  const previewUrlsInUse = useMemo(() => {
+    const urls = new Set<string>();
+    for (const image of attachedImages) urls.add(image.previewUrl);
+    for (const turn of transcript) for (const url of turn.imagePreviewUrls ?? []) urls.add(url);
+    return urls;
+  }, [attachedImages, transcript]);
+  usePreviewUrlGc(previewUrlsInUse);
+  const companionTurnIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => subscribeAcceptedCompanionTurns((turn) => {
+    if (companionTurnIdsRef.current.has(turn.id)) return;
+    companionTurnIdsRef.current.add(turn.id);
+    setTranscript((turns) => capTurns([
+      ...turns,
+      { id: `companion-${turn.id}`, kind: "chat", role: "operator", text: turn.text, ts: turn.ts }
+    ]));
+  }), []);
+  // Messages typed on the paired phone (remote gateway). Operator-only feed, in
+  // memory on the backend; each message lands once, ordered by its server
+  // accept time so it sits above the Kira reply it caused.
+  useRemoteMessages((items) => {
+    setTranscript((turns) => {
+      const known = new Set(turns.map((turn) => turn.id));
+      const fresh: Turn[] = items
+        .filter((item) => !known.has(`remote-${item.seq}`))
+        .map((item) => ({
+          id: `remote-${item.seq}`,
+          kind: "chat",
+          role: "operator",
+          source: "remote",
+          text: item.text,
+          ts: item.accepted_at * 1000
+        }));
+      return fresh.length === 0 ? turns : capTurns([...turns, ...fresh]);
+    });
+  });
   const { readiness, canChat, isReady } = useLlmReadiness({ activePolling: true });
   const isEngineUnready = Boolean(readiness && readiness.can_chat === false);
   const [pendingMessage, setPendingMessage] = useState<{
@@ -370,9 +1004,27 @@ export function ConversationPanel() {
     status: "WAITING_FOR_ENGINE" | "SENDING";
   } | null>(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
-  const { send, pending, isError, error } = useSendChatTurn();
+  const { send, pending, isError, error, reset: resetSend } = useSendChatTurn();
   const lastReply = useLastReply();
-  const { data: ttsConfig } = useTtsConfigQuery();
+  const speechState = useSpeechState();
+  const readAloud = useReadAloud();
+  const { text: selectedText, clear: clearSelection } = useKiraSelection();
+  const feedTurnId = useSpeechProgressStore((s) => s.feedTurnId);
+  const speechActive = useSpeechProgressStore((s) => s.speaking);
+  const speechTotal = useSpeechProgressStore((s) => s.total);
+  const spokenFragmentText = useSpeechProgressStore((s) => s.fragment);
+  // Follow-reading: the spoken turn's fragments come from the feed when they
+  // are present and current; otherwise (missing, or a different count than the
+  // job reports, with no backend fragment text to match) fetch them by turn id.
+  const spokenTurnId = feedTurnId != null ? `kira-reply-${feedTurnId}` : null;
+  const spokenFeedTurn = spokenTurnId ? transcript.find((turn) => turn.id === spokenTurnId) : undefined;
+  const feedFragmentsStale =
+    !spokenFragmentText &&
+    (!spokenFeedTurn?.fragments?.length || spokenFeedTurn.fragments.length !== speechTotal);
+  const needsTurnFragments = speechActive && Boolean(spokenFeedTurn) && feedFragmentsStale;
+  const [fetchedFragments, setFetchedFragments] = useState<{ turnId: number; fragments: string[] } | null>(null);
+  const spokenFragments =
+    feedTurnId != null && fetchedFragments?.turnId === feedTurnId ? fetchedFragments.fragments : undefined;
   // D3b receipt: while the engine is busy (speaking/processing — most often
   // an agenda block), a direct question does NOT interrupt (D3) — it answers
   // on the next turn boundary. Reused below to swap the generic "pensando"
@@ -417,6 +1069,9 @@ export function ConversationPanel() {
   // the baseline, only a LATER change away from it counts as the real reply.
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [awaitingBaseline, setAwaitingBaseline] = useState<number | null>(null);
+  // Snapshot event ids at submit time so historical cloud failures cannot
+  // cancel a later request.
+  const awaitingFailureEventIdsRef = useRef<Set<string>>(new Set());
   const currentTurnId = lastReply.data?.turn_id ?? null;
 
   // Composer mic — the SAME usePttHold hook PTTCard drives, relocated here as
@@ -429,10 +1084,58 @@ export function ConversationPanel() {
   // start. After the first stt_unreachable we degrade the mic (MicOff, dimmed)
   // until a later press succeeds.
   const [micDegraded, setMicDegraded] = useState(false);
+  const [micGuidanceRequested, setMicGuidanceRequested] = useState(false);
   // Confirms the SEND (not the reply): shown for 4s on the flushing -> idle
   // transition. Kira's reply lands in the transcript via useLastReply anyway.
   const [voiceSent, setVoiceSent] = useState(false);
   const prevPttStateRef = useRef<PttUiState>(pttState);
+
+  // PTT dictation (ptt-dictation-20261111). The backend decides per hold, at
+  // release, whether the words become a turn or go to this composer; the mode
+  // read here only decides how the "sent" confirmation is timed (see below).
+  const dictationMode = usePttStateQuery().data?.dictation_mode ?? "send";
+  const dictationModeRef = useRef(dictationMode);
+  dictationModeRef.current = dictationMode;
+  const [dictationNotice, setDictationNotice] = useState<"dictated" | "lost" | null>(null);
+  // Last composer selection, captured while it is still valid: on every
+  // select/change and at blur (clicking the mic blurs the textarea). Null means
+  // the composer never had focus, so a dictation is appended.
+  const composerSelectionRef = useRef<ComposerSelection | null>(null);
+  // Caret to restore once the dictated value has rendered.
+  const pendingCaretRef = useRef<number | null>(null);
+  const voiceSentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function captureComposerSelection(event: { currentTarget: HTMLTextAreaElement }) {
+    const el = event.currentTarget;
+    composerSelectionRef.current = { start: el.selectionStart ?? el.value.length, end: el.selectionEnd ?? el.value.length };
+  }
+
+  function flashVoiceSent() {
+    if (voiceSentTimerRef.current !== null) clearTimeout(voiceSentTimerRef.current);
+    setVoiceSent(true);
+    voiceSentTimerRef.current = setTimeout(() => {
+      voiceSentTimerRef.current = null;
+      setVoiceSent(false);
+    }, 4000);
+  }
+
+  function handleDictated(text: string) {
+    setVoiceSent(false);
+    setDictationNotice("dictated");
+    const selection = composerSelectionRef.current;
+    setMessage((prev) => {
+      const next = insertDictation(prev, text, selection);
+      pendingCaretRef.current = next.caret;
+      composerSelectionRef.current = { start: next.caret, end: next.caret };
+      return next.value;
+    });
+  }
+
+  function handleDictationLost() {
+    setVoiceSent(false);
+    setDictationNotice("lost");
+    emitAppEvent({ source: "ptt", action: "dictation_lost" });
+  }
 
   // Transcript echo: while a hold is active (this composer's mic OR the
   // external F10 bridge — both surface on the polled /api/ptt/state), the
@@ -458,7 +1161,47 @@ export function ConversationPanel() {
     setTranscript((turns) =>
       capTurns([...turns, { id: `voice-${crypto.randomUUID()}`, kind: "chat", role: "operator", source: "voice", text, ts }])
     );
-  });
+    // In a dictation mode the release transition cannot tell a sent hold from
+    // a dictated one, so the confirmation waits for the backend's verdict.
+    if (dictationModeRef.current !== "send") flashVoiceSent();
+  }, (pendingText) => {
+    // Live words are only PENDING until the backend confirms the flush.
+    setTranscript((turns) => {
+      const without = turns.filter((turn) => turn.id !== VOICE_PENDING_ID);
+      if (!pendingText) return without.length === turns.length ? turns : without;
+      const prior = turns.find((turn) => turn.id === VOICE_PENDING_ID);
+      return capTurns([
+        ...without,
+        { id: VOICE_PENDING_ID, kind: "chat", role: "operator", source: "voice", pending: true, text: pendingText, ts: prior?.ts ?? Date.now() }
+      ]);
+    });
+  }, { onDictated: handleDictated, onDictationLost: handleDictationLost });
+
+  // Keep the caret right after freshly dictated words.
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    if (caret === null) return;
+    pendingCaretRef.current = null;
+    const el = composerRef.current?.querySelector<HTMLTextAreaElement>(`#${COMPOSER_INPUT_ID}`);
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(caret, caret);
+  }, [message]);
+
+  // The dictation notices fade like the "sent" confirmation (longer for the
+  // lost one, which asks the owner to act).
+  useEffect(() => {
+    if (dictationNotice === null) return;
+    const timer = setTimeout(() => setDictationNotice(null), dictationNotice === "lost" ? 10_000 : 6000);
+    return () => clearTimeout(timer);
+  }, [dictationNotice]);
+
+  useEffect(
+    () => () => {
+      if (voiceSentTimerRef.current !== null) clearTimeout(voiceSentTimerRef.current);
+    },
+    []
+  );
 
   // Timeline scroll-follow + jump-to-recent (Item 3). scrollRef is the existing
   // overflow-auto tabpanel.
@@ -470,6 +1213,18 @@ export function ConversationPanel() {
   // reply replaces the thinking row (2 -> 2 in one flush).
   const prevLastTurnIdRef = useRef<string | null>(null);
   const [showJump, setShowJump] = useState(false);
+  // T6 fix (owner-observed: "seguir lectura" stops following right after the
+  // owner sends a message): the append-decision effect below used to
+  // re-measure scrollHeight/scrollTop AFTER React had already committed the
+  // new turn to the DOM. Appending real content (the operator's own bubble,
+  // then the "pensando" row) grows scrollHeight while scrollTop hasn't moved
+  // yet — so a live re-measurement at that point almost always reads "far
+  // from the bottom", even when the operator was sitting AT the bottom a
+  // moment earlier, and the follow silently stops. This ref instead tracks
+  // "was near the bottom" from the last GENUINE scroll event (never touched
+  // by an append itself, since appending content doesn't fire a 'scroll'
+  // event), so the append effect can consult the pre-append state.
+  const nearBottomRef = useRef(true);
 
   useEffect(() => {
     if (!awaitingReply) return;
@@ -483,6 +1238,23 @@ export function ConversationPanel() {
     }
   }, [awaitingReply, awaitingBaseline, currentTurnId]);
 
+  useEffect(() => {
+    if (!awaitingReply) return;
+    const terminalFailure = appEvents.some(
+      (event) =>
+        event.source === "motor" &&
+        (event.action === "cloud_llm_error" ||
+          event.action === "reasoning_budget_exhausted" ||
+          event.action === "turn_dropped" ||
+          event.action === "ollama_unavailable" ||
+          event.action === "llm_timeout_recovered") &&
+        !awaitingFailureEventIdsRef.current.has(event.id)
+    );
+    if (!terminalFailure) return;
+    setAwaitingReply(false);
+    setAwaitingBaseline(null);
+  }, [appEvents, awaitingReply]);
+
   // Accumulates a new Kira transcript entry the moment a NEW turn_id with
   // real text lands on the poll. Dedup is strict: a turn_id already appended
   // (including the initial 0/null-text sentinel) is never appended again, so
@@ -490,7 +1262,7 @@ export function ConversationPanel() {
   useEffect(() => {
     const data = lastReply.data;
     if (!data || !data.text) return;
-    if (data.turn_id <= 0 || data.turn_id === lastRecordedTurnIdRef.current) return;
+    if (data.turn_id <= 0) return;
     if (data.turn_id < lastRecordedTurnIdRef.current) {
       // The backend's turn_id counter resets to a low number on restart. A
       // turn_id lower than the highest one we've already recorded means the
@@ -502,6 +1274,14 @@ export function ConversationPanel() {
       return;
     }
     lastRecordedTurnIdRef.current = data.turn_id;
+    useChatStatsStore.getState().recordTurn(
+      status.data?.active_profile_id ?? undefined,
+      status.data?.current_model ?? undefined,
+      typeof data.queue_wait_ms === "number" ? data.queue_wait_ms : undefined
+    );
+    if (data.web_searched) {
+      useChatStatsStore.getState().recordSearch();
+    }
     // The backend ALREADY stamps this reply: ChatReplySink.record() stores
     // `ts: time.time()` (opencohost/api/engine_host.py), surfaced through
     // ChatLastReplyResponse (models.py) as LastReplyResponse.ts here. Arrival
@@ -533,12 +1313,41 @@ export function ConversationPanel() {
     const queueWaitMs = data.queue_wait_ms ?? null;
     const answeredByProvider = data.answered_by_provider ?? null;
     const providerChanged = data.provider_changed_while_queued ?? null;
+    // Real sources of a web answer, built by the backend (chips under the reply).
+    const sources = data.web_sources?.length ? data.web_sources : undefined;
     setTranscript((turns) => {
-      // Belt-and-braces guard against any other path producing a collision.
-      if (turns.some((turn) => turn.id === id)) return turns;
+      const existingIdx = turns.findIndex((turn) => turn.id === id);
+      if (existingIdx !== -1) {
+        const existing = turns[existingIdx];
+        // The final reply can add its sources after the streamed text landed.
+        const sourcesChanged = (existing.sources?.length ?? 0) !== (sources?.length ?? 0);
+        if (existing.text === data.text && existing.fragments?.length === data.fragments?.length && !sourcesChanged) {
+          return turns;
+        }
+        const updated = [...turns];
+        updated[existingIdx] = {
+          ...existing,
+          text: data.text as string,
+          fragments: data.fragments ?? existing.fragments,
+          sources: sources ?? existing.sources,
+        };
+        return updated;
+      }
       return capTurns([
         ...turns,
-        { id, kind: "chat", role: "kira", text: data.text as string, fromAgenda, ts, queueWaitMs, answeredByProvider, providerChanged }
+        {
+          id,
+          kind: "chat",
+          role: "kira",
+          text: data.text as string,
+          fromAgenda,
+          ts,
+          queueWaitMs,
+          answeredByProvider,
+          providerChanged,
+          fragments: data.fragments ?? undefined,
+          sources,
+        }
       ]);
     });
   }, [lastReply.data]);
@@ -549,7 +1358,10 @@ export function ConversationPanel() {
     if (pttError === "stt_unreachable") setMicDegraded(true);
   }, [pttError]);
   useEffect(() => {
-    if (pttState === "listening") setMicDegraded(false);
+    if (pttState === "listening") {
+      setMicDegraded(false);
+      setMicGuidanceRequested(false);
+    }
   }, [pttState]);
 
   // Clear the Logs unread dot once the operator is viewing Logs and the newest
@@ -575,7 +1387,7 @@ export function ConversationPanel() {
   useEffect(() => {
     const prev = prevPttStateRef.current;
     prevPttStateRef.current = pttState;
-    if (prev === "flushing" && pttState === "idle" && pttError === null) {
+    if (prev === "flushing" && pttState === "idle" && pttError === null && dictationModeRef.current === "send") {
       setVoiceSent(true);
       const timer = setTimeout(() => setVoiceSent(false), 4000);
       return () => clearTimeout(timer);
@@ -602,6 +1414,7 @@ export function ConversationPanel() {
       send(text)
         .then(() => {
           pendingTurnIdRef.current = null;
+          awaitingFailureEventIdsRef.current = new Set(appEvents.map((event) => event.id));
           setAwaitingReply(true);
           setAwaitingBaseline(currentTurnId);
           setPendingMessage(null);
@@ -613,9 +1426,146 @@ export function ConversationPanel() {
     }
   }, [canChat, pendingMessage, send, currentTurnId]);
 
-  function handleMessageChange(event: ChangeEvent<HTMLInputElement>) {
+  // Enter sends, Shift+Enter inserts a newline (the textarea default). Listens on
+  // `window`, i.e. AFTER the command palette's document-level handler, so a
+  // palette that took the key (it calls preventDefault) wins exactly as it did
+  // with the single-line input. IME composition (isComposing / keyCode 229)
+  // must never send: Enter there confirms a candidate.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+      if (!(target instanceof HTMLTextAreaElement) || target.id !== COMPOSER_INPUT_ID) return;
+      if (event.key !== "Enter" || event.shiftKey || event.defaultPrevented) return;
+      if (event.isComposing || event.keyCode === 229) return;
+      event.preventDefault(); // no newline: this Enter is a send
+      target.form?.requestSubmit();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  function handleMessageChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    setVisionCommandBlocked(false);
+    setImageHint(null);
     setMessage(event.target.value);
+    captureComposerSelection(event);
   }
+
+  // Ctrl+V of an image. Plain-text paste (no image item) is left to the browser.
+  function handlePaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const items = Array.from(event.clipboardData?.items ?? []).filter(
+      (entry) => entry.kind === "file" && entry.type.startsWith("image/")
+    );
+    if (items.length === 0) return;
+    event.preventDefault();
+    if (!(visionData?.enabled && visionData.model)) {
+      setImageHint("visionOff");
+      return;
+    }
+    // Every image of the paste that fits is attached; nothing already attached is
+    // ever replaced. A refused image says why (a type or size problem wins over
+    // the "limit reached" notice).
+    const max = visionMaxImages(visionData);
+    let problem: "unsupported" | "tooLarge" | "tooMany" | null = null;
+    for (const item of items) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      if (!IMAGE_MIME_TYPES.includes(file.type as ChatTurnImage["mime_type"])) {
+        problem = problem ?? "unsupported";
+        continue;
+      }
+      if (file.size > IMAGE_MAX_BYTES) {
+        problem = problem ?? "tooLarge";
+        continue;
+      }
+      if (imageSlotsRef.current >= max) {
+        problem = problem ?? "tooMany";
+        continue;
+      }
+      imageSlotsRef.current += 1;
+      readPastedImage(file);
+    }
+    setImageHint(problem === "tooMany" ? (max === 1 ? "onlyOne" : "tooMany") : problem);
+  }
+
+  function readPastedImage(file: File) {
+    const mime = file.type as ChatTurnImage["mime_type"];
+    const seq = (imageSeqRef.current += 1);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      if (!data) {
+        imageSlotsRef.current = Math.max(0, imageSlotsRef.current - 1);
+        return;
+      }
+      const image: AttachedImage = { data, mime_type: mime, previewUrl: createPreviewUrl(file, dataUrl), seq };
+      // Functional update + paste order: two quick reads can never overwrite each other.
+      setAttachedImages((current) => [...current, image].sort((a, b) => a.seq - b.seq));
+    };
+    reader.onerror = () => {
+      imageSlotsRef.current = Math.max(0, imageSlotsRef.current - 1);
+      setImageHint("unsupported");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removeAttachedImage(seq: number) {
+    imageSlotsRef.current = Math.max(0, imageSlotsRef.current - 1);
+    setAttachedImages((current) => current.filter((image) => image.seq !== seq));
+    setImageHint(null);
+  }
+
+  function clearAttachedImages() {
+    imageSlotsRef.current = 0;
+    setAttachedImages([]);
+  }
+
+  function patchTurn(id: string, patch: (turn: Turn) => Turn) {
+    setTranscript((turns) => turns.map((turn) => (turn.id === id ? patch(turn) : turn)));
+  }
+
+  async function sendImageTurn(id: string, text: string, images: ChatTurnImage[]) {
+    try {
+      await send(text, images);
+      imageDraftsRef.current.delete(id);
+      patchTurn(id, ({ imageSend: _done, ...rest }) => rest);
+      awaitingFailureEventIdsRef.current = new Set(appEvents.map((event) => event.id));
+      setAwaitingReply(true);
+      setAwaitingBaseline(currentTurnId);
+    } catch (err: unknown) {
+      // The failure is shown on the message with a cause-specific line, so the
+      // generic send alert below must not repeat it.
+      resetSend();
+      patchTurn(id, (turn) => ({
+        ...turn,
+        imageSend: {
+          phase: "failed",
+          errorKey: chatImageErrorKey(err),
+          failedImage: err instanceof ChatImageError ? err.failedImage : null
+        }
+      }));
+    }
+  }
+
+  // Retry/Discard are handed to memoized rows, so they read the latest closure
+  // through a ref instead of changing identity on every render.
+  const sendImageTurnRef = useRef(sendImageTurn);
+  sendImageTurnRef.current = sendImageTurn;
+  const sendBusyRef = useRef(pending);
+  sendBusyRef.current = pending;
+  const retryImageTurn = useCallback((id: string) => {
+    const draft = imageDraftsRef.current.get(id);
+    if (!draft || sendBusyRef.current) return;
+    setTranscript((turns) =>
+      turns.map((turn) => (turn.id === id ? { ...turn, imageSend: { phase: "sending", waiting: false } } : turn))
+    );
+    void sendImageTurnRef.current(id, draft.text, draft.images);
+  }, []);
+  const discardImageTurn = useCallback((id: string) => {
+    imageDraftsRef.current.delete(id);
+    setTranscript((turns) => turns.filter((turn) => turn.id !== id));
+  }, []);
 
   function handleCancelPendingMessage() {
     if (pendingMessage) {
@@ -629,13 +1579,34 @@ export function ConversationPanel() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return; // block concurrent submits (e.g. rapid Enter presses)
-    const text = message.trim();
-    if (!text) return;
+    let text = message.trim();
+    if (!text && attachedImages.length === 0) return;
+    const images: ChatTurnImage[] = attachedImages.map(({ data, mime_type }) => ({ data, mime_type }));
+    const image = images.length > 0 ? images : undefined;
+    const visionCommand = parseVisionCommand(text);
+    if (visionCommand) {
+      // Not ready: never send the command text; keep the draft and say why.
+      const result = await executeVisionCommand(visionCommand, {
+        visionData,
+        armLook: (mode) => lookNow.mutateAsync(mode)
+      });
+      if (!result.ok) {
+        setVisionCommandBlocked(true);
+        return;
+      }
+      if (!result.rest) {
+        setMessage("");
+        return;
+      }
+      text = result.rest;
+    }
     // Slash/bang commands are owned by the command palette (mockup), never sent
     // as a chat turn. A normal message (no "/"/"!" prefix) submits as before.
     if (showCommandPanel) return;
 
-    if (isEngineUnready) {
+    // The recovery modal replays text only, so a turn with an image goes straight
+    // to the backend (which answers 409 while the engine is down) and keeps the draft.
+    if (isEngineUnready && !image) {
       setPendingMessage({
         id: crypto.randomUUID(),
         text,
@@ -646,24 +1617,56 @@ export function ConversationPanel() {
       return;
     }
 
+    if (image) {
+      // The message (with its thumbnail) goes into the conversation now and the
+      // composer is free again; the send, its failure and Retry live on the message.
+      const id = crypto.randomUUID();
+      const previewUrls = attachedImages.map((one) => one.previewUrl);
+      imageDraftsRef.current.set(id, { text, images });
+      setTranscript((turns) =>
+        capTurns([
+          ...turns,
+          {
+            id,
+            kind: "chat",
+            role: "operator",
+            text,
+            ts: Date.now(),
+            hasImage: true,
+            imagePreviewUrls: previewUrls,
+            imageSend: { phase: "sending", waiting: composerVision.phase === "starting" }
+          }
+        ])
+      );
+      setMessage("");
+      clearAttachedImages();
+      setImageHint(null);
+      await sendImageTurn(id, text, images);
+      return;
+    }
+
     const turnId = pendingTurnIdRef.current ?? crypto.randomUUID();
     pendingTurnIdRef.current = turnId;
     setTranscript((turns) => {
       const existingIndex = turns.findIndex((turn) => turn.id === turnId);
-      if (existingIndex === -1) return capTurns([...turns, { id: turnId, kind: "chat", role: "operator", text, ts: Date.now() }]);
+      const hasImage = image !== undefined;
+      if (existingIndex === -1) return capTurns([...turns, { id: turnId, kind: "chat", role: "operator", text, ts: Date.now(), hasImage }]);
       const next = [...turns];
-      next[existingIndex] = { ...next[existingIndex], text };
+      next[existingIndex] = { ...next[existingIndex], text, hasImage };
       return next;
     });
 
     try {
-      await send(text);
+      await send(text, image);
       setMessage("");
+      clearAttachedImages();
+      setImageHint(null);
       pendingTurnIdRef.current = null;
+      awaitingFailureEventIdsRef.current = new Set(appEvents.map((event) => event.id));
       setAwaitingReply(true);
       setAwaitingBaseline(currentTurnId);
     } catch (err: unknown) {
-      if (typeof err === "object" && err !== null && "status" in err && (err as { status: number }).status === 409) {
+      if (!image && typeof err === "object" && err !== null && "status" in err && (err as { status: number }).status === 409) {
         setPendingMessage({
           id: turnId,
           text,
@@ -690,7 +1693,7 @@ export function ConversationPanel() {
    * (`conversation-panel`) and the launcher listbox already use here.
    */
   function focusComposerInput() {
-    composerRef.current?.querySelector<HTMLInputElement>(`#${COMPOSER_INPUT_ID}`)?.focus();
+    composerRef.current?.querySelector<HTMLTextAreaElement>(`#${COMPOSER_INPUT_ID}`)?.focus();
   }
 
   function closeLauncherCommand() {
@@ -700,6 +1703,7 @@ export function ConversationPanel() {
 
   function handleMicPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
     event.currentTarget.setPointerCapture?.(event.pointerId); // guarantees the up event even off-button; optional-chained for jsdom
+    if (micDegraded) setMicGuidanceRequested(true);
     pttStart();
   }
 
@@ -707,7 +1711,12 @@ export function ConversationPanel() {
     if (event.repeat) return;
     if (event.key !== " " && event.key !== "Enter") return;
     event.preventDefault(); // suppress the button's own native space-triggers-click
+    if (micDegraded) setMicGuidanceRequested(true);
     pttStart();
+  }
+
+  function handleMicClick() {
+    if (micDegraded) setMicGuidanceRequested(true);
   }
 
   function handleMicKeyUp(event: ReactKeyboardEvent<HTMLButtonElement>) {
@@ -721,6 +1730,7 @@ export function ConversationPanel() {
     // Optional-chained: jsdom has no scrollTo, the real WebView2 shell does.
     el.scrollTo?.({ top: el.scrollHeight, behavior: "smooth" });
     setShowJump(false);
+    nearBottomRef.current = true;
   }
 
   // Show the jump pill whenever the operator is scrolled up past the threshold
@@ -742,6 +1752,7 @@ export function ConversationPanel() {
       const el = scrollRef.current;
       if (!el) return;
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+      nearBottomRef.current = nearBottom;
       setShowJump(!nearBottom);
     });
   }, []);
@@ -767,6 +1778,12 @@ export function ConversationPanel() {
       event: event.label,
       ts: event.ts
     }));
+    const visionOffTurns: Turn[] = visionOffRequests.map((request) => ({
+      id: request.id,
+      kind: "alert",
+      visionOff: true,
+      ts: request.ts
+    }));
     const appEventTurns: Turn[] = appEvents.map((event) => ({
       id: event.id,
       kind: "alert",
@@ -777,7 +1794,12 @@ export function ConversationPanel() {
     // The real stream: operator sends, Kira replies, and agenda/app events
     // interleaved by client arrival time (Date.now() at observe-time), then the
     // ephemeral "pensando" indicator closes it out.
-    const interleaved = [...transcript, ...agendaTurns, ...appEventTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+    const interleaved = [...transcript, ...agendaTurns, ...appEventTurns, ...visionOffTurns].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+    const visionBadges = attachVisionBadges(interleaved, visionResults);
+    for (let i = 0; i < interleaved.length; i += 1) {
+      const badge = visionBadges.get(interleaved[i]!.id);
+      if (badge) interleaved[i] = { ...interleaved[i]!, visionBadge: badge };
+    }
     const kiraThinkingTurn: Turn | null = isThinking
       ? {
           id: KIRA_THINKING_ID,
@@ -794,7 +1816,7 @@ export function ConversationPanel() {
     // `t` is in the deps because this memo bakes a translated string into
     // `pendingNote`: useT() hands back a fresh identity per locale, so listing
     // it here is what makes the note re-translate on a language flip.
-  }, [transcript, agendaEvents, appEvents, isThinking, activeTab, kiraBusy, t]);
+  }, [transcript, agendaEvents, appEvents, visionOffRequests, visionResults, isThinking, activeTab, kiraBusy, t]);
 
   // Identity of the last CONTENT row. The "pensando" sentinel is always last
   // while it exists (it is appended after the sort), so skipping it is one index
@@ -819,6 +1841,16 @@ export function ConversationPanel() {
   // The row count that used to gate this was doing the "is it a real append"
   // job WRONG in the last two of those, so it is gone rather than kept as a
   // second opinion.
+  //
+  // T6 fix: "near the bottom" is read from `nearBottomRef` (the last GENUINE
+  // scroll event), not re-measured here. By the time this effect runs, React
+  // has already committed the new turn — appending it grows `scrollHeight`
+  // while `scrollTop` hasn't moved, so a live re-measurement here would almost
+  // always read "far from the bottom" for any real-sized append (the
+  // operator's own bubble, then the "pensando" row), even when the operator
+  // was sitting AT the bottom a moment before sending. That silently broke
+  // "seguir lectura" on every send. `nearBottomRef` is immune to this because
+  // appending DOM content, on its own, never fires a 'scroll' event.
   useEffect(() => {
     const el = scrollRef.current;
     // A null id means the list has no content rows (a filter switch emptied it) —
@@ -826,8 +1858,9 @@ export function ConversationPanel() {
     const appendedLast = lastTurnId !== null && lastTurnId !== prevLastTurnIdRef.current;
     prevLastTurnIdRef.current = lastTurnId;
     if (!el || !appendedLast) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX) {
+    if (nearBottomRef.current) {
       el.scrollTo?.({ top: el.scrollHeight, behavior: "smooth" });
+      setShowJump(false);
     } else {
       setShowJump(true);
     }
@@ -851,6 +1884,8 @@ export function ConversationPanel() {
           : t("experiencia.conversationPanel.mic.state.idle");
   const showMicOff = micDegraded && pttState === "idle";
   const MicGlyph = showMicOff ? MicOff : Mic;
+  const showLiveAudioGuidance =
+    pttError === "stt_unreachable" || (pttError === null && micDegraded && micGuidanceRequested);
 
   // Todo/Chat/Alertas show the feed (timeline + composer); Comandos/Logs swap
   // the panel. The feed region stays MOUNTED (hidden + inert) when a non-feed
@@ -910,31 +1945,23 @@ export function ConversationPanel() {
           style={!feedActive ? { display: "none" } : undefined}
           className={cn("flex min-h-0 flex-1 flex-col", !feedActive && "pointer-events-none")}
         >
-          <div className="flex items-center justify-between px-3 py-2">
+          <div className="flex items-center justify-between px-3 py-1.5">
             <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t("experiencia.conversationPanel.feed.eyebrow")}</span>
-            <span className="inline-flex items-center gap-1.5 text-xs text-ok">
-              <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
-                {/* <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" /> */}
-                {/* <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-ok" /> */}
+            <div className="inline-flex items-center gap-2">
+              <span
+                onClick={() => handleToggleAutoFollow(!autoFollow)}
+                className="cursor-pointer select-none text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {t("experiencia.conversationPanel.autoFollow")}
               </span>
-              {/* sesión en vivo */}
-            </span>
+              <Switch
+                checked={autoFollow}
+                onChange={handleToggleAutoFollow}
+                aria-label={t("experiencia.conversationPanel.autoFollow")}
+              />
+            </div>
           </div>
 
-          {feedActive && ttsConfig?.local_only && ttsConfig?.piper_available === false && (
-            <div className="px-3 pb-2">
-              <Alert tone="warn" title={t("controles.voice.alert.piperUnavailable.title")}>
-                {t("controles.voice.alert.piperUnavailable.body")}
-              </Alert>
-            </div>
-          )}
-          {feedActive && !ttsConfig?.local_only && ttsConfig?.edge_tts_offline && (
-            <div className="px-3 pb-2">
-              <Alert tone="info" title={t("controles.voice.alert.edgeOffline.title")}>
-                {t("controles.voice.alert.edgeOffline.body")}
-              </Alert>
-            </div>
-          )}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div
@@ -946,9 +1973,27 @@ export function ConversationPanel() {
               aria-labelledby={feedTabId}
               className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
-              {visibleTurns.map((turn) => (
-                <ConversationTurn key={turn.id} turn={turn} operatorName={operatorName} />
-              ))}
+              {needsTurnFragments && feedTurnId != null && (
+                <SpokenTurnFragmentsLoader turnId={feedTurnId} version={speechTotal} onLoaded={setFetchedFragments} />
+              )}
+              {visibleTurns.map((turn) => {
+                // Only the reply-feed turn the backend says is being spoken.
+                // A null feed id (read-aloud, vision, notices) highlights nothing.
+                const isSpeakingTurn = feedTurnId != null && turn.id === spokenTurnId;
+                return (
+                  <ConversationTurn
+                    key={turn.id}
+                    turn={isSpeakingTurn && spokenFragments ? { ...turn, fragments: spokenFragments } : turn}
+                    operatorName={operatorName}
+                    isSpeakingTurn={isSpeakingTurn}
+                    isStreamingTurn={Boolean(lastReply.data?.is_streaming) && turn.id === `kira-reply-${lastReply.data?.turn_id}`}
+                    autoFollow={autoFollow}
+                    onReadAloud={readAloud.say}
+                    onRetryImage={retryImageTurn}
+                    onDiscardImage={discardImageTurn}
+                  />
+                );
+              })}
               {showEmptyState && (
                 isEngineUnready ? (
                   <div className="m-auto w-full max-w-md p-4 animate-rise-in">
@@ -972,13 +2017,34 @@ export function ConversationPanel() {
               <button
                 type="button"
                 onClick={scrollToBottom}
-                className="absolute bottom-2 right-4 z-10 inline-flex -translate-x-1/2 items-center gap-3.5 rounded-full border border-border-soft bg-card px-3 py-2.5 text-xs font-semibold text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                aria-label={t("experiencia.conversationPanel.jump.action")}
+                title={t("experiencia.conversationPanel.jump.action")}
+                className="absolute bottom-2 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border-soft bg-card text-foreground shadow-panel animate-rise-in transition-colors duration-fast ease-io hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                <ChevronDown size={14} aria-hidden="true" />
-                {t("experiencia.conversationPanel.jump.action")}
+                <ChevronDown size={22} aria-hidden="true" />
               </button>
             )}
           </div>
+
+          {feedActive && (
+            <ReadAloudControls
+              state={speechState.data}
+              selectedText={selectedText}
+              busy={readAloud.busy}
+              errorKind={readAloud.errorKind}
+              onSay={(text, mode) => {
+                readAloud.say(text, mode);
+                clearSelection();
+              }}
+              onStop={readAloud.stop}
+              onPause={readAloud.pause}
+              onResume={readAloud.resume}
+            />
+          )}
+
+          {/* "Mira esto" button hidden: the voice/text rule gate already triggers a look (es/en).
+          {feedActive && <VisionLookControl />}
+          */}
 
           {feedActive && (
             <div ref={composerRef} className="relative border-t border-border-soft bg-surface-2 p-3">
@@ -1047,35 +2113,103 @@ export function ConversationPanel() {
                   </Button>
                 </div>
               )}
-              <div
-                className="mono flex h-7 items-center gap-2 text-[11px] text-dim"
-                title={t("experiencia.conversationPanel.composer.muted.title")}
-              >
-                <MessageSquareOff size={12} aria-hidden="true" />
-                {t("experiencia.conversationPanel.composer.muted.label")}
-              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
 
-              {voiceSent && (
-                <p role="status" className="mono mt-1 flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
-                  <Mic size={12} aria-hidden="true" />
-                  {t("experiencia.conversationPanel.composer.voiceSent")}
-                </p>
-              )}
+
+                {voiceSent && (
+                  <p role="status" className="mono flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
+                    <Mic size={12} aria-hidden="true" />
+                    {t("experiencia.conversationPanel.composer.voiceSent")}
+                  </p>
+                )}
+                {dictationNotice === "dictated" && (
+                  <p role="status" className="mono flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
+                    <Mic size={12} aria-hidden="true" />
+                    {t("experiencia.conversationPanel.composer.dictated")}
+                  </p>
+                )}
+                {dictationNotice === "lost" && (
+                  <p role="alert" className="flex items-center gap-1.5 text-[11px] text-warn animate-rise-in">
+                    <MicOff size={12} aria-hidden="true" />
+                    {t("experiencia.conversationPanel.composer.dictationLost")}
+                  </p>
+                )}
               {/* role="alert" (assertive) + icon + rise-in: a live PTT failure must
                   actually register — the old bare 11px line was easy to miss. */}
-              {pttError && (
-                <p role="alert" className="mono mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
-                  <MicOff size={12} aria-hidden="true" />
-                  {errorCopy(pttError)}
+                {(pttError || showLiveAudioGuidance) && (
+                  <p role="alert" className="mono flex items-center gap-1.5 text-[11px] font-semibold text-danger animate-rise-in">
+                    <MicOff size={12} aria-hidden="true" />
+                    {showLiveAudioGuidance
+                      ? t("experiencia.ptt.error.sttUnreachable")
+                      : errorCopy(pttError!)}
+                    {showLiveAudioGuidance && (
+                      <a
+                        href="https://liveaudio.opencohost.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-primary underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        {t("experiencia.ptt.liveAudio.download")}
+                        <ExternalLink size={11} aria-hidden="true" />
+                      </a>
+                    )}
+                  </p>
+                )}
+              </div>
+
+              {visionCommandBlocked && (
+                <p role="alert" className="mono mt-2 text-[11px] font-semibold text-warn">
+                  {t("experiencia.vision.command.notReady")}
+                </p>
+              )}
+
+              {imageHint && (
+                <p role="status" className="mono mt-2 text-[11px] font-semibold text-warn">
+                  {t(`experiencia.conversationPanel.composer.image.hint.${imageHint}`, { max: visionMaxImages(visionData) })}
                 </p>
               )}
 
               <form onSubmit={handleSubmit} className="mt-2">
-                <Input
+                <VisionStateIndicator state={composerVision} />
+                {attachedImages.length > 0 && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    {attachedImages.map((attached, index) => {
+                      const several = attachedImages.length > 1;
+                      return (
+                        <div
+                          key={attached.seq}
+                          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-2 py-1 pl-1 pr-2 text-[11px] font-semibold text-dim"
+                        >
+                          <img src={attached.previewUrl} alt="" className="h-8 w-8 rounded-sm object-cover" />
+                          <span>
+                            {several
+                              ? t("experiencia.conversationPanel.composer.image.attachedN", { n: index + 1 })
+                              : t("experiencia.conversationPanel.composer.image.attached")}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={
+                              several
+                                ? t("experiencia.conversationPanel.composer.image.removeN", { n: index + 1 })
+                                : t("experiencia.conversationPanel.composer.image.remove")
+                            }
+                            onClick={() => removeAttachedImage(attached.seq)}
+                            className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <Textarea
                   id={COMPOSER_INPUT_ID}
-                  type="text"
                   value={message}
                   onChange={handleMessageChange}
+                  onSelect={captureComposerSelection}
+                  onBlur={captureComposerSelection}
+                  onPaste={handlePaste}
                   placeholder={t("experiencia.conversationPanel.composer.input.placeholder")}
                   aria-label={t("experiencia.conversationPanel.composer.input.aria")}
                   // F3: combobox pattern — the launcher popover is this input's
@@ -1097,6 +2231,7 @@ export function ConversationPanel() {
                         onLostPointerCapture={pttStop}
                         onKeyDown={handleMicKeyDown}
                         onKeyUp={handleMicKeyUp}
+                        onClick={handleMicClick}
                         className={cn(
                           "relative flex h-full w-10 touch-none select-none items-center justify-center overflow-hidden transition-colors duration-fast",
                           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",

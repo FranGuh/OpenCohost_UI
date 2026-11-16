@@ -170,12 +170,12 @@ describe("locale flip — one tripwire per domain", () => {
         </ProfileSwitchProvider>
       </QueryClientProvider>
     );
-    expect(screen.getByRole("button", { name: "Perfil y modelo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Perfil y reglas" })).toBeInTheDocument();
 
     act(() => useUiLocaleStore.getState().setLocale("en"));
 
-    expect(screen.getByRole("button", { name: "Profile and model" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Perfil y modelo" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Profile and rules" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Perfil y reglas" })).not.toBeInTheDocument();
   });
 
   it("experiencia: re-translates the kiraBusy pending note baked into the visibleTurns memo (useT identity)", async () => {
@@ -194,7 +194,7 @@ describe("locale flip — one tripwire per domain", () => {
     );
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() =>
@@ -219,8 +219,8 @@ describe("locale flip — one tripwire per domain", () => {
       </QueryClientProvider>
     );
     expect(screen.getByText("Comandos del chat")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /agenda — programá un tema/ }));
-    expect(screen.getByLabelText("¿Qué tema querés agendar?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /agenda — programa un tema/ }));
+    expect(screen.getByLabelText("¿Qué tema quieres agendar?")).toBeInTheDocument();
 
     act(() => useUiLocaleStore.getState().setLocale("en"));
 

@@ -8,7 +8,10 @@ export function Card({ className, style, ...props }: HTMLAttributes<HTMLDivEleme
   return (
     <div
       className={cn("rounded-md border border-border-soft bg-card text-card-foreground shadow-panel", className)}
-      style={{ backdropFilter: "var(--surface-blur)", ...style }}
+      style={{
+        backdropFilter: "var(--surface-blur)",
+        WebkitBackdropFilter: "var(--surface-blur)",
+      }}
       {...props}
     />
   );

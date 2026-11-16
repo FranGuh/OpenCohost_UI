@@ -142,6 +142,11 @@ describe("LogsPanel timestamp formatting cost", () => {
     }).format(base);
     expect(expected).toBe(new Date(base).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     spy.mockRestore();
-    expect(screen.getByText(expected)).toBeInTheDocument();
+    const normalizeSpaces = (s: string) => s.replace(/[\u00a0\u202f]/g, " ").trim();
+    expect(
+      screen.getByText((_, element) => {
+        return Boolean(element && normalizeSpaces(element.textContent || "") === normalizeSpaces(expected));
+      })
+    ).toBeInTheDocument();
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import type { BadgeTone } from "../../ui/Badge.js";
@@ -10,18 +11,23 @@ import { Segmented } from "../../ui/Segmented.js";
 import { CollapsibleHeader, CollapsibleBody, useCollapsible } from "../../ui/Collapsible.js";
 import { useToast } from "../../ui/Toast.js";
 import { Alert } from "../../ui/Alert.js";
+import { Switch } from "../../ui/Switch.js";
 import { usePaneSwitcher } from "../../ui/PaneSwitcher.js";
 import { SettingsSection } from "../shell/SettingsSection.js";
 import { t, useT, type TKey } from "../../i18n/t.js";
+import { useUiLocale } from "../../i18n/locale.js";
+import { getI18nState } from "../../api/i18n.js";
+import { primaryLocale } from "../../api/profiles.js";
 import {
-  AGENDA_TURN_OPTIONS,
   useAddAgendaTopicMutation,
+  useAgendaProgressionQuery,
   useAgendaQuery,
   useAgendaSessionActionMutation,
   useAgendaTopicActionMutation,
   useCohostProfilesQuery,
   useSaveCohostProfileMutation,
   useSelectCohostProfileMutation,
+  useUpdateAgendaProgressionMutation,
   useUpdateAgendaSessionMutation,
   type AgendaSessionAction,
   type AgendaTopicOut,
@@ -127,12 +133,19 @@ function mutationErrorState(error: unknown, fallbackKey: TKey): FormError {
  */
 function ProfileSessionCard() {
   const t = useT();
+  const { locale: uiLocale } = useUiLocale();
+  const i18nQuery = useQuery({ queryKey: ["i18n"], queryFn: getI18nState, staleTime: 60_000 });
+  const i18nSettled = !i18nQuery.isPending;
+  const rawLocale = i18nQuery.data?.active_locale?.trim() || uiLocale;
+  const cohostLocale = primaryLocale(rawLocale) || primaryLocale(uiLocale) || "es";
   const [isOpen, toggle] = useCollapsible(true, "agenda-perfil");
   const { data } = useAgendaQuery();
   const updateSession = useUpdateAgendaSessionMutation();
-  const cohostProfiles = useCohostProfilesQuery();
-  const saveProfile = useSaveCohostProfileMutation();
-  const selectProfile = useSelectCohostProfileMutation();
+  const progression = useAgendaProgressionQuery();
+  const updateProgression = useUpdateAgendaProgressionMutation();
+  const cohostProfiles = useCohostProfilesQuery(cohostLocale, { enabled: i18nSettled });
+  const saveProfile = useSaveCohostProfileMutation(cohostLocale);
+  const selectProfile = useSelectCohostProfileMutation(cohostLocale);
 
   const profiles = cohostProfiles.data?.profiles ?? [];
 
@@ -156,19 +169,53 @@ function ProfileSessionCard() {
       setDraftName(profile.name);
       setStyleDraft(profile.style);
     }
-    selectProfile.mutate({ name });
+    selectProfile.mutate({ name, locale: cohostLocale });
   }
 
   function handleSaveProfile() {
     const trimmed = draftName.trim();
     if (!trimmed) return;
-    saveProfile.mutate({ name: trimmed, style: styleDraft });
+    saveProfile.mutate({ name: trimmed, style: styleDraft, locale: cohostLocale });
   }
 
-  const turns = data ? String(data.session_settings.max_turns_per_topic) : "";
+  const serverTurns = data ? String(data.session_settings.max_turns_per_topic) : "3";
+  const [turnsDraft, setTurnsDraft] = useState(serverTurns);
+
+  useEffect(() => {
+    if (data?.session_settings.max_turns_per_topic !== undefined) {
+      setTurnsDraft(String(data.session_settings.max_turns_per_topic));
+    }
+  }, [data?.session_settings.max_turns_per_topic]);
+
+  function handleTurnsChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const clean = event.target.value.replace(/\D/g, "");
+    setTurnsDraft(clean);
+    if (!clean) return;
+    const val = parseInt(clean, 10);
+    if (!isNaN(val) && val >= 1 && val <= 20) {
+      updateSession.mutate({ max_turns_per_topic: val });
+    }
+  }
+
+  function handleTurnsBlur() {
+    const val = parseInt(turnsDraft, 10);
+    const clamped = isNaN(val) || val < 1 ? 1 : Math.min(20, val);
+    setTurnsDraft(String(clamped));
+    if (data && clamped !== data.session_settings.max_turns_per_topic) {
+      updateSession.mutate({ max_turns_per_topic: clamped });
+    }
+  }
+
+  function handleTurnsKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (["e", "E", "+", "-", "."].includes(event.key)) {
+      event.preventDefault();
+    }
+  }
+
   const rhythm = data?.session_settings.rhythm ?? "normal";
   const safetyMode = data?.session_settings.safety_mode ?? "live_safe";
-  const pending = updateSession.isPending || selectProfile.isPending || saveProfile.isPending;
+  const pending =
+    updateSession.isPending || updateProgression.isPending || selectProfile.isPending || saveProfile.isPending;
 
   // Split by group per spec §3e change 7 — save errors surface under the
   // save button (they belong to the profile group), session errors surface
@@ -180,6 +227,7 @@ function ProfileSessionCard() {
       : null;
 
   const sessionErrorMessage = updateSession.isError ? t("agenda.session.save.error") : null;
+  const progressionErrorMessage = updateProgression.isError ? t("agenda.session.progression.error") : null;
 
   return (
     <Card className="flex flex-col p-4">
@@ -204,14 +252,16 @@ function ProfileSessionCard() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <span className="text-xs text-muted-foreground">{t("agenda.session.turns")}</span>
-                <Select
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  step={1}
                   aria-label={t("agenda.session.turns")}
-                  options={AGENDA_TURN_OPTIONS}
-                  value={turns}
-                  disabled={updateSession.isPending}
-                  onChange={(value) => {
-                    updateSession.mutate({ max_turns_per_topic: Number(value) });
-                  }}
+                  value={turnsDraft}
+                  onChange={handleTurnsChange}
+                  onBlur={handleTurnsBlur}
+                  onKeyDown={handleTurnsKeyDown}
                 />
                 <span className="mono text-[11px] text-dim">{t("agenda.session.turns.hint")}</span>
               </div>
@@ -241,6 +291,25 @@ function ProfileSessionCard() {
                 }}
               />
             </div>
+            {progression.data && (
+              <div className="space-y-2">
+                {progressionErrorMessage && <Alert tone="danger">{progressionErrorMessage}</Alert>}
+                <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <span className="text-xs text-muted-foreground">{t("agenda.session.progression")}</span>
+                  <Switch
+                    aria-label={t("agenda.session.progression")}
+                    checked={progression.data.enabled}
+                    disabled={updateProgression.isPending}
+                    onChange={(next) => updateProgression.mutate({ enabled: next })}
+                  />
+                </div>
+                <span className="mono text-[11px] text-dim">{t("agenda.session.progression.hint")}</span>
+                <span className="mono text-[11px] text-dim">{t("agenda.session.progression.shortLines.hint")}</span>
+                {progression.data.env_override && (
+                  <Alert tone="warn">{t("agenda.session.progression.envOverride")}</Alert>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -556,6 +625,14 @@ const TEMPLATE_TOPICS: TemplateTopic[] = [
   { title: "Mods como cultura popular", angle: "Cómo redefinen juegos viejos", priority: "normal", response_length: "normal", constraints: ["ejemplos concretos"] }
 ];
 
+const TEMPLATE_TOPICS_EN: TemplateTopic[] = [
+  { title: "2000s gaming nostalgia", angle: "What made a comeback and why it hits now", priority: "normal", response_length: "normal", constraints: ["no spoilers", "lighthearted"] },
+  { title: "Streamer burnout", angle: "Early warning signs and how to pull back", priority: "alta", response_length: "expandida", constraints: ["empathic", "no names"] },
+  { title: "Generative AI in overlays", angle: "The fine line between a tool and a replacement", priority: "normal", response_length: "normal", constraints: ["balanced"] },
+  { title: "Old memes chat keeps repeating", angle: "Why the community recycles nostalgia", priority: "baja", response_length: "corta", constraints: ["dry humor"] },
+  { title: "Mods as pop culture", angle: "How they redefine classic games", priority: "normal", response_length: "normal", constraints: ["concrete examples"] }
+];
+
 // Strip emoji + code-like punctuation, trim, cap length — mirrors the backend
 // sanitize (opencohost/api/models.py::AgendaTopicRequest, WU7). ponytail: the
 // server still validates and 422s on >24 constraints; the UI caps at 12 so it
@@ -590,6 +667,8 @@ function parseBulkLine(line: string): AgendaTopicRequest | null {
 
 function AddTopicCard() {
   const t = useT();
+  const { locale } = useUiLocale();
+  const templateTopics = locale === "en" ? TEMPLATE_TOPICS_EN : TEMPLATE_TOPICS;
   const [isOpen, toggle] = useCollapsible(true, "agenda-agregar");
   const [title, setTitle] = useState("");
   const [angle, setAngle] = useState("");
@@ -819,7 +898,7 @@ function AddTopicCard() {
         </div>
 
         <div className="flex flex-wrap gap-1.5">
-          {TEMPLATE_TOPICS.map((template) => (
+          {templateTopics.map((template) => (
             <Button
               key={template.title}
               type="button"

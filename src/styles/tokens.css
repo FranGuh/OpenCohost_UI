@@ -86,6 +86,7 @@
   --info: #5fb2f0;
   --info-bg: rgba(95, 178, 240, 0.12);
   --info-bd: rgba(95, 178, 240, 0.26);
+  --topbar-line: transparent;
 
   --app-bg-glow: radial-gradient(1200px 420px at 78% -10%, rgba(23, 227, 154, 0.1), transparent 70%);
 
@@ -133,7 +134,7 @@
 
   --background: #090711;
   --foreground: #fbf6ff;
-  --card: rgba(25, 18, 43, 0.72);
+  --card: rgba(25, 18, 43, 0.8);
   --card-foreground: #fbf6ff;
   --border: rgba(255, 255, 255, 0.11);
   --ring: rgba(123, 244, 255, 0.6);
@@ -142,7 +143,7 @@
   --muted-foreground: #bcb1cd;
 
   --surface-2: rgba(38, 28, 60, 0.78);
-  --surface-blur: blur(16px) saturate(1.1);
+  --surface-blur: blur(7px) saturate(1.1);
   --border-soft: rgba(255, 255, 255, 0.06);
   --dim: #82768f;
   --accent: #7bf4ff;
@@ -163,6 +164,7 @@
   --info: #86c8ff;
   --info-bg: rgba(134, 200, 255, 0.13);
   --info-bd: rgba(134, 200, 255, 0.3);
+  --topbar-line: transparent;
 
   --app-bg-glow:
     radial-gradient(circle at 16% 12%, rgba(255, 122, 200, 0.2), transparent 26rem),
@@ -190,6 +192,92 @@
   /* aurora is already glassy (--surface-blur) — a touch brighter than
      cockpit's gloss reads correctly against its translucent surfaces. */
   --spectrum-gloss: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="kira-aurora"],
+[data-theme="kira"] {
+  color-scheme: dark;
+
+  /* NAMED BRAND TOKENS — Kira Aurora / Control Deck */
+  --focus: #4da8ff;
+  --pulse: #66d9ff;
+  --void: #080b14;
+  --panel: #11182b;
+  --bone: #f5f7fb;
+  --muted: #9fb2d0;
+  --panic: #c24bff;
+
+  /* canonical (shadcn/Tailwind contract) */
+  --background: #080b14;
+  --foreground: #f5f7fb;
+  --card: rgba(17, 24, 43, 0.8);
+  --card-foreground: #f5f7fb;
+  --border: rgba(255, 255, 255, 0.08);
+  --ring: rgba(77, 168, 255, 0.55);
+  --primary: #4da8ff;
+  --primary-foreground: #080b14;
+  --muted-foreground: #9fb2d0;
+
+  /* semantic extras */
+  --surface-2: #19233c;
+  --surface-blur: blur(7px) saturate(1.1);
+  --border-soft: rgba(255, 255, 255, 0.05);
+  --dim: #5d7295;
+  --accent: #4da8ff;
+  --accent-2: #a58bff;
+  --accent-grad: linear-gradient(135deg, #4da8ff 0%, #66d9ff 100%);
+  --accent-contrast: #080b14;
+  --accent-soft: rgba(77, 168, 255, 0.16);
+
+  /* status tokens (Control Room) */
+  --ok: #39d98a;
+  --ok-bg: rgba(57, 217, 138, 0.13);
+  --ok-bd: rgba(57, 217, 138, 0.3);
+  --warn: #ffb020;
+  --warn-bg: rgba(255, 176, 32, 0.13);
+  --warn-bd: rgba(255, 176, 32, 0.3);
+  --danger: #ff5c5c;
+  --danger-bg: rgba(255, 92, 92, 0.15);
+  --danger-bd: rgba(255, 92, 92, 0.34);
+  --panic-bg: rgba(194, 75, 255, 0.13);
+  --panic-bd: rgba(194, 75, 255, 0.32);
+  --info: #66d9ff;
+  --info-bg: rgba(102, 217, 255, 0.13);
+  --info-bd: rgba(102, 217, 255, 0.3);
+
+  /* App Background Glow */
+  --app-bg-glow:
+    radial-gradient(1100px 450px at 50% -8%, rgba(77, 168, 255, 0.18) 0%, rgba(165, 139, 255, 0.08) 45%, transparent 70%);
+
+  --sh-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.32);
+  --sh-2: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* Kira Signature palette */
+  --kira-gold: #f6c35b;
+  --kira-amber: #f6c35b;
+  --kira-cyan: #66d9ff;
+  --kira-mint: #65e6c8;
+  --kira-violet: #a58bff;
+  --kira-pink: #ff6fae;
+  --bg-deep: #060810;
+
+  /* Signature gradients */
+  --spectrum: linear-gradient(90deg, #4da8ff 0%, #65e6c8 28%, #f6c35b 52%, #a58bff 76%, #ff6fae 100%);
+  --spectrum-soft: linear-gradient(
+    135deg,
+    rgba(77, 168, 255, 0.16),
+    rgba(101, 230, 200, 0.14),
+    rgba(246, 195, 91, 0.12),
+    rgba(165, 139, 255, 0.14),
+    rgba(255, 111, 174, 0.16)
+  );
+  --spectrum-gloss: rgba(255, 255, 255, 0.08);
+
+  --kira-signature: linear-gradient(135deg, #4da8ff 0%, #65e6c8 35%, #a58bff 70%, #ff6fae 100%);
+  --kira-topbar: linear-gradient(90deg, #4da8ff 0%, #65e6c8 28%, #f6c35b 52%, #a58bff 76%, #ff6fae 100%);
+  --kira-glow: radial-gradient(circle, rgba(77, 168, 255, 0.18) 0%, rgba(165, 139, 255, 0.08) 45%, transparent 70%);
+  --topbar-line: var(--kira-topbar);
 }
 
 [data-theme="studio"] {
@@ -243,6 +331,7 @@
   --info: #1e6fbc;
   --info-bg: rgba(43, 131, 214, 0.1);
   --info-bd: rgba(43, 131, 214, 0.24);
+  --topbar-line: transparent;
 
   --app-bg-glow: radial-gradient(1100px 460px at 80% -12%, rgba(15, 181, 190, 0.1), transparent 68%);
 

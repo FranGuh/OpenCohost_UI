@@ -11,6 +11,7 @@ import {
   llmProviderProbeArmedFalseHandler,
   llmProviderProbeUnavailableHandler
 } from "../../test/handlers.js";
+import { useVisionPhaseStore } from "../../store/visionStore.js";
 import { StatusRail } from "./StatusRail.js";
 
 function renderRail() {
@@ -26,7 +27,7 @@ describe("StatusRail (spec §3a — calm cockpit readout)", () => {
     expect(screen.getByText(/Conectando con el motor/)).toBeInTheDocument();
   });
 
-  it("renders four instrument chips driven by useStatusQuery — not hardcoded", async () => {
+  it("renders instrument chips with model popover detail driven by useStatusQuery", async () => {
     renderRail();
 
     await waitFor(() => expect(screen.getByText(/Motor OK/)).toBeInTheDocument());
@@ -34,10 +35,13 @@ describe("StatusRail (spec §3a — calm cockpit readout)", () => {
     // on the label span (the rail no longer clips, so popovers can escape).
     const modelLabel = screen.getByText(defaultStatus.current_model as string);
     expect(modelLabel).toHaveClass("truncate");
-    // Kira chip merges the old Voz + Inactivo axes.
-    expect(screen.getByText(/Kira: en espera/)).toBeInTheDocument();
-    // Perfil chip.
-    expect(screen.getByText(defaultStatus.active_profile)).toBeInTheDocument();
+
+    // Clicking Modelo popover shows Estado and Perfil info inside its detail
+    await userEvent.click(modelLabel);
+    const modelDialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
+    expect(modelDialog).toHaveTextContent("Estado");
+    expect(modelDialog).toHaveTextContent("en espera");
+    expect(modelDialog).toHaveTextContent(defaultStatus.active_profile);
 
     const rail = screen.getByRole("status", { name: "Estado operativo de OpenCohost" });
     expect(rail).not.toHaveClass("flex-wrap");
@@ -76,10 +80,14 @@ describe("StatusRail (spec §3a — calm cockpit readout)", () => {
 
     const motor = await screen.findByText(/Motor: necesita acción/);
     expect(motor).toHaveAttribute("data-taxonomy", "action");
-    // Modelo shows the null-model fallback; Kira reflects is_speaking; Perfil the name.
-    expect(screen.getByText("sin modelo")).toBeInTheDocument();
-    expect(screen.getByText(/Kira: hablando/)).toBeInTheDocument();
-    expect(screen.getByText("Akira")).toBeInTheDocument();
+    // Modelo shows the null-model fallback; clicking it reveals Kira speaking and Akira profile.
+    const noModel = screen.getByText("sin modelo");
+    expect(noModel).toBeInTheDocument();
+    await userEvent.click(noModel);
+    const dialog = screen.getByRole("dialog", { name: "sin modelo" });
+    expect(dialog).toHaveTextContent("Estado");
+    expect(dialog).toHaveTextContent("hablando");
+    expect(dialog).toHaveTextContent("Akira");
   });
 
   it("rolls up a not-ready model (health OK) as an 'atención' preparando state", async () => {
@@ -164,12 +172,13 @@ describe("StatusRail — Motor why-popover (a11y: keyboard + outside-click)", ()
     expect(motor).toHaveAttribute("aria-expanded", "true");
 
     const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    expect(dialog.parentElement).toHaveClass("z-50");
     expect(dialog).toHaveTextContent("Todo en orden");
     // Detail rows carry the deleted Health chip's data as real values.
     expect(dialog).toHaveTextContent("VRAM libre");
     expect(dialog).toHaveTextContent("4096 MB");
     expect(dialog).toHaveTextContent("RTF 0.30");
-    expect(dialog).toHaveTextContent("Qwen (voz)");
+    expect(dialog).toHaveTextContent("Voz (TTS)");
   });
 
   it("closes on Escape and returns aria-expanded to false", async () => {
@@ -209,7 +218,7 @@ describe("StatusRail — Motor why-popover (a11y: keyboard + outside-click)", ()
 });
 
 describe("StatusRail — adjust round 2 (owner runtime feedback, 2026-07-15)", () => {
-  it("names 'voz (Qwen)' in the red why-copy when qwen_status is 'unknown' — never empty parens", async () => {
+  it("never names 'voz (Qwen)' in the red why-copy — qwen retired 2026-09-21, not a dim", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/status`, () =>
         HttpResponse.json({
@@ -223,11 +232,12 @@ describe("StatusRail — adjust round 2 (owner runtime feedback, 2026-07-15)", (
     const motor = await screen.findByText(/Motor: necesita acción/);
     await userEvent.click(motor);
     const dialog = screen.getByRole("dialog", { name: "Motor: necesita acción" });
-    // The dim that holds the backend red is named — no "()".
-    expect(dialog).toHaveTextContent("La salud del sistema está en rojo (voz (Qwen))");
+    // qwen_status is no longer a dim: even "unknown" must not surface Qwen
+    // copy, and the parens drop entirely when no dim holds the red.
+    expect(dialog).toHaveTextContent("La salud del sistema está en rojo.");
+    expect(dialog).not.toHaveTextContent("voz (Qwen)");
+    expect(dialog).not.toHaveTextContent("sin iniciar");
     expect(dialog).not.toHaveTextContent("()");
-    // The Qwen detail row surfaces the cause: "sin iniciar" (not the raw "unknown").
-    expect(dialog).toHaveTextContent("sin iniciar");
   });
 
   it("shows 'no disponible' (not '0 MB') for the VRAM row when vram_status is 'unavailable'", async () => {
@@ -287,13 +297,14 @@ describe("StatusRail — adjust round 2 (owner runtime feedback, 2026-07-15)", (
     expect(dialog).not.toHaveTextContent("()");
   });
 
-  it("anchors the far-right Perfil chip's popover to the right edge (right-0), not left-0", async () => {
+  it("shows Estado and Perfil info inside the Modelo chip's popover on click", async () => {
     renderRail();
-    const perfil = await screen.findByText(defaultStatus.active_profile);
-    await userEvent.click(perfil);
-    const dialog = screen.getByRole("dialog", { name: defaultStatus.active_profile });
-    expect(dialog).toHaveClass("right-0");
-    expect(dialog).not.toHaveClass("left-0");
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
+    expect(dialog).toHaveTextContent("Estado");
+    expect(dialog).toHaveTextContent("en espera");
+    expect(dialog).toHaveTextContent(defaultStatus.active_profile);
   });
 });
 
@@ -302,19 +313,24 @@ describe("StatusRail — resource numbers (runtime_findings_batch_20260731 F9/F1
     renderRail();
     const motor = await screen.findByText(/Motor OK/);
     await userEvent.click(motor);
-    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    const motorDialog = screen.getByRole("dialog", { name: "Motor OK" });
 
-    expect(dialog).toHaveTextContent("VRAM usada");
-    expect(dialog).toHaveTextContent("4096/8192 MB");
-    expect(dialog).toHaveTextContent("Modelo (estimado por Ollama)");
-    expect(dialog).toHaveTextContent("Modelo residente (est.)");
-    expect(dialog).toHaveTextContent("6144 MB");
-    expect(dialog).toHaveTextContent("Modelo en VRAM (est.)");
-    expect(dialog).toHaveTextContent("4352 MB");
-    expect(dialog).toHaveTextContent("Spill a RAM (est.)");
-    expect(dialog).toHaveTextContent("1792 MB");
-    expect(dialog).toHaveTextContent("CPU/GPU");
-    expect(dialog).toHaveTextContent("67% GPU / 33% CPU");
+    expect(motorDialog).toHaveTextContent("VRAM usada");
+    expect(motorDialog).toHaveTextContent("4096/8192 MB");
+
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
+    const modelDialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
+
+    expect(modelDialog).toHaveTextContent("Modelo (estimado por Ollama)");
+    expect(modelDialog).toHaveTextContent("Modelo residente (est.)");
+    expect(modelDialog).toHaveTextContent("6144 MB");
+    expect(modelDialog).toHaveTextContent("Modelo en VRAM (est.)");
+    expect(modelDialog).toHaveTextContent("4352 MB");
+    expect(modelDialog).toHaveTextContent("Spill a RAM (est.)");
+    expect(modelDialog).toHaveTextContent("1792 MB");
+    expect(modelDialog).toHaveTextContent("CPU/GPU");
+    expect(modelDialog).toHaveTextContent("67% GPU / 33% CPU");
   });
 
   it("shows 'no disponible' for every residency row when no model is loaded / Ollama is down", async () => {
@@ -334,9 +350,9 @@ describe("StatusRail — resource numbers (runtime_findings_batch_20260731 F9/F1
     );
     renderRail();
 
-    const motor = await screen.findByText(/Motor OK/);
-    await userEvent.click(motor);
-    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
 
     expect(dialog).toHaveTextContent("Modelo residente (est.)");
     expect(dialog).toHaveTextContent("Modelo en VRAM (est.)");
@@ -373,8 +389,8 @@ describe("StatusRail — resource numbers (runtime_findings_batch_20260731 F9/F1
     );
     renderRail();
 
-    const motor = await screen.findByText(/Motor OK/);
-    await userEvent.click(motor);
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
     const spillRow = screen.getByText(/Spill a RAM \(est\.\)/).closest("div");
     expect(spillRow?.querySelector('[aria-hidden="true"].bg-warn')).toBeInTheDocument();
   });
@@ -387,8 +403,8 @@ describe("StatusRail — resource numbers (runtime_findings_batch_20260731 F9/F1
     );
     renderRail();
 
-    const motor = await screen.findByText(/Motor OK/);
-    await userEvent.click(motor);
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
     const spillRow = screen.getByText(/Spill a RAM \(est\.\)/).closest("div");
     expect(spillRow?.querySelector('[aria-hidden="true"].bg-warn')).not.toBeInTheDocument();
   });
@@ -406,9 +422,9 @@ describe("StatusRail — context telemetry (runtime_findings_batch_20260731 F10/
     );
     renderRail();
 
-    const motor = await screen.findByText(/Motor OK/);
-    await userEvent.click(motor);
-    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
     expect(dialog).toHaveTextContent("Contexto (KV)");
     expect(dialog).toHaveTextContent("Contexto usado");
     expect(dialog).toHaveTextContent("62 % de 4096");
@@ -419,9 +435,9 @@ describe("StatusRail — context telemetry (runtime_findings_batch_20260731 F10/
   it("shows 'no disponible' for both context rows before the first generation (ctx_telemetry null)", async () => {
     renderRail();
 
-    const motor = await screen.findByText(/Motor OK/);
-    await userEvent.click(motor);
-    const dialog = screen.getByRole("dialog", { name: "Motor OK" });
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
     expect(dialog).toHaveTextContent("Contexto usado");
     expect(dialog).toHaveTextContent("Pares evictados");
     const disponibleCount = dialog.textContent?.split("no disponible").length ?? 1;
@@ -430,13 +446,11 @@ describe("StatusRail — context telemetry (runtime_findings_batch_20260731 F10/
 });
 
 describe("StatusRail — cloud fallback chip (cloud_rearm_20260801 WU5, owner decision D-B)", () => {
-  it("renders no cloud chip when fallback_active is false — the four existing chips stay unchanged", async () => {
+  it("renders no cloud chip when fallback_active is false — the rail chips stay unchanged", async () => {
     renderRail();
     await waitFor(() => expect(screen.getByText(/Motor OK/)).toBeInTheDocument());
     expect(screen.queryByText(/^Cloud:/)).not.toBeInTheDocument();
     expect(screen.getByText(defaultStatus.current_model as string)).toBeInTheDocument();
-    expect(screen.getByText(/Kira: en espera/)).toBeInTheDocument();
-    expect(screen.getByText(defaultStatus.active_profile)).toBeInTheDocument();
   });
 
   it("shows the attention chip WITH a countdown for ambiguous_429 when a probe is scheduled (a scheduled retry self-heals regardless of class)", async () => {
@@ -613,5 +627,102 @@ describe("StatusRail — cloud fallback chip (cloud_rearm_20260801 WU5, owner de
 
     expect(button).toBeDisabled();
     await waitFor(() => expect(button).not.toBeDisabled());
+  });
+});
+
+function serveVision(enabled: boolean, status: Record<string, unknown>) {
+  server.use(
+    http.get(`${API_BASE_URL}/api/vision`, () =>
+      HttpResponse.json({
+        enabled,
+        look_on_ptt: false,
+        capture_delay_s: 0,
+        rule_gate_enabled: false,
+        model: "qwen3-vl:4b-instruct",
+        port: 11435,
+        describe_timeout_s: 8,
+        status: { daemon_state: "running", model_installed: true, capture_available: true, armed: false, looking: false, ...status }
+      })
+    )
+  );
+}
+
+describe("StatusRail vision folded into the model chip", () => {
+  const modelChip = () => screen.findByRole("button", { name: /qwen3-tts/ });
+
+  it("is unchanged while vision is disabled: no eye, no vision row, no aria mention", async () => {
+    serveVision(false, { state: "off" });
+    renderRail();
+    await waitFor(() => expect(screen.getByText(/Motor OK/)).toBeInTheDocument());
+    const chip = await modelChip();
+    expect(chip.querySelector("[data-vision-state]")).toBeNull();
+    expect(chip).not.toHaveAttribute("aria-label");
+    expect(screen.queryByText(/Visi[oó]n/)).not.toBeInTheDocument();
+  });
+
+  it("has no standalone vision chip", async () => {
+    serveVision(true, { state: "ready" });
+    renderRail();
+    await waitFor(() => expect(document.querySelector("[data-vision-state]")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /^Visión lista$/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button").filter((b) => b.querySelector("[data-vision-state]"))).toHaveLength(1);
+  });
+
+  it.each([
+    ["starting", "Visión iniciando"],
+    ["warming", "Visión preparándose"],
+    ["ready", "Visión lista"]
+  ])("shows the %s state on the eye and in aria-label", async (state, label) => {
+    serveVision(true, { state });
+    renderRail();
+    await waitFor(() => expect(document.querySelector(`[data-vision-state="${state}"]`)).not.toBeNull());
+    const chip = await modelChip();
+    expect(chip).toHaveAttribute("aria-label", expect.stringContaining(label));
+    expect(chip).toHaveTextContent("qwen3-tts");
+  });
+
+  it.each([
+    ["looking", "Mirando la pantalla"],
+    ["describing", "Procesando lo que vi"]
+  ])("reflects the %s phase while a look is in flight", async (phase, label) => {
+    serveVision(true, { state: "ready" });
+    useVisionPhaseStore.setState({ phase: phase as "looking" | "describing" });
+    renderRail();
+    await waitFor(() => expect(document.querySelector(`[data-vision-state="${phase}"]`)).not.toBeNull());
+    expect(await modelChip()).toHaveAttribute("aria-label", expect.stringContaining(label));
+    useVisionPhaseStore.setState({ phase: "idle" });
+  });
+
+  it("adds a vision row to the detail card with the vision model and state", async () => {
+    serveVision(true, { state: "ready" });
+    renderRail();
+    await userEvent.click(await modelChip());
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("qwen3-vl:4b-instruct");
+    expect(dialog).toHaveTextContent("Visión lista");
+  });
+
+  it("failure keeps the model name, signals attention, and explains in friendly copy", async () => {
+    serveVision(true, { state: "failed", last_error: "model_missing" });
+    renderRail();
+    await waitFor(() => expect(document.querySelector('[data-vision-state="failed"]')).not.toBeNull());
+    const chip = await modelChip();
+    expect(chip).toHaveAttribute("data-taxonomy", "attention");
+    expect(chip).toHaveTextContent("qwen3-tts");
+    await userEvent.click(chip);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("el modelo de visión no está instalado");
+    expect(dialog).toHaveTextContent("Revisa la tarjeta de Visión en Controles.");
+    expect(dialog).not.toHaveTextContent("model_missing");
+  });
+
+  it("carries the setup hint when setup was skipped and no engine is usable", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/setup/state`, () =>
+        HttpResponse.json({ status: "skipped", engine_ready: false, engine: null, show_on_start: false })
+      )
+    );
+    renderRail();
+    expect(await screen.findByText("Kira aún no tiene cerebro · escribe /setup")).toBeInTheDocument();
   });
 });

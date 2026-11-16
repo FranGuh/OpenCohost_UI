@@ -28,7 +28,8 @@ import {
   useSaveCohostProfileMutation,
   useSelectCohostProfileMutation,
   AGENDA_EVENT_CAP,
-  AGENDA_QUERY_KEY
+  AGENDA_QUERY_KEY,
+  COHOST_PROFILES_QUERY_KEY
 } from "./agenda.js";
 import { act } from "@testing-library/react";
 import type { AgendaResponse } from "./agenda.js";
@@ -98,12 +99,56 @@ describe("getCohostProfiles", () => {
     const result = await getCohostProfiles();
     expect(result).toEqual(defaultCohostProfiles);
   });
+
+  it("always sends explicit locale including es and normalizes BCP-47 tags", async () => {
+    const seenUrls: string[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, ({ request }) => {
+        seenUrls.push(request.url);
+        return HttpResponse.json(defaultCohostProfiles);
+      })
+    );
+
+    await getCohostProfiles("es");
+    await getCohostProfiles("en-US");
+
+    expect(new URL(seenUrls[0]).searchParams.get("locale")).toBe("es");
+    expect(new URL(seenUrls[1]).searchParams.get("locale")).toBe("en");
+  });
 });
 
 describe("useCohostProfilesQuery", () => {
   it("hydrates from GET /api/agenda/cohost-profiles", async () => {
     const { result } = renderHook(() => useCohostProfilesQuery(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.data).toEqual(defaultCohostProfiles));
+  });
+
+  it("keys by primary-normalized locale, sends ?locale=es, and respects enabled option", async () => {
+    const requestedLocales: Array<string | null> = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, ({ request }) => {
+        requestedLocales.push(new URL(request.url).searchParams.get("locale"));
+        return HttpResponse.json(defaultCohostProfiles);
+      })
+    );
+
+    const esHook = renderHook(() => useCohostProfilesQuery("es"), { wrapper: createWrapper() });
+    await waitFor(() => expect(esHook.result.current.isSuccess).toBe(true));
+    expect(requestedLocales).toEqual(["es"]);
+
+    let enabled = false;
+    const heldHook = renderHook(
+      ({ loc, isEnabled }: { loc: string; isEnabled: boolean }) =>
+        useCohostProfilesQuery(loc, { enabled: isEnabled }),
+      { wrapper: createWrapper(), initialProps: { loc: "en-US", isEnabled: enabled } }
+    );
+    expect(heldHook.result.current.fetchStatus).toBe("idle");
+    expect(requestedLocales).toEqual(["es"]);
+
+    enabled = true;
+    heldHook.rerender({ loc: "en-US", isEnabled: true });
+    await waitFor(() => expect(heldHook.result.current.isSuccess).toBe(true));
+    expect(requestedLocales).toEqual(["es", "en"]);
   });
 });
 
@@ -132,6 +177,27 @@ describe("useSaveCohostProfileMutation", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.profiles.some((profile) => profile.name === "Nueva")).toBe(true);
   });
+
+  it("includes explicit locale=es in save body and updates the locale-scoped cache key", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, children);
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/cohost-profiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(defaultCohostProfiles);
+      })
+    );
+
+    const { result } = renderHook(() => useSaveCohostProfileMutation("es-MX"), { wrapper });
+    result.current.mutate({ name: "Nueva ES", style: "cercana" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedBody).toEqual({ name: "Nueva ES", style: "cercana", locale: "es" });
+    expect(queryClient.getQueryData([...COHOST_PROFILES_QUERY_KEY, "es"])).toEqual(defaultCohostProfiles);
+    expect(queryClient.getQueryData(COHOST_PROFILES_QUERY_KEY)).toBeUndefined();
+  });
 });
 
 describe("selectCohostProfile", () => {
@@ -147,7 +213,7 @@ describe("selectCohostProfile", () => {
 });
 
 describe("useSelectCohostProfileMutation", () => {
-  it("invalidates the agenda query on success so profile_style refetches", async () => {
+  it("invalidates the agenda query on success so profile_style refetches and sends explicit normalized locale", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) =>
       React.createElement(QueryClientProvider, { client: queryClient }, children);
@@ -157,10 +223,18 @@ describe("useSelectCohostProfileMutation", () => {
       if (options?.queryKey) invalidatedKeys.push(options.queryKey);
       return invalidateSpy(options);
     }) as typeof queryClient.invalidateQueries;
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/agenda/cohost-profiles/select`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ selected: "Natural" });
+      })
+    );
 
-    const { result } = renderHook(() => useSelectCohostProfileMutation(), { wrapper });
+    const { result } = renderHook(() => useSelectCohostProfileMutation("es"), { wrapper });
     result.current.mutate({ name: "Natural" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedBody).toEqual({ name: "Natural", locale: "es" });
     expect(invalidatedKeys).toEqual([["agenda"]]);
   });
 });

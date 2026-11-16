@@ -12,7 +12,7 @@ const status = (overrides: Partial<FirstRunStatus> = {}): FirstRunStatus => ({
   phase: "unconfigured",
   launchable: false,
   data_root: null,
-  default_data_root: "C:/Users/test/AppData/Local/OpenCohost/data",
+  default_data_root: "C:/Users/test/AppData/Local/OpenCohostData",
   install_id: null,
   error_code: null,
   message: "Choose a local data folder",
@@ -36,7 +36,7 @@ describe("FirstRunGate", () => {
 
   it("renders unconfigured storage setup without mounting the product", async () => {
     render(<FirstRunGate onReady={vi.fn()} />);
-    expect(await screen.findByRole("heading", { name: /Prepare|Prepará/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Prepare|Prepara/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Choose folder|Elegir carpeta/ })).toBeInTheDocument();
   });
 
@@ -137,6 +137,53 @@ describe("FirstRunGate", () => {
     }
   });
 
+  it("passes the real backend error code through instead of rewriting it to a generic launch failure", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "first_run_status" ? status({ phase: "ready", launchable: true }) : status({ phase: "ready", launchable: true }))
+    );
+    render(<FirstRunGate onReady={vi.fn()} backendError="backend_ports_busy" />);
+    expect(await screen.findByRole("status")).toHaveTextContent(/puertos 8765 y 8770/i);
+  });
+
+  it("names a stale or foreign backend", async () => {
+    mocks.invoke.mockImplementation(() => Promise.resolve(status({ phase: "ready", launchable: true })));
+    render(<FirstRunGate onReady={vi.fn()} backendError="backend_foreign_instance" />);
+    expect(await screen.findByRole("status")).toHaveTextContent(/otra instalación|versión anterior/i);
+  });
+
+  it("shows the real cause when the reload is refused instead of a generic message", async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "reload_backend_command") return Promise.reject("backend_ports_busy");
+      return Promise.resolve(status({ phase: "ready", launchable: true }));
+    });
+    render(<FirstRunGate onReady={vi.fn()} backendError="backend_launch_failed" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Retry|Reintentar/ }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/puertos 8765 y 8770/i));
+  });
+
+  it.each([
+    ["invalid_data_root", /carpeta de datos/i],
+    ["handoff_write_failed", /no se pudo guardar/i],
+    ["install_id_mismatch", /otra instalación/i],
+    ["data_root_inside_install", /fuera de la instalación|fuera del directorio/i]
+  ])("localizes the data-root and handoff code %s", async (code, expected) => {
+    mocks.invoke.mockImplementation(() => Promise.resolve(status({ phase: "failed", error_code: code })));
+    render(<FirstRunGate onReady={vi.fn()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent(expected);
+  });
+
+  it("keeps the folder picker and offers Repair with a new root in a degraded or failed phase", async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "provision_start") return Promise.resolve(status({ phase: "provisioning" }));
+      return Promise.resolve(status({ phase: "degraded", error_code: "invalid_handoff", data_root: "C:/Old/Data" }));
+    });
+    render(<FirstRunGate onReady={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Choose folder|Elegir carpeta/ }));
+    await waitFor(() => expect(mocks.open).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: /Repair with this folder|Reparar con esta carpeta/ }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("provision_start", { dataRoot: "C:/Data/OpenCohost" }));
+  });
+
   it("keeps the operation active when cancellation is rejected as too late", async () => {
     mocks.invoke.mockImplementation((command: string) => {
       if (command === "first_run_status") return Promise.resolve(status({ phase: "provisioning" }));
@@ -148,4 +195,60 @@ describe("FirstRunGate", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/listo|ready/i));
     expect(screen.queryByText(/cancelada|cancelled/i)).not.toBeInTheDocument();
   });
+
+  it.each([
+    {
+      label: "data_root_inside_install",
+      firstRun: {
+        phase: "degraded" as const,
+        error_code: "data_root_inside_install",
+        data_root: "C:/Users/test/AppData/Local/OpenCohost/resources/runtime",
+      },
+      backendError: null,
+    },
+    {
+      label: "invalid_handoff",
+      firstRun: {
+        phase: "degraded" as const,
+        error_code: "invalid_handoff",
+        data_root: "C:/Users/test/AppData/Local/OpenCohost/resources/runtime",
+      },
+      backendError: null,
+    },
+    {
+      label: "embedded-install",
+      firstRun: {
+        phase: "ready" as const,
+        launchable: true,
+        install_id: "embedded-install",
+        data_root: "C:/Users/test/AppData/Local/OpenCohost/resources/runtime",
+      },
+      backendError: "runtime_not_ready",
+    },
+  ])(
+    "preselects default_data_root instead of invalid data_root for $label and passes default_data_root to Repair",
+    async ({ firstRun, backendError }) => {
+      const safeDefault = "C:/Users/test/AppData/Local/OpenCohostData";
+      const unsafeRoot = "C:/Users/test/AppData/Local/OpenCohost/resources/runtime";
+      mocks.invoke.mockImplementation((command: string) => {
+        if (command === "first_run_status") {
+          return Promise.resolve(status({ ...firstRun, default_data_root: safeDefault }));
+        }
+        if (command === "provision_start") {
+          return Promise.resolve(status({ phase: "provisioning" }));
+        }
+        return Promise.resolve(status({ phase: "provisioning" }));
+      });
+
+      render(<FirstRunGate onReady={vi.fn()} backendError={backendError} />);
+
+      await waitFor(() => expect(screen.getByText(safeDefault)).toBeInTheDocument());
+      expect(screen.queryByText(unsafeRoot)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /Repair with this folder|Reparar con esta carpeta/ }));
+      await waitFor(() =>
+        expect(mocks.invoke).toHaveBeenCalledWith("provision_start", { dataRoot: safeDefault })
+      );
+    }
+  );
 });

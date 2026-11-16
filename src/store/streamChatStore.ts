@@ -173,11 +173,13 @@ export const useStreamChatStore = create<StreamChatState>((set) => ({
     }),
   addKiraReply: (reply) =>
     set((state) => {
-      // Belt-and-braces guard: the caller (ConversationPanel's last-reply
-      // poll effect) already dedups by turn_id before calling this, but a
-      // second path producing the same turn_id must still be a no-op rather
-      // than a duplicate bubble.
-      if (state.kiraReplies.some((r) => r.turnId === reply.turnId)) return state;
+      const existingIdx = state.kiraReplies.findIndex((r) => r.turnId === reply.turnId);
+      if (existingIdx !== -1) {
+        if (state.kiraReplies[existingIdx].text === reply.text) return state;
+        const updated = [...state.kiraReplies];
+        updated[existingIdx] = { ...updated[existingIdx], text: reply.text };
+        return { kiraReplies: updated };
+      }
       return { kiraReplies: cap([...state.kiraReplies, reply]) };
     })
 }));

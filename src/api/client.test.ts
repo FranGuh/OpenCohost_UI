@@ -274,6 +274,22 @@ describe("client/postChatTurn", () => {
     setApiToken(null);
   });
 
+  it("adds the pasted image to the body only when one is attached", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ accepted: true, command_id: "cmd-img", status: "queued", state_version: 1 });
+      })
+    );
+
+    await postChatTurn("hola", "key-plain");
+    await postChatTurn("mira", "key-img", { data: "QUJD", mime_type: "image/png" });
+
+    expect(bodies[0]).toEqual({ text: "hola" });
+    expect(bodies[1]).toEqual({ text: "mira", image: { data: "QUJD", mime_type: "image/png" } });
+  });
+
   it("attaches Authorization header when a token is cached (P4 auth wiring)", async () => {
     setApiToken("op-secret");
     let capturedHeader: string | null = null;

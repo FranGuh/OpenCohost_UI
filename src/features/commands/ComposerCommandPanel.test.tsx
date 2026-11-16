@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEventStore } from "../../store/eventStore.js";
 import { CommandPalettePopover, ComposerCommandPanel } from "./ComposerCommandPanel.js";
+import { takeSetupSection } from "../setup/setupCheckpoint.js";
 
 beforeEach(() => {
   useEventStore.setState({ events: [] });
@@ -48,7 +49,7 @@ function Harness({
         composerRef={composerRef}
         onActiveDescendantChange={setActiveDescendant}
       />
-      <input aria-label="Mensaje para Kira" aria-activedescendant={activeDescendant ?? undefined} readOnly value={query} />
+      <textarea aria-label="Mensaje para Kira" aria-activedescendant={activeDescendant ?? undefined} readOnly value={query} />
       {extraControl && (
         <button type="button" aria-label="otro control">
           otro control
@@ -79,7 +80,7 @@ describe("CommandPalettePopover (emergent launcher)", () => {
   it("lists every command on a bare '/' and highlights the first by default", () => {
     renderLauncher("/");
     const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(8);
+    expect(options).toHaveLength(9);
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     expect(options[1]).toHaveAttribute("aria-selected", "false");
   });
@@ -124,6 +125,20 @@ describe("CommandPalettePopover (emergent launcher)", () => {
     const { onSelect } = renderLauncher("/te");
     fireEvent.click(screen.getByRole("option", { name: /\/temas/ }));
     expect(onSelect).toHaveBeenCalledWith("temas");
+  });
+
+  it("hands the words after /setup to the setup screen when it is picked (S10)", () => {
+    const { onSelect } = renderLauncher("/setup voz");
+    fireEvent.keyDown(composerInput(), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("setup");
+    expect(takeSetupSection()).toEqual({ kind: "step", step: "voice" });
+  });
+
+  it("a click on /setup with a section hands it over too (S10)", () => {
+    const { onSelect } = renderLauncher("/setup tema");
+    fireEvent.click(screen.getByRole("option", { name: /\/setup/ }));
+    expect(onSelect).toHaveBeenCalledWith("setup");
+    expect(takeSetupSection()).toEqual({ kind: "step", step: "theme" });
   });
 
   it("closes on Escape from the composer input", () => {
@@ -185,6 +200,13 @@ describe("ComposerCommandPanel — inline browsable home (Comandos tab)", () => 
   it("opens a controlled command directly (as launched from the popover)", () => {
     renderInline("agenda");
     // /agenda is a stepper — its first question renders when it is the active command.
-    expect(screen.getByText("¿Qué tema querés agendar?")).toBeInTheDocument();
+    expect(screen.getByText("¿Qué tema quieres agendar?")).toBeInTheDocument();
+  });
+});
+
+describe("ComposerCommandPanel floating dialog bounds", () => {
+  it("keeps the floating role dialog vertically scrollable inside a short viewport", () => {
+    render(<ComposerCommandPanel query="" activeId="agenda" onClose={() => {}} />);
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100vh-140px)]", "overflow-y-auto");
   });
 });

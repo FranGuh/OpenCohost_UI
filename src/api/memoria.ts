@@ -123,6 +123,27 @@ export interface MemoriaNoticeRequest {
   dismissed: boolean;
 }
 
+/** GET/POST /api/memoria/settings response — hand-typed from
+ * opencohost/api/models.py::MemoriaSettingsResponse (memory-semantic-recall
+ * T4). The effective per-layer flags the engine reads each turn;
+ * `memorias_enabled` is the read-only master switch. `semantic=false` means
+ * lexical-only facts AND no episodes (episodic recall is embedding-only).
+ * ponytail: keep in sync manually. */
+export interface MemoriaSettingsResponse {
+  memorias_enabled: boolean;
+  facts: boolean;
+  episodes: boolean;
+  semantic: boolean;
+}
+
+/** POST /api/memoria/settings body — partial: omitted layers stay unchanged,
+ * an empty body is a server-side 422. ponytail: keep in sync manually. */
+export interface MemoriaSettingsRequest {
+  facts?: boolean;
+  episodes?: boolean;
+  semantic?: boolean;
+}
+
 /**
  * POST /api/memoria/flags — partial flag update. 422 when every flag is
  * omitted (no-op rejected server-side), 404 for a missing/wrong-profile row,
@@ -250,7 +271,7 @@ export async function postMemoriaCapture(body: MemoriaCaptureRequest): Promise<M
  * open to `dismissed:false` server-side, so any non-2xx here is an honest
  * transport/server error, not a banner-state fallback. */
 export async function getMemoriaNotice(): Promise<MemoriaNoticeResponse> {
-  const res = await fetch(`${getApiBaseUrl()}/api/memoria/notice`);
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/notice`);
   if (!res.ok) {
     throw new ApiError(`GET /api/memoria/notice failed with ${res.status}`, res.status);
   }
@@ -272,6 +293,57 @@ export async function postMemoriaNotice(body: MemoriaNoticeRequest): Promise<Mem
   return (await res.json()) as MemoriaNoticeResponse;
 }
 
+/** GET /api/memoria/settings — effective per-layer memory flags. */
+export async function getMemoriaSettings(): Promise<MemoriaSettingsResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/settings`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/memoria/settings failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaSettingsResponse;
+}
+
+/** POST /api/memoria/settings — partial per-layer update. 422 = no layer
+ * given; 503 = the server could not persist it (runtime left unchanged, so
+ * the caller must keep showing the previous state). */
+export async function postMemoriaSettings(body: MemoriaSettingsRequest): Promise<MemoriaSettingsResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 422) {
+    throw new ValidationError(await extractMemoriaDetail(res, "no memory layer provided"));
+  }
+  if (res.status === 503) {
+    throw new ApiError(await extractMemoriaDetail(res, "memory_settings_write_failed"), 503);
+  }
+  if (!res.ok) {
+    throw new ApiError(`POST /api/memoria/settings failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaSettingsResponse;
+}
+
+const MEMORIA_SETTINGS_QUERY_KEY = ["memoria-settings"] as const;
+
+export function useMemoriaSettingsQuery() {
+  return useQuery({
+    queryKey: MEMORIA_SETTINGS_QUERY_KEY,
+    queryFn: getMemoriaSettings
+  });
+}
+
+/** Writes the server's effective flags straight into the cache (same shape
+ * as the notice mutation); a failed save leaves the cached state untouched. */
+export function useMemoriaSettingsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: postMemoriaSettings,
+    onSuccess: (data) => {
+      queryClient.setQueryData(MEMORIA_SETTINGS_QUERY_KEY, data);
+    }
+  });
+}
+
 /**
  * FIX-A: the stats query is now per-profile — the key carries `profileId` so
  * the counts refetch (and invalidate) alongside the per-profile memoria list,
@@ -282,10 +354,11 @@ export function memoriaStatsQueryKey(profileId: string) {
   return ["memoria-stats", profileId] as const;
 }
 
-export function useMemoriaStatsQuery(profileId: string) {
+export function useMemoriaStatsQuery(profileId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: memoriaStatsQueryKey(profileId),
-    queryFn: () => getMemoriaStats(profileId)
+    queryFn: () => getMemoriaStats(profileId),
+    enabled: options?.enabled ?? true
   });
 }
 
@@ -310,7 +383,7 @@ export function useMemoriaListQuery(profileId: string) {
  * function) triggers the request.
  */
 export async function getMemoriaRow(rowId: string, profileId: string): Promise<MemoriaRowResponse> {
-  const res = await fetch(
+  const res = await authFetch(
     `${getApiBaseUrl()}/api/memoria/row/${encodeURIComponent(rowId)}?profile_id=${encodeURIComponent(profileId)}`
   );
   if (res.status === 404) {

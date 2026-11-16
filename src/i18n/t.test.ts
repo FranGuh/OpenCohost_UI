@@ -67,3 +67,24 @@ describe("locale.ts storage safety (§7)", () => {
     vi.resetModules();
   });
 });
+
+describe("neutral Spanish (no voseo) in es bundles", () => {
+  it("agenda style placeholder uses tú", () => {
+    expect(t("agenda.profile.style.placeholder")).toBe("Cómo quieres que suene Kira…");
+  });
+  it("no es bundle contains common voseo forms", async () => {
+    const mods = import.meta.glob("./bundles/*.es.ts", { eager: true }) as Record<string, Record<string, unknown>>;
+    const voseo = /\b(querés|podés|tenés|hacé|mirá|decí|respondé|elegí|escribí|probá|revisá|usá|pegá|acá)\b/i;
+    const hits: string[] = [];
+    for (const [file, mod] of Object.entries(mods)) {
+      for (const value of Object.values(mod)) {
+        if (value && typeof value === "object") {
+          for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+            if (typeof v === "string" && voseo.test(v)) hits.push(`${file}:${k}`);
+          }
+        }
+      }
+    }
+    expect(hits).toEqual([]);
+  });
+});

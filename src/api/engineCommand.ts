@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type CommandAccepted,
@@ -60,10 +60,27 @@ function intentKeyFor(command: EngineCommand, value: unknown): string {
  * once per card) so exactly one disables while it applies — mirrors
  * useMockCommand's contract 1:1.
  */
-export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResponse, value: TValue) => boolean) {
+export interface UseEngineCommandOptions {
+  manualConvergence?: boolean;
+  onError?: (error: unknown) => void;
+  onTimeout?: () => void;
+  onFailed?: () => void;
+}
+
+export function useEngineCommand<TValue = unknown>(
+  matches?: (status: StatusResponse, value: TValue) => boolean,
+  options: UseEngineCommandOptions = {}
+) {
   const queryClient = useQueryClient();
   const statusQuery = useStatusQuery();
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
+  const pendingCommandRef = useRef<PendingCommand | null>(null);
+  const changePendingCommand = useCallback((next: PendingCommand | null) => {
+    pendingCommandRef.current = next;
+    setPendingCommand(next);
+  }, []);
   const [convergeValue, setConvergeValue] = useState<TValue | undefined>(undefined);
   const [timedOut, setTimedOut] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -72,8 +89,24 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
     mutationFn: async ({ command, value }: { command: EngineCommand; value?: TValue }) => {
       const intentKey = intentKeyFor(command, value);
       const key = getIdempotencyKey(intentKey);
-      const accepted = await postCommand(command, value, key);
-      return { accepted, intentKey };
+      const controller = new AbortController();
+      let requestTimedOut = false;
+      const timeoutTimer = setTimeout(() => {
+        requestTimedOut = true;
+        controller.abort(new DOMException("Engine command request timed out", "TimeoutError"));
+      }, APPLY_TIMEOUT_MS);
+      try {
+        const accepted = await postCommand(command, value, key, { signal: controller.signal });
+        return { accepted, intentKey };
+      } catch (error) {
+        if (requestTimedOut) {
+          setTimedOut(true);
+          optionsRef.current.onTimeout?.();
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeoutTimer);
+      }
     },
     // Item A event engine: command NAME is metadata (never the response
     // body) — see src/lib/appEvents.ts, the single privacy chokepoint.
@@ -89,13 +122,20 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
       setTimedOut(false);
       setFailed(false);
       setConvergeValue(variables.value);
-      setPendingCommand({ intentKey: result.intentKey });
+      changePendingCommand({ intentKey: result.intentKey });
+    },
+    onError: (error) => {
+      optionsRef.current.onError?.(error);
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
       // S5: any engine command can change the active model (switch_model
       // directly, but also profile-driven commands) — ModelCard's
       // useModelsQuery must not stay stale.
       void queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: TTS_CONFIG_QUERY_KEY });
+      if (!optionsRef.current.manualConvergence) {
+        void queryClient.invalidateQueries({ queryKey: TTS_CONFIG_QUERY_KEY });
+      }
     }
   });
 
@@ -107,25 +147,25 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
     }
     if (matches(statusQuery.data, convergeValue as TValue)) {
       rotateIdempotencyKey(pendingCommand.intentKey);
-      setPendingCommand(null);
+      changePendingCommand(null);
       setFailed(false);
       setTimedOut(false);
     }
-  }, [matches, pendingCommand, statusQuery.data, convergeValue]);
+  }, [changePendingCommand, matches, pendingCommand, statusQuery.data, convergeValue]);
 
   // Optimistic convergence for commands with no `matches` predicate.
   useEffect(() => {
-    if (matches || !pendingCommand) {
+    if (matches || options.manualConvergence || !pendingCommand) {
       return;
     }
     const timer = setTimeout(() => {
       rotateIdempotencyKey(pendingCommand.intentKey);
-      setPendingCommand(null);
+      changePendingCommand(null);
       setFailed(false);
       setTimedOut(false);
     }, OPTIMISTIC_APPLY_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [matches, pendingCommand]);
+  }, [changePendingCommand, matches, options.manualConvergence, pendingCommand]);
 
   // Immediate failure resolution: when the backend fires a failure event
   // (model_switch_failed, llm_tier_switch_failed), clear pending immediately
@@ -141,11 +181,12 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
         latest.source === "motor" &&
         (latest.action === "model_switch_failed" || latest.action === "llm_tier_switch_failed")
       ) {
-        setPendingCommand(null);
+        changePendingCommand(null);
         setFailed(true);
+        optionsRef.current.onFailed?.();
       }
     });
-  }, [pendingCommand]);
+  }, [changePendingCommand, pendingCommand]);
 
   // Soft timeout ceiling for both strategies above — never rotates the
   // Idempotency-Key (unlike genuine convergence) since we don't know
@@ -156,11 +197,12 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
       return;
     }
     const timer = setTimeout(() => {
-      setPendingCommand(null);
+      changePendingCommand(null);
       setTimedOut(true);
+      optionsRef.current.onTimeout?.();
     }, APPLY_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [pendingCommand]);
+  }, [changePendingCommand, pendingCommand]);
 
   // Swallow the rejection here — mutation.isError/error already carry it
   // reactively, so callers (cards) can `void run(...)` without every call
@@ -174,6 +216,25 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
     [mutation]
   );
 
+  const confirmApplied = useCallback(
+    (command: EngineCommand, value: TValue) => {
+      const intentKey = intentKeyFor(command, value);
+      if (pendingCommandRef.current?.intentKey !== intentKey) return;
+      rotateIdempotencyKey(intentKey);
+      changePendingCommand(null);
+      setFailed(false);
+      setTimedOut(false);
+    },
+    [changePendingCommand]
+  );
+
+  const stopWaiting = useCallback(() => {
+    // Do not rotate the intent key: after a read timeout the command may still
+    // be queued, so a retry must safely replay the same idempotent request.
+    changePendingCommand(null);
+    setTimedOut(false);
+  }, [changePendingCommand]);
+
   const reset = useCallback(() => {
     mutation.reset();
     setTimedOut(false);
@@ -182,6 +243,8 @@ export function useEngineCommand<TValue = unknown>(matches?: (status: StatusResp
 
   return {
     run,
+    confirmApplied,
+    stopWaiting,
     pending: mutation.isPending || pendingCommand !== null,
     isError: mutation.isError || failed,
     error: mutation.error,

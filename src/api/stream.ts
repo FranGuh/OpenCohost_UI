@@ -144,7 +144,7 @@ export async function postStreamConnect(url: string): Promise<StreamChatLiveResp
  * Thrown by `connectStreamAndAwait` when the connect POST succeeded but the
  * chat never reported `connected:true` within the poll budget — i.e. the
  * directo probably is not actually live. Distinct type so `errorCopy` can
- * produce the "verificá que esté EN VIVO" copy instead of a generic retry.
+ * produce the "verifica que esté EN VIVO" copy instead of a generic retry.
  */
 export class StreamConnectTimeoutError extends Error {
   constructor(message = "stream_connect_timeout") {

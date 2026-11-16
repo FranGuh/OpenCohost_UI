@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
@@ -10,6 +10,7 @@ import {
   llmProviderGetErrorHandler,
   llmProviderGetHandler,
   llmProviderRouteMissingHandler,
+  llmProviderTestHandler,
   llmProviderValidationHandler,
   llmProviderWriteFailedHandler
 } from "../../test/handlers.js";
@@ -47,7 +48,7 @@ describe("ProviderCard hydrates from GET /api/llm/provider", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "El backend en ejecución todavía no tiene proveedores en la nube — cerrá y volvé a abrir la app."
+        "El backend en ejecución todavía no tiene proveedores en la nube — cierra y vuelve a abrir la app."
       )
     );
     expect(screen.queryByRole("combobox", { name: "Proveedor activo" })).not.toBeInTheDocument();
@@ -72,6 +73,58 @@ describe("ProviderCard hydrates from GET /api/llm/provider", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /OpenAI/ }));
     expect(screen.getByLabelText("Preset")).toBeInTheDocument();
+  });
+});
+
+describe("ProviderCard 'discard stale speech on a regenerated reply' toggle (T4, live_session_fixes_20260925)", () => {
+  it("reflects OFF from the fetched config by default", async () => {
+    renderCard();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Descartar el habla pendiente al llegar una respuesta regenerada" })
+      ).toHaveAttribute("aria-checked", "false")
+    );
+  });
+
+  it("reflects ON when the fetched config has it enabled", async () => {
+    server.use(
+      llmProviderGetHandler({ ...defaultLlmProvider, discard_stale_speech_on_regenerated_reply: true })
+    );
+    renderCard();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Descartar el habla pendiente al llegar una respuesta regenerada" })
+      ).toHaveAttribute("aria-checked", "true")
+    );
+  });
+
+  it("PUTs only { discard_stale_speech_on_regenerated_reply } when toggled on", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultLlmProvider, discard_stale_speech_on_regenerated_reply: true });
+      })
+    );
+    renderCard();
+    await screen.findByRole("switch", {
+      name: "Descartar el habla pendiente al llegar una respuesta regenerada"
+    });
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Descartar el habla pendiente al llegar una respuesta regenerada" })
+    );
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({ discard_stale_speech_on_regenerated_reply: true })
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Descartar el habla pendiente al llegar una respuesta regenerada" })
+      ).toHaveAttribute("aria-checked", "true")
+    );
   });
 });
 
@@ -160,6 +213,62 @@ describe("ProviderCard active-provider selector is a selector-only switch", () =
         "Para activar este proveedor en la nube falta la URL base (base_url)."
       )
     );
+  });
+});
+
+describe("ProviderCard sees-images checkbox (cloud-providers-vision P2)", () => {
+  it("is an unchecked checkbox in Advanced and is not sent when untouched", async () => {
+    let capturedBody: any;
+    server.use(
+      http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(defaultLlmProvider);
+      })
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    const box = screen.getByRole("checkbox", { name: "Este modelo ve imágenes" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(capturedBody?.profile_id).toBe("openai"));
+    expect(capturedBody).not.toHaveProperty("model_vision");
+  });
+
+  it("ticking it saves model_vision: true on the profile", async () => {
+    let capturedBody: any;
+    server.use(
+      http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(defaultLlmProvider);
+      })
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Este modelo ve imágenes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(capturedBody?.model_vision).toBe(true));
+  });
+
+  it("hydrates checked from the stored profile and can be cleared", async () => {
+    let capturedBody: any;
+    const stored: LlmProviderResponseFixture = {
+      ...defaultLlmProvider,
+      profiles: { openai: { ...defaultLlmProvider.profiles.openai, model_vision: true } }
+    };
+    server.use(
+      llmProviderGetHandler(stored),
+      http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(stored);
+      })
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    const box = screen.getByRole("checkbox", { name: "Este modelo ve imágenes" });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(capturedBody?.model_vision).toBe(false));
   });
 });
 
@@ -264,7 +373,7 @@ describe("ProviderCard per-profile editor", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Agregar proveedor…" }));
 
     fireEvent.change(screen.getByLabelText("Id del proveedor"), { target: { value: "Mi Proveedor" } });
-    expect(screen.getByText(/Usá minúsculas, números y guion bajo/)).toBeInTheDocument();
+    expect(screen.getByText(/Usa minúsculas, números y guion bajo/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("Id del proveedor"), { target: { value: "mi_proveedor" } });
@@ -301,7 +410,7 @@ describe("ProviderCard per-profile editor", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "No se pudo guardar la API key en el almacén seguro. Probá de nuevo."
+        "No se pudo guardar la API key en el almacén seguro. Prueba de nuevo."
       )
     );
   });
@@ -312,6 +421,7 @@ describe("ProviderCard delete-key on the ACTIVE cloud profile (owner: 'no deja e
     active_provider: "openai",
     fallback_mode: "manual",
     pregen_enabled: false,
+    discard_stale_speech_on_regenerated_reply: false,
     profiles: {
       openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", preset: "openai", api_key_set: true }
     }
@@ -327,7 +437,7 @@ describe("ProviderCard delete-key on the ACTIVE cloud profile (owner: 'no deja e
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Para borrar la key del proveedor activo, primero cambiá a Local u otro proveedor."
+        "Para borrar la key del proveedor activo, primero cambia a Local u otro proveedor."
       )
     );
     // The backend safety rule is UNCHANGED; it's just communicated honestly now —
@@ -376,6 +486,7 @@ describe("ProviderCard eliminar proveedor (owner hit a wall: schema had no delet
     active_provider: "openai",
     fallback_mode: "manual",
     pregen_enabled: false,
+    discard_stale_speech_on_regenerated_reply: false,
     profiles: {
       openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", preset: "openai", api_key_set: true }
     }
@@ -450,7 +561,7 @@ describe("ProviderCard eliminar proveedor (owner hit a wall: schema had no delet
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "No podés eliminar el proveedor activo; cambiá a Local primero."
+        "No puedes eliminar el proveedor activo; cambia a Local primero."
       )
     );
   });
@@ -518,6 +629,7 @@ describe("ProviderCard with an active cloud profile that has no key", () => {
     active_provider: "openai",
     fallback_mode: "manual",
     pregen_enabled: true,
+    discard_stale_speech_on_regenerated_reply: false,
     profiles: {
       openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", preset: "openai", api_key_set: false }
     }
@@ -538,5 +650,238 @@ describe("ProviderCard with an active cloud profile that has no key", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /OpenAI/ }));
     expect(screen.queryByText("key guardada")).not.toBeInTheDocument();
+  });
+});
+
+describe("ProviderCard guided setup (cloud-providers-vision P1)", () => {
+  async function openGemini() {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /Agregar Google Gemini/ }));
+  }
+
+  it("lists the new providers from the backend presets", async () => {
+    renderCard();
+    expect(await screen.findByRole("button", { name: /Agregar DeepSeek/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Agregar Anthropic Claude/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Agregar OpenRouter/ })).toBeInTheDocument();
+  });
+
+  it("'Obtener key' opens the provider key page in the system browser", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    await openGemini();
+    fireEvent.click(screen.getByRole("button", { name: "Obtener key" }));
+    expect(open).toHaveBeenCalledWith("https://aistudio.google.com/apikey", "_blank", "noreferrer");
+    open.mockRestore();
+  });
+
+  it("'Probar' needs a key or a stored key", async () => {
+    await openGemini();
+    expect(screen.getByRole("button", { name: "Probar" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "AQ.abc" } });
+    expect(screen.getByRole("button", { name: "Probar" })).toBeEnabled();
+  });
+
+  it("tests the typed key, shows the model count and fills the model dropdown (recommended first)", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      llmProviderTestHandler(
+        {
+          ok: true,
+          error_code: null,
+          models: ["zeta-model", "gemini-3.8-flash", "gemini-3.5-flash-lite"],
+          recommended: ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
+        },
+        capture
+      )
+    );
+    await openGemini();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "AQ.abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+
+    expect(await screen.findByText("Key válida: 3 modelos disponibles")).toBeInTheDocument();
+    expect(capture.body).toEqual({
+      preset: "gemini",
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      api_key: "AQ.abc",
+      check_chat: true,
+      model: "gemini-3.5-flash-lite"
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Elegir modelo" }));
+    const options = screen.getAllByRole("option").map((o) => (o.textContent ?? "").replace("✓", ""));
+    expect(options).toEqual([
+      "gemini-3.5-flash-lite (recomendado)",
+      "gemini-3.8-flash (recomendado)",
+      "zeta-model"
+    ]);
+    fireEvent.click(screen.getByRole("option", { name: "zeta-model" }));
+    expect(screen.getByLabelText("Modelo")).toHaveValue("zeta-model");
+  });
+
+  it("states that the test spends a little balance", async () => {
+    await openGemini();
+    expect(
+      screen.getByText(
+        "Haremos una pregunta cortita al modelo para comprobar que responde (gasta muy poquito de tu saldo)."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says the key works and the model answers when the chat stage passes", async () => {
+    server.use(
+      llmProviderTestHandler({ ok: true, error_code: null, models: ["m"], recommended: [], chat_ok: true, http_status: 200 })
+    );
+    await openGemini();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "AQ.abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+    expect(await screen.findByText("¡Listo! Tu API key funciona y el modelo responde.")).toBeInTheDocument();
+  });
+
+  it("explains a failed chat stage with the reason and HTTP detail", async () => {
+    server.use(
+      llmProviderTestHandler({
+        ok: true,
+        error_code: null,
+        models: ["m"],
+        recommended: [],
+        chat_ok: false,
+        chat_error_code: "cloud_rate_limit",
+        http_status: 402,
+        provider_message: "Insufficient balance"
+      })
+    );
+    await openGemini();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "AQ.abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+    expect(
+      await screen.findByText("La key es válida, pero no hay saldo o llegaste al límite del proveedor.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("HTTP 402: Insufficient balance")).toBeInTheDocument();
+  });
+
+  it("tests a stored key by profile id without sending a key", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      llmProviderTestHandler({ ok: true, error_code: null, models: ["gpt-4o"], recommended: [] }, capture)
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+    await screen.findByText("Key válida: 1 modelos disponibles");
+    expect(capture.body).toEqual({
+      preset: "openai",
+      base_url: "https://api.openai.com/v1",
+      profile_id: "openai",
+      check_chat: true,
+      model: "gpt-4o-mini"
+    });
+  });
+
+  it.each([
+    ["invalid_key", "La key no es válida. Revisa que la copiaste completa."],
+    ["unreachable", "No se pudo conectar con el proveedor. Revisa tu conexión a internet."],
+    ["rate_limited", "El proveedor pidió esperar un poco. Intenta de nuevo en un momento."],
+    ["unexpected", "El proveedor respondió algo inesperado. Revisa la URL base en Avanzado."]
+  ])("shows friendly copy for %s", async (code, copy) => {
+    server.use(llmProviderTestHandler({ ok: false, error_code: code, models: [], recommended: [] }));
+    await openGemini();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "AQ.abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+    expect(await screen.findByText(copy)).toBeInTheDocument();
+  });
+
+  it("falls back to the recommended list before any test and marks vision models", async () => {
+    await openGemini();
+    fireEvent.click(screen.getByRole("combobox", { name: "Elegir modelo" }));
+    expect(screen.getAllByRole("option").map((o) => (o.textContent ?? "").replace("✓", ""))).toEqual([
+      "gemini-3.5-flash-lite (recomendado)",
+      "gemini-3.8-flash (recomendado)"
+    ]);
+    fireEvent.click(screen.getByRole("option", { name: /gemini-3.8-flash/ }));
+    expect(screen.getByText("Ve imágenes")).toBeInTheDocument();
+  });
+
+  it("does not claim vision for a text-only model", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /Agregar DeepSeek/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Elegir modelo" }));
+    fireEvent.click(screen.getByRole("option", { name: /deepseek-v4-pro/ }));
+    expect(screen.queryByText("Ve imágenes")).not.toBeInTheDocument();
+  });
+
+  it("keeps base URL and the custom model id under 'Avanzado'", async () => {
+    await openGemini();
+    const advanced = screen.getByText("Avanzado").closest("details") as HTMLDetailsElement;
+    expect(advanced).toContainElement(screen.getByLabelText("URL base"));
+    expect(advanced).toContainElement(screen.getByLabelText("Modelo"));
+  });
+
+  it("never shows the typed key in the test result", async () => {
+    server.use(llmProviderTestHandler({ ok: true, error_code: null, models: ["m"], recommended: [] }));
+    await openGemini();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "AQ.canary-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+    await screen.findByText("Key válida: 1 modelos disponibles");
+    expect(document.body.textContent).not.toContain("AQ.canary-key");
+  });
+
+  it("clears a profile preset to '(ninguno)' by sending preset: null and reflects null on reopen", async () => {
+    let capturedBody: any;
+    let currentOpenAi = { ...defaultLlmProvider.profiles.openai };
+    server.use(
+      http.get(`${API_BASE_URL}/api/llm/provider`, () =>
+        HttpResponse.json({
+          ...defaultLlmProvider,
+          profiles: { openai: currentOpenAi }
+        })
+      ),
+      http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+        capturedBody = await request.json();
+        currentOpenAi = { ...currentOpenAi, preset: capturedBody.preset ?? null };
+        return HttpResponse.json({
+          ...defaultLlmProvider,
+          profiles: { openai: currentOpenAi }
+        });
+      })
+    );
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    expect(screen.getByLabelText("Preset")).toHaveTextContent("OpenAI");
+
+    fireEvent.click(screen.getByLabelText("Preset"));
+    fireEvent.click(screen.getByRole("option", { name: "(ninguno)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(capturedBody?.profile_id).toBe("openai"));
+    expect(capturedBody.preset).toBeNull();
+
+    // Switch away to another row and reopen OpenAI -> reads the updated query cache (preset: null -> "(ninguno)")
+    fireEvent.click(screen.getByRole("button", { name: /Agregar NVIDIA NIM/ }));
+    fireEvent.click(screen.getByRole("button", { name: /OpenAI/ }));
+    expect(screen.getByLabelText("Preset")).toHaveTextContent("(ninguno)");
+  });
+});
+
+describe("ProviderCard Probar spinner & error transparency (S3)", () => {
+  it("shows a spinner on Probar while the test is in flight and surfaces HTTP status on request failure", async () => {
+    let releaseTest!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseTest = resolve; });
+    server.use(
+      http.post(`${API_BASE_URL}/api/llm/provider/test`, async () => {
+        await gate;
+        return HttpResponse.json({ detail: "Gateway Timeout" }, { status: 504 });
+      })
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Probar" }));
+
+    const pendingBtn = await screen.findByRole("button", { name: "Probando…" });
+    expect(pendingBtn).toBeDisabled();
+    expect(pendingBtn.querySelector("svg.animate-spin")).not.toBeNull();
+
+    releaseTest();
+    expect(await screen.findByText(/No se pudo conectar con el proveedor/)).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 504/)).toBeInTheDocument();
   });
 });

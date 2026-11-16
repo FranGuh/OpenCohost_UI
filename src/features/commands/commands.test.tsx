@@ -6,6 +6,10 @@ import { ComposerCommandPanel } from "./ComposerCommandPanel.js";
 import { PlaybackContext, type PlaybackContextValue } from "../../state/PlaybackProvider.js";
 import { Stepper } from "./Stepper.js";
 import { matchCommands, type Command } from "./registry.js";
+import { AGENDA_QUERY_KEY, COHOST_PROFILES_QUERY_KEY } from "../../api/agenda.js";
+import { queryClient } from "../../api/queryClient.js";
+import { useUiLocaleStore } from "../../i18n/locale.js";
+import { t } from "../../i18n/t.js";
 import type { StepValue } from "./primitives.js";
 import { PRIORITY_VOCAB } from "./wire.js";
 import { server } from "../../test/server.js";
@@ -19,9 +23,12 @@ import {
   agendaTopicCaptureHandler,
   agendaTopicValidationHandler,
   cohostProfileSaveCaptureHandler,
+  cohostProfileSelectCaptureHandler,
   defaultAgenda,
+  defaultI18nState,
   defaultMusicLibrary,
   defaultStreamChatLive,
+  i18nStateHandler,
   musicLibraryGetHandler,
   musicMoodHandler,
   streamConnectBusyHandler,
@@ -75,6 +82,8 @@ function driveAccionesTo(choices?: { reacciones?: string; cooldown?: string; spa
 
 afterEach(() => {
   vi.restoreAllMocks();
+  queryClient.clear();
+  useUiLocaleStore.getState().setLocale("es");
 });
 
 describe("command palette — registry + primitives (mockup)", () => {
@@ -99,6 +108,18 @@ describe("command palette — registry + primitives (mockup)", () => {
     expect(screen.getByText("comando desconocido")).toBeInTheDocument();
   });
 
+  it("/setup takes a section word; other commands still reject extra words (S10)", () => {
+    expect(matchCommands("/setup voz").map((c) => c.id)).toEqual(["setup"]);
+    expect(matchCommands("/setup banana").map((c) => c.id)).toEqual(["setup"]);
+    expect(matchCommands("/config theme").map((c) => c.id)).toEqual(["setup"]);
+    expect(matchCommands("/agenda algo")).toEqual([]);
+    expect(matchCommands("/set voz")).toEqual([]);
+  });
+
+  it("the /setup help text names the sections it opens directly (S10)", () => {
+    expect(t("commands.setup.description")).toMatch(/\/setup voz/);
+  });
+
   it("matches an English alias in addition to the Spanish id (F4)", () => {
     // Each of these has no natural Spanish-id prefix match — before the F4 fix
     // they returned zero results in English mode.
@@ -113,9 +134,9 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("/agenda caps the tema at 90 chars with a live counter", () => {
     renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
+    enterCommand(/agenda — programa un tema/);
 
-    const tema = screen.getByLabelText("¿Qué tema querés agendar?") as HTMLInputElement;
+    const tema = screen.getByLabelText("¿Qué tema quieres agendar?") as HTMLInputElement;
     fireEvent.change(tema, { target: { value: "a".repeat(120) } });
 
     expect(tema.value).toHaveLength(90);
@@ -124,8 +145,8 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("/agenda prioridad options are derived from wire.ts's PRIORITY_VOCAB, not a second hardcoded list (F6)", () => {
     renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
-    fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: "tema x" } });
+    enterCommand(/agenda — programa un tema/);
+    fireEvent.change(screen.getByLabelText("¿Qué tema quieres agendar?"), { target: { value: "tema x" } });
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → angulo
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
 
@@ -138,7 +159,7 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("/perfil renders the Identidad and Sesión sections", () => {
     renderPanel("/perfil");
-    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+    enterCommand(/perfil — guarda o cambia el perfil de co-host/);
 
     // Step 0 (nombre) is under Identidad.
     expect(screen.getByText("Identidad")).toBeInTheDocument();
@@ -154,7 +175,7 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("/temas lists the live agenda queue from GET /api/agenda (WU1/R11)", async () => {
     renderPanel("/temas");
-    enterCommand(/temas — mirá qué hay en agenda/);
+    enterCommand(/temas — mira qué hay en agenda/);
 
     // Topics + priority badges come from the live defaultAgenda queue, not the
     // old SAMPLE_TEMAS mock.
@@ -172,7 +193,7 @@ describe("command palette — registry + primitives (mockup)", () => {
   it("/temas shows an explicit empty state when the queue is empty (R11)", async () => {
     server.use(agendaGetHandler({ ...defaultAgenda, queued_topics: [] }));
     renderPanel("/temas");
-    enterCommand(/temas — mirá qué hay en agenda/);
+    enterCommand(/temas — mira qué hay en agenda/);
 
     expect(await screen.findByText(/no hay temas en la cola/i)).toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "Temas en agenda" })).not.toBeInTheDocument();
@@ -181,7 +202,7 @@ describe("command palette — registry + primitives (mockup)", () => {
   it("/temas shows an explicit unavailable message on a 503 (R11)", async () => {
     server.use(agendaGetErrorHandler(503, "agenda_unavailable"));
     renderPanel("/temas");
-    enterCommand(/temas — mirá qué hay en agenda/);
+    enterCommand(/temas — mira qué hay en agenda/);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no se pudo leer la agenda/i);
     expect(screen.queryByRole("list", { name: "Temas en agenda" })).not.toBeInTheDocument();
@@ -189,7 +210,7 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("/acciones replaces the disabled switch with a filter_policy select (WU3/R25)", () => {
     renderPanel("/acciones");
-    enterCommand(/acciones — configurá cómo reacciona Kira/);
+    enterCommand(/acciones — configura cómo reacciona Kira/);
 
     // Advance past the three select groups to the Contrato de entrada step.
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → cooldown
@@ -217,7 +238,7 @@ describe("command palette — registry + primitives (mockup)", () => {
       })
     );
     renderPanel("/acciones");
-    enterCommand(/acciones — configurá cómo reacciona Kira/);
+    enterCommand(/acciones — configura cómo reacciona Kira/);
 
     driveAccionesTo({ reacciones: "Alto — 5 msg/s", cooldown: "Bajo — 20 s", spam: "20 msgs/usuario en 30s", contrato: "Estricto" });
     fireEvent.click(screen.getByRole("button", { name: "Aplicar acciones" }));
@@ -238,7 +259,7 @@ describe("command palette — registry + primitives (mockup)", () => {
       )
     );
     renderPanel("/acciones");
-    enterCommand(/acciones — configurá cómo reacciona Kira/);
+    enterCommand(/acciones — configura cómo reacciona Kira/);
 
     driveAccionesTo();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar acciones" }));
@@ -249,7 +270,7 @@ describe("command palette — registry + primitives (mockup)", () => {
   it("/acciones ack says saved-as-defaults when not connected (R26)", async () => {
     // Default PUT handler echoes defaultStreamChatLive.connected === false.
     renderPanel("/acciones");
-    enterCommand(/acciones — configurá cómo reacciona Kira/);
+    enterCommand(/acciones — configura cómo reacciona Kira/);
 
     driveAccionesTo();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar acciones" }));
@@ -260,7 +281,7 @@ describe("command palette — registry + primitives (mockup)", () => {
   it("/acciones never calls connect or disconnect (R26b)", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderPanel("/acciones");
-    enterCommand(/acciones — configurá cómo reacciona Kira/);
+    enterCommand(/acciones — configura cómo reacciona Kira/);
 
     driveAccionesTo();
     fireEvent.click(screen.getByRole("button", { name: "Aplicar acciones" }));
@@ -274,7 +295,7 @@ describe("command palette — registry + primitives (mockup)", () => {
 
   it("Descartar at the summary returns to the command list", () => {
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     // Walk the two steps to the summary. Default platform is YouTube → the
     // URL field is labeled for the live video link (Lote C).
@@ -286,7 +307,7 @@ describe("command palette — registry + primitives (mockup)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
 
     // Back to the list: the command entry is visible again, the summary is gone.
-    expect(screen.getByRole("button", { name: /vivo — conectá el chat en vivo/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /vivo — conecta el chat en vivo/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Descartar" })).not.toBeInTheDocument();
   });
 
@@ -456,7 +477,7 @@ describe("ActionRow post-success re-arm (Item 1)", () => {
       })
     );
     renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
+    enterCommand(/agenda — programa un tema/);
 
     driveAgenda({ tema: "uno" });
     fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
@@ -464,7 +485,7 @@ describe("ActionRow post-success re-arm (Item 1)", () => {
 
     // /agenda overrides the re-arm label to "Otro tema".
     fireEvent.click(screen.getByRole("button", { name: "Otro tema" }));
-    expect(screen.getByLabelText("¿Qué tema querés agendar?")).toHaveValue("");
+    expect(screen.getByLabelText("¿Qué tema quieres agendar?")).toHaveValue("");
 
     driveAgenda({ tema: "dos" });
     fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
@@ -475,7 +496,7 @@ describe("ActionRow post-success re-arm (Item 1)", () => {
   it("/perfil overrides the re-arm label to 'Otro perfil'", async () => {
     server.use(cohostProfileSaveCaptureHandler({}), agendaSessionCaptureHandler({}));
     renderPanel("/perfil");
-    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+    enterCommand(/perfil — guarda o cambia el perfil de co-host/);
 
     drivePerfil({ nombre: "Kira" });
     fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
@@ -487,14 +508,14 @@ describe("ActionRow post-success re-arm (Item 1)", () => {
 
   it("'Listo' returns to the command list in the inline Comandos tab", async () => {
     renderInlinePanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
+    enterCommand(/agenda — programa un tema/);
     driveAgenda({ tema: "uno" });
     fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
     await screen.findByText(/tema agregado a la cola/i);
 
     fireEvent.click(screen.getByRole("button", { name: "Listo" }));
     // Back at the browsable list — the command entry is visible again.
-    expect(screen.getByRole("button", { name: /agenda — programá un tema/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /agenda — programa un tema/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Listo" })).not.toBeInTheDocument();
   });
 
@@ -531,7 +552,7 @@ describe("Stepper form width cap (Item 2)", () => {
 /** Walk /agenda's steps (tema → angulo → prioridad → largo → etiquetas) to the
  * summary. Pass option LABELS for prioridad/largo; omit to accept defaults. */
 function driveAgenda(input: { tema: string; prioridad?: string; largo?: string; etiquetas?: string[] }) {
-  fireEvent.change(screen.getByLabelText("¿Qué tema querés agendar?"), { target: { value: input.tema } });
+  fireEvent.change(screen.getByLabelText("¿Qué tema quieres agendar?"), { target: { value: input.tema } });
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → angulo (optional)
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → prioridad
   if (input.prioridad) selectOption("¿Qué prioridad tiene?", input.prioridad);
@@ -551,7 +572,7 @@ describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaTopicCaptureHandler(capture));
     renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
+    enterCommand(/agenda — programa un tema/);
 
     driveAgenda({ tema: "mods retro", prioridad: "Alta", largo: "Profundo", etiquetas: ["retro", "mods", "gaming"] });
     fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
@@ -576,7 +597,7 @@ describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
       })
     );
     renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
+    enterCommand(/agenda — programa un tema/);
 
     driveAgenda({ tema: "mods retro" });
     const primary = screen.getByRole("button", { name: "Programar tema" });
@@ -590,12 +611,12 @@ describe("/agenda → postAgendaTopic (WU7 — R12-R15, R33-R35)", () => {
   it("surfaces a localized 422 failure, never the raw backend detail (R15/F4)", async () => {
     server.use(agendaTopicValidationHandler("tema inválido"));
     renderPanel("/agenda");
-    enterCommand(/agenda — programá un tema/);
+    enterCommand(/agenda — programa un tema/);
 
     driveAgenda({ tema: "x" });
     fireEvent.click(screen.getByRole("button", { name: "Programar tema" }));
 
-    expect(await screen.findByText(/probá de nuevo/i)).toBeInTheDocument();
+    expect(await screen.findByText(/prueba de nuevo/i)).toBeInTheDocument();
     expect(screen.queryByText(/tema inválido/i)).not.toBeInTheDocument();
   });
 });
@@ -626,7 +647,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
       })
     );
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     driveVivo("Twitch", "kira");
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
@@ -638,7 +659,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
 
   it("labels the URL step per platform (YouTube → live video, Twitch → channel)", () => {
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     // Default platform is YouTube → the field asks for the live VIDEO link.
     selectOption("¿Qué plataforma?", "YouTube");
@@ -649,7 +670,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
 
   it("labels the URL step as a Twitch channel when Twitch is selected", () => {
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     selectOption("¿Qué plataforma?", "Twitch");
     fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
@@ -660,7 +681,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
   it("rejects a YouTube channel URL client-side, never hitting the connect endpoint (Lote C)", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     driveVivo("YouTube", "https://youtube.com/@kirastreams");
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
@@ -673,7 +694,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
   it("surfaces a localized invalid_url copy inline, never the raw code (R21/F4)", async () => {
     server.use(streamConnectInvalidUrlHandler());
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     driveVivo("Twitch", "no es una url");
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
@@ -685,12 +706,45 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
   it("surfaces a 409 busy conflict rather than a silent failure (R21)", async () => {
     server.use(streamConnectBusyHandler());
     renderPanel("/vivo");
-    enterCommand(/vivo — conectá el chat en vivo/);
+    enterCommand(/vivo — conecta el chat en vivo/);
 
     driveVivo("Twitch", "kira");
     fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
 
     expect(await screen.findByText(/en curso/i)).toBeInTheDocument();
+  });
+
+  it("does not carry stale canal input across platforms when clicking Editar to switch from YouTube to Twitch", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" });
+      })
+    );
+    renderPanel("/vivo");
+    enterCommand(/vivo — conecta el chat en vivo/);
+
+    // Enter a YouTube channel URL and reach summary -> validation error.
+    driveVivo("YouTube", "https://youtube.com/@kirastreams");
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+    expect(await screen.findByText(/necesita el link del video/i)).toBeInTheDocument();
+
+    // Edit and switch platform to Twitch -> Twitch field must start empty (not carry the stale YouTube URL).
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    selectOption("¿Qué plataforma?", "Twitch");
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    const twitchInput = screen.getByLabelText("Canal o URL de Twitch") as HTMLInputElement;
+    expect(twitchInput).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Revisar" })).toBeDisabled();
+
+    fireEvent.change(twitchInput, { target: { value: "kira" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Conectar" }));
+
+    expect(await screen.findByText(/chat en vivo conectado — twitch/i)).toBeInTheDocument();
+    expect(capturedBody).toEqual({ url: "twitch.tv/kira" });
   });
 });
 
@@ -698,7 +752,7 @@ describe("/vivo → postStreamConnect (WU8 — R20/R21, Lote C)", () => {
 
 async function openSesion() {
   renderPanel("/sesion");
-  enterCommand(/sesion — controlá la sesión/);
+  enterCommand(/sesion — controla la sesión/);
 }
 
 describe("/sesion → postAgendaSessionAction (WU9 — R27/R28)", () => {
@@ -781,9 +835,12 @@ describe("/sesion → postAgendaSessionAction (WU9 — R27/R28)", () => {
 
 /** Walk /perfil's steps (nombre → estilo → turnos → modo → ritmo) to the
  * summary. Pass option LABELS; omit to accept defaults. */
-function drivePerfil(input: { nombre: string; turnos?: string; modo?: string; ritmo?: string }) {
+function drivePerfil(input: { nombre: string; estilo?: string; turnos?: string; modo?: string; ritmo?: string }) {
   fireEvent.change(screen.getByLabelText("¿Cómo se llama el perfil?"), { target: { value: input.nombre } });
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → estilo (optional)
+  if (input.estilo !== undefined) {
+    fireEvent.change(screen.getByLabelText("Cómo suena Kira"), { target: { value: input.estilo } });
+  }
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → turnos
   if (input.turnos) selectOption("Intentos por tema", input.turnos);
   fireEvent.click(screen.getByRole("button", { name: "Siguiente" })); // → modo
@@ -794,31 +851,94 @@ function drivePerfil(input: { nombre: string; turnos?: string; modo?: string; ri
 }
 
 describe("/perfil → saveCohostProfile + putAgendaSession (WU10 — R16-R19)", () => {
-  it("saves the cohost profile AND puts the session, never touching the LLM persona (R16/R17)", async () => {
+  it("saves the cohost profile with explicit locale, selects it, puts the session, invalidates caches, and never touches the LLM persona (R16/R17)", async () => {
     const profileCapture: { body?: unknown } = {};
+    const selectCapture: { body?: unknown } = {};
     const sessionCapture: { body?: unknown } = {};
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    server.use(cohostProfileSaveCaptureHandler(profileCapture), agendaSessionCaptureHandler(sessionCapture));
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    server.use(
+      cohostProfileSaveCaptureHandler(profileCapture),
+      cohostProfileSelectCaptureHandler(selectCapture),
+      agendaSessionCaptureHandler(sessionCapture)
+    );
     renderPanel("/perfil");
-    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+    enterCommand(/perfil — guarda o cambia el perfil de co-host/);
 
     drivePerfil({ nombre: "Kira dry", turnos: "8", ritmo: "Dinámico" });
     fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
 
     await screen.findByText(/perfil de co-host guardado/i);
-    expect(profileCapture.body).toEqual({ name: "Kira dry", style: "" });
+    expect(profileCapture.body).toEqual({ name: "Kira dry", style: "", locale: "es" });
+    expect(selectCapture.body).toEqual({ name: "Kira dry", locale: "es" });
     expect(sessionCapture.body).toEqual({ max_turns_per_topic: 8, safety_mode: "live_safe", rhythm: "dinamico" });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: COHOST_PROFILES_QUERY_KEY });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: AGENDA_QUERY_KEY });
 
     // R16 negative: the LLM-persona endpoint (POST /api/perfiles) is never called.
     const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
     expect(urls.some((url) => url.includes("/api/perfiles"))).toBe(false);
   });
 
+  it("resolves active_locale from [i18n], normalizes BCP-47, applies profile.style live, and selects under that locale", async () => {
+    const profileCapture: { body?: unknown } = {};
+    const selectCapture: { body?: unknown } = {};
+    const sessionCapture: { body?: unknown } = {};
+    server.use(
+      i18nStateHandler({ ...defaultI18nState, active_locale: "en-US" }),
+      cohostProfileSaveCaptureHandler(profileCapture),
+      cohostProfileSelectCaptureHandler(selectCapture),
+      agendaSessionCaptureHandler(sessionCapture)
+    );
+    renderPanel("/perfil");
+    enterCommand(/perfil — guarda o cambia el perfil de co-host/);
+
+    drivePerfil({ nombre: "Dry EN", estilo: "Concise, dry wit", turnos: "5" });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
+
+    await screen.findByText(/perfil de co-host guardado/i);
+    expect(profileCapture.body).toEqual({ name: "Dry EN", style: "Concise, dry wit", locale: "en" });
+    expect(selectCapture.body).toEqual({ name: "Dry EN", locale: "en" });
+    expect(sessionCapture.body).toEqual({
+      max_turns_per_topic: 5,
+      safety_mode: "live_safe",
+      rhythm: "normal",
+      profile: { style: "Concise, dry wit" }
+    });
+  });
+
+  it("falls back to primaryLocale(uiLocale) when GET /api/i18n fails", async () => {
+    useUiLocaleStore.getState().setLocale("en");
+    const profileCapture: { body?: unknown } = {};
+    const selectCapture: { body?: unknown } = {};
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json({ detail: "down" }, { status: 500 })),
+      cohostProfileSaveCaptureHandler(profileCapture),
+      cohostProfileSelectCaptureHandler(selectCapture),
+      agendaSessionCaptureHandler({})
+    );
+    renderPanel("/perfil");
+    enterCommand(/perfil — save or change Kira's co-host profile/);
+
+    fireEvent.change(screen.getByLabelText("What is the profile called?"), { target: { value: "Fallback EN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.change(screen.getByLabelText("How Kira sounds"), { target: { value: "Crisp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save co-host profile" }));
+
+    await screen.findByText(/co-host profile saved/i);
+    expect(profileCapture.body).toEqual({ name: "Fallback EN", style: "Crisp", locale: "en" });
+    expect(selectCapture.body).toEqual({ name: "Fallback EN", locale: "en" });
+  });
+
   it("maps modo 'Estándar' to safety_mode monologue, never the raw string (R19)", async () => {
     const sessionCapture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(sessionCapture)); // default POST cohost-profiles handles the save
     renderPanel("/perfil");
-    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+    enterCommand(/perfil — guarda o cambia el perfil de co-host/);
 
     drivePerfil({ nombre: "Kira", modo: "Estándar" });
     fireEvent.click(screen.getByRole("button", { name: "Guardar perfil de co-host" }));
@@ -834,7 +954,7 @@ describe("/perfil → saveCohostProfile + putAgendaSession (WU10 — R16-R19)", 
     // The list description names the co-host profile unambiguously.
     expect(screen.getByText(/perfil de co-host de Kira/i)).toBeInTheDocument();
 
-    enterCommand(/perfil — guardá o cambiá el perfil de co-host/);
+    enterCommand(/perfil — guarda o cambia el perfil de co-host/);
     drivePerfil({ nombre: "Kira" });
     // The summary heading names the co-host profile too.
     expect(screen.getByText(/perfil de co-host listo para guardar/i)).toBeInTheDocument();
@@ -877,7 +997,7 @@ function renderMusicaPanel(playback: PlaybackContextValue) {
 
 async function openMusica(playback: PlaybackContextValue = makePlayback()) {
   renderMusicaPanel(playback);
-  enterCommand(/musica — controlá la música/);
+  enterCommand(/musica — controla la música/);
   return screen.findByRole("combobox", { name: "Mood de la música" });
 }
 
@@ -1024,5 +1144,53 @@ describe("/musica transport controls dispatch playback (Lote B — replaces R31 
 
     const moodCalls = fetchSpy.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/api/music/mood"));
     expect(moodCalls).toHaveLength(0);
+  });
+});
+
+describe("/setup → setup assistant panel (setup-assistant-20261008 T4)", () => {
+  it("renders the shared setup flow inline (no modal) instead of the readiness card", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/setup/state`, () =>
+        HttpResponse.json({ status: "pending", engine_ready: false, engine: null, show_on_start: true })
+      )
+    );
+    renderPanel("/setup");
+    enterCommand(/\/setup/);
+    expect(await screen.findByRole("heading", { name: "Idioma · Language" })).toBeInTheDocument();
+    expect(screen.getByText("Paso 1 de 9")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Asistente de configuración" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Asistente de Preparación LLM")).not.toBeInTheDocument();
+  });
+
+  it("re-opens a completed setup on its summary", async () => {
+    renderPanel("/setup");
+    enterCommand(/\/setup/);
+    expect(await screen.findByRole("heading", { name: "Todo listo" })).toBeInTheDocument();
+  });
+
+  it("closing the panel flow hands back to the host without touching the setup status", async () => {
+    const puts: unknown[] = [];
+    server.use(
+      // A setup still in progress: closing must not record anything.
+      http.get(`${API_BASE_URL}/api/setup/state`, () =>
+        HttpResponse.json({ status: "pending", engine_ready: false, engine: null, show_on_start: true })
+      ),
+      http.put(`${API_BASE_URL}/api/setup/state`, async ({ request }) => {
+        puts.push(await request.json());
+        return HttpResponse.json({ status: "completed", engine_ready: true, engine: "local", show_on_start: false });
+      })
+    );
+    const onClose = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ComposerCommandPanel query="/setup" onClose={onClose} />
+      </QueryClientProvider>
+    );
+    enterCommand(/\/setup/);
+    fireEvent.click(await screen.findByRole("button", { name: "Cerrar asistente" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(puts).toEqual([]);
   });
 });

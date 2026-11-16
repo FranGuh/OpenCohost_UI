@@ -9,13 +9,17 @@ import {
   API_BASE_URL,
   defaultLlmProvider,
   llmProviderProbeArmedFalseHandler,
-  llmProviderProbeUnavailableHandler
+  llmProviderProbeUnavailableHandler,
+  llmProviderTestHandler
 } from "../test/handlers.js";
 import { ApiError, NotFoundError, ValidationError } from "./client.js";
 import { subscribeMutationEvents } from "../lib/appEvents.js";
 import { useEventStore } from "../store/eventStore.js";
 import {
   getLlmProvider,
+  getLlmProviderPresets,
+  postLlmProviderTest,
+  useTestLlmProvider,
   isValidProfileId,
   postCloudProbe,
   putLlmProvider,
@@ -245,5 +249,32 @@ describe("postCloudProbe / useTriggerCloudProbe", () => {
     const events = useEventStore.getState().events;
     expect(events).toHaveLength(1);
     expect(events[0].label).toBe("Reintento de cloud forzado");
+  });
+});
+
+describe("provider presets + key test (cloud-providers-vision P1)", () => {
+  it("getLlmProviderPresets reads the backend presets", async () => {
+    const presets = await getLlmProviderPresets();
+    expect(presets.gemini.key_url).toBe("https://aistudio.google.com/apikey");
+    expect(presets.gemini.models[0]).toEqual({ id: "gemini-3.5-flash-lite", vision: true });
+  });
+
+  it("postLlmProviderTest posts the body and returns the result", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(
+      llmProviderTestHandler({ ok: true, error_code: null, models: ["a", "b"], recommended: ["a"] }, capture)
+    );
+    const result = await postLlmProviderTest({ preset: "gemini", api_key: "k" });
+    expect(result.models).toEqual(["a", "b"]);
+    expect(capture.body).toEqual({ preset: "gemini", api_key: "k" });
+  });
+
+  it("useTestLlmProvider scrubs the key from the retained mutation variables", async () => {
+    const { wrapper } = createWrapperWithClient();
+    const { result } = renderHook(() => useTestLlmProvider(), { wrapper });
+    const vars = { preset: "gemini", api_key: "secret" };
+    result.current.mutate(vars);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect("api_key" in vars).toBe(false);
   });
 });

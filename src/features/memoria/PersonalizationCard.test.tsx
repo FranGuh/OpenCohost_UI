@@ -1,23 +1,29 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { useUiLocaleStore } from "../../i18n/locale.js";
 import { server } from "../../test/server.js";
-import { API_BASE_URL, defaultPersonalization } from "../../test/handlers.js";
+import { API_BASE_URL, defaultI18nState, defaultPersonalization, i18nStateHandler } from "../../test/handlers.js";
 import { PersonalizationCard } from "./PersonalizationCard.js";
 
 // Collapse state persists to localStorage (oc-collapse-*); clear between tests
 // so the default-closed destructive section can't leak an opened state forward.
 beforeEach(() => {
   window.localStorage.clear();
+  useUiLocaleStore.setState({ locale: "es" });
+});
+afterEach(() => {
+  useUiLocaleStore.setState({ locale: "es" });
 });
 
 function renderCard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(PersonalizationCard))
   );
+  return { ...utils, queryClient };
 }
 
 describe("PersonalizationCard loads from GET /api/personalization", () => {
@@ -195,5 +201,109 @@ describe("PersonalizationCard Limpiar — confirm step (DELETE /api/personalizat
     fireEvent.click(screen.getByRole("button", { name: "Borrar personalización" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("personalization_write_failed"));
+  });
+});
+
+describe("PersonalizationCard locale isolation (?locale=es vs ?locale=en) & dirty guard", () => {
+  it("binds to backend active_locale even when UI locale differs (UI en + active_locale es reads/writes es)", async () => {
+    const stores: Record<string, typeof defaultPersonalization> = {
+      es: { ...defaultPersonalization, nickname: "TavoES" },
+      en: { ...defaultPersonalization, nickname: "TavoEN" }
+    };
+    const getLocales: string[] = [];
+    const putLocales: string[] = [];
+    server.use(
+      i18nStateHandler({ ...defaultI18nState, active_locale: "es", persisted_locale: "en", pending_restart: true }),
+      http.get(`${API_BASE_URL}/api/personalization`, ({ request }) => {
+        const loc = new URL(request.url).searchParams.get("locale") ?? "missing";
+        getLocales.push(loc);
+        return HttpResponse.json(stores[loc] ?? defaultPersonalization);
+      }),
+      http.put(`${API_BASE_URL}/api/personalization`, async ({ request }) => {
+        const loc = new URL(request.url).searchParams.get("locale") ?? "missing";
+        putLocales.push(loc);
+        const body = (await request.json()) as Partial<typeof defaultPersonalization>;
+        stores[loc] = { ...(stores[loc] ?? defaultPersonalization), ...body };
+        return HttpResponse.json(stores[loc]);
+      })
+    );
+
+    act(() => {
+      useUiLocaleStore.setState({ locale: "en" });
+    });
+
+    renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Nickname")).toHaveValue("TavoES"));
+    expect(getLocales).toEqual(["es"]);
+
+    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "EditedES" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putLocales).toEqual(["es"]));
+    expect(stores.es.nickname).toBe("EditedES");
+    expect(stores.en.nickname).toBe("TavoEN");
+  });
+
+  it("switches to normalized en store when backend active_locale is en-US", async () => {
+    const stores: Record<string, typeof defaultPersonalization> = {
+      es: { ...defaultPersonalization, nickname: "TavoES" },
+      en: { ...defaultPersonalization, nickname: "TavoEN" }
+    };
+    const putLocales: string[] = [];
+    server.use(
+      i18nStateHandler({ ...defaultI18nState, active_locale: "en-US", persisted_locale: "en-US" }),
+      http.get(`${API_BASE_URL}/api/personalization`, ({ request }) => {
+        const loc = new URL(request.url).searchParams.get("locale") ?? "missing";
+        return HttpResponse.json(stores[loc] ?? defaultPersonalization);
+      }),
+      http.put(`${API_BASE_URL}/api/personalization`, async ({ request }) => {
+        const loc = new URL(request.url).searchParams.get("locale") ?? "missing";
+        putLocales.push(loc);
+        const body = (await request.json()) as Partial<typeof defaultPersonalization>;
+        stores[loc] = { ...(stores[loc] ?? defaultPersonalization), ...body };
+        return HttpResponse.json(stores[loc]);
+      })
+    );
+
+    renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toHaveValue("TavoEN"));
+
+    fireEvent.change(screen.getByLabelText("Apodo"), { target: { value: "EnglishName" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(putLocales).toEqual(["en"]));
+    expect(stores.es.nickname).toBe("TavoES");
+    expect(stores.en.nickname).toBe("EnglishName");
+  });
+
+  it("preserves unsaved form edits across background refetches while dirty, and syncs again after save", async () => {
+    let serverData = { ...defaultPersonalization, nickname: "Initial" };
+    server.use(
+      http.get(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json(serverData)),
+      http.put(`${API_BASE_URL}/api/personalization`, async ({ request }) => {
+        const body = (await request.json()) as Partial<typeof defaultPersonalization>;
+        serverData = { ...serverData, ...body, updated_at: "2026-11-15T18:00:00Z" };
+        return HttpResponse.json(serverData);
+      })
+    );
+
+    const { queryClient } = renderCard();
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toHaveValue("Initial"));
+
+    fireEvent.change(screen.getByLabelText("Apodo"), { target: { value: "UnsavedTyping" } });
+    serverData = { ...defaultPersonalization, nickname: "StaleBackgroundRefetch" };
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["personalization"] });
+    });
+
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toHaveValue("UnsavedTyping"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(serverData.nickname).toBe("UnsavedTyping"));
+
+    serverData = { ...serverData, nickname: "FreshAfterSave" };
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["personalization"] });
+    });
+    await waitFor(() => expect(screen.getByLabelText("Apodo")).toHaveValue("FreshAfterSave"));
   });
 });

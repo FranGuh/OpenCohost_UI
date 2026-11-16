@@ -29,4 +29,11 @@ describe("Segmented", () => {
     fireEvent.click(optionB);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("applies w-fit and max-w-full to prevent stretching across flex containers", () => {
+    render(<Segmented options={OPTIONS} value="a" onChange={() => undefined} ariaLabel="Test" />);
+    const group = screen.getByRole("group", { name: "Test" });
+    expect(group.className).toContain("w-fit");
+    expect(group.className).toContain("max-w-full");
+  });
 });

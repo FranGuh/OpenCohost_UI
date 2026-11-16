@@ -1,0 +1,38 @@
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+}
+
+.desktop-companion {
+  height: 100%;
+  width: 100%;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+  background: transparent;
+}
+
+.desktop-avatar {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  position: relative;
+  cursor: grab;
+}
+
+.desktop-avatar:active {
+  cursor: grabbing;
+}
+
+.desktop-controls {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+

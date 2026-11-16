@@ -11,6 +11,26 @@ pub fn reload_backend_command(app: tauri::AppHandle) -> Result<BackendInfo, Stri
 }
 
 #[tauri::command(async)]
-pub fn api_token() -> Option<String> {
-    backend::api_token()
+pub fn api_token(state: tauri::State<BackendState>) -> Option<String> {
+    backend::api_token(&state)
+}
+
+#[tauri::command]
+pub fn get_unload_models_on_exit() -> bool {
+    backend::prefs::unload_models_on_exit()
+}
+
+#[tauri::command]
+pub fn set_unload_models_on_exit(enabled: bool) -> Result<(), String> {
+    backend::prefs::save_prefs_to(
+        &backend::prefs::resolve_prefs_path(),
+        &backend::prefs::ShellPrefs {
+            unload_models_on_exit: enabled,
+        },
+    )
+}
+
+#[tauri::command]
+pub fn backend_status(state: tauri::State<BackendState>) -> backend::BackendStatus {
+    backend::backend_status(&state)
 }

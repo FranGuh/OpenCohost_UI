@@ -1,15 +1,22 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React, { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import {
   API_BASE_URL,
   createPerfilConflictHandler,
+  defaultI18nState,
   deletePerfilLastProfileHandler
 } from "../../test/handlers.js";
+import { useUiLocaleStore } from "../../i18n/locale.js";
 import { ProfileEditor } from "./ProfileEditor.js";
+
+afterEach(() => {
+  cleanup();
+  useUiLocaleStore.setState({ locale: "es" });
+});
 
 function renderEditor(props: Parameters<typeof ProfileEditor>[0]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -115,7 +122,98 @@ describe("ProfileEditor create (POST /api/perfiles)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(capturedBody).toEqual({ name: "Nuevo Perfil", prompt: "Una IA curiosa." });
+    expect(capturedBody).toEqual({ name: "Nuevo Perfil", prompt: "Una IA curiosa.", locale: "es" });
+  });
+
+  it("submitting with extended_responses enabled POSTs {name, prompt, extended_responses: true}", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          name: "Deep Learner",
+          prompt: "Profundo",
+          use_system: false,
+          extended_responses: true
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Deep Learner" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Profundo" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Respuestas extendidas (~1 min)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({
+      name: "Deep Learner",
+      prompt: "Profundo",
+      locale: "es",
+      extended_responses: true
+    });
+  });
+
+  it("submitting with use_system enabled POSTs {name, prompt, use_system: true}", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          name: "System Prompt Profile",
+          prompt: "Instrucciones de sistema",
+          use_system: true
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "System Prompt Profile" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Instrucciones de sistema" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Rol de sistema (System prompt)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({
+      name: "System Prompt Profile",
+      prompt: "Instrucciones de sistema",
+      locale: "es",
+      use_system: true
+    });
+  });
+
+  it("submitting with custom max_turns in create mode POSTs {name, prompt, max_turns: 5}", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          name: "Long Memory",
+          prompt: "Mucho contexto",
+          use_system: false,
+          max_turns: 5
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Long Memory" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Mucho contexto" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Turnos de memoria reciente (1-10)" }), {
+      target: { value: "5" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({
+      name: "Long Memory",
+      prompt: "Mucho contexto",
+      locale: "es",
+      max_turns: 5
+    });
   });
 
   it("disables Guardar and shows Guardando… while the create request is in flight", async () => {
@@ -148,6 +246,93 @@ describe("ProfileEditor create (POST /api/perfiles)", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("profile already exists"));
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("includes locale: 'en' in createBody when backend active_locale is 'en'", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () =>
+        HttpResponse.json({ ...defaultI18nState, active_locale: "en", persisted_locale: "en" })
+      ),
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ name: "Tsundere", prompt: "English prompt", use_system: false, locale: "en" });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Tsundere" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "English prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({ name: "Tsundere", prompt: "English prompt", locale: "en" });
+  });
+
+  it("normalizes regional backend active_locale (e.g. 'en-US' -> 'en') in createBody", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () =>
+        HttpResponse.json({ ...defaultI18nState, active_locale: "en-US", persisted_locale: "en-US" })
+      ),
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ name: "US Profile", prompt: "Hi", use_system: false, locale: "en" });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "US Profile" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({ name: "US Profile", prompt: "Hi", locale: "en" });
+  });
+
+  it("includes locale: 'es' in createBody when backend active_locale is 'es'", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () =>
+        HttpResponse.json({ ...defaultI18nState, active_locale: "es", persisted_locale: "es" })
+      ),
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ name: "Perfil ES", prompt: "Hola", use_system: false, locale: "es" });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Perfil ES" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({ name: "Perfil ES", prompt: "Hola", locale: "es" });
+  });
+
+  it("falls back to uiLocale in createBody when GET /api/i18n fails", async () => {
+    useUiLocaleStore.setState({ locale: "en" });
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json({ detail: "fail" }, { status: 500 })),
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ name: "Fallback EN", prompt: "Hello", use_system: false, locale: "en" });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Fallback EN" } });
+    fireEvent.change(screen.getByLabelText("System prompt"), { target: { value: "Hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({ name: "Fallback EN", prompt: "Hello", locale: "en" });
+  });
 });
 
 describe("ProfileEditor edit (GET/PUT/DELETE /api/perfiles/:name)", () => {
@@ -176,6 +361,161 @@ describe("ProfileEditor edit (GET/PUT/DELETE /api/perfiles/:name)", () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(capturedBody).toEqual({ new_name: "Akira 2", prompt: "Sos ingeniosa y filosa, con humor seco." });
+  });
+
+  it("toggling extended_responses in edit mode sends extended_responses in PUT body", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+        HttpResponse.json({
+          id: "profile-id-akira",
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: false,
+          extended_responses: false
+        })
+      ),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: false,
+          extended_responses: true
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco.")
+    );
+    const toggle = screen.getByRole("switch", { name: "Respuestas extendidas (~1 min)" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({
+      prompt: "Sos ingeniosa y filosa, con humor seco.",
+      extended_responses: true
+    });
+  });
+
+  it("toggling use_system in edit mode sends use_system in PUT body", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+        HttpResponse.json({
+          id: "profile-id-akira",
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: false
+        })
+      ),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: true
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco.")
+    );
+    const toggle = screen.getByRole("switch", { name: "Rol de sistema (System prompt)" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({
+      prompt: "Sos ingeniosa y filosa, con humor seco.",
+      use_system: true
+    });
+  });
+
+  it("editing max_turns in edit mode sends max_turns in PUT body", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+        HttpResponse.json({
+          id: "profile-id-akira",
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: false,
+          max_turns: 3
+        })
+      ),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: false,
+          max_turns: 7
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco.")
+    );
+    const maxTurnsInput = screen.getByRole("spinbutton", { name: "Turnos de memoria reciente (1-10)" });
+    expect(maxTurnsInput).toHaveValue(3);
+    fireEvent.change(maxTurnsInput, { target: { value: "7" } });
+    expect(maxTurnsInput).toHaveValue(7);
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({
+      prompt: "Sos ingeniosa y filosa, con humor seco.",
+      max_turns: 7
+    });
+  });
+
+  it("uses the engine's max_turns_cap from GET as the max_turns input bound", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+        HttpResponse.json({
+          id: "profile-id-akira",
+          name: "Akira",
+          prompt: "Sos ingeniosa y filosa, con humor seco.",
+          use_system: false,
+          max_turns: 25,
+          max_turns_cap: 40
+        })
+      )
+    );
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose: vi.fn() });
+
+    const maxTurnsInput = await screen.findByRole("spinbutton", { name: "Turnos de memoria reciente (1-40)" });
+    await waitFor(() => expect(maxTurnsInput).toHaveValue(25));
+    expect(maxTurnsInput).toHaveAttribute("max", "40");
+    fireEvent.change(maxTurnsInput, { target: { value: "99" } });
+    expect(maxTurnsInput).toHaveValue(40);
+  });
+
+  it("falls back to a max_turns bound of 10 when the API reports no cap", () => {
+    renderEditor({ open: true, mode: "create", onClose: vi.fn() });
+
+    const maxTurnsInput = screen.getByRole("spinbutton", { name: "Turnos de memoria reciente (1-10)" });
+    expect(maxTurnsInput).toHaveAttribute("max", "10");
+    fireEvent.change(maxTurnsInput, { target: { value: "25" } });
+    expect(maxTurnsInput).toHaveValue(10);
   });
 
   it("delete confirm DELETEs /api/perfiles/:name and closes the dialog on success", async () => {
@@ -269,5 +609,229 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
     server.use(http.post(`${API_BASE_URL}/api/memoria/purge`, () => HttpResponse.json({ deleted: 1 })));
     fireEvent.click(screen.getByRole("button", { name: "Reintentar purga" }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("ProfileEditor warmth selector", () => {
+  const detail = (warmth?: string) => ({
+    id: "profile-id-akira",
+    name: "Akira",
+    prompt: "Eres ingeniosa.",
+    use_system: false,
+    ...(warmth ? { warmth } : {})
+  });
+
+  const slider = () => screen.getByRole("slider", { name: "Calidez emocional" });
+
+  it("renders a five-stop warmth slider with the current level, hint and the human-claim note, defaulting to cold", () => {
+    renderEditor({ open: true, mode: "create", onClose: () => {} });
+    const input = slider();
+    expect(input).toHaveAttribute("min", "0");
+    expect(input).toHaveAttribute("max", "4");
+    expect(input).toHaveValue("0");
+    expect(input).toHaveAttribute("aria-valuetext", "Fría");
+    expect(screen.getByTestId("warmth-current")).toHaveTextContent("Fría");
+    expect(screen.getByText(/La Kira seca de siempre/)).toBeInTheDocument();
+    expect(screen.getByText(/nunca afirma ser humana ni tener cuerpo/)).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  });
+
+  it("moving the slider updates header, aria-valuetext and hint, ending at Sentimental", () => {
+    renderEditor({ open: true, mode: "create", onClose: () => {} });
+    fireEvent.change(slider(), { target: { value: "2" } });
+    expect(slider()).toHaveAttribute("aria-valuetext", "En personaje");
+    expect(screen.getByTestId("warmth-current")).toHaveTextContent("En personaje");
+    expect(screen.getByText(/Expresa sentimientos como el personaje/)).toBeInTheDocument();
+    fireEvent.change(slider(), { target: { value: "4" } });
+    expect(slider()).toHaveAttribute("aria-valuetext", "Sentimental");
+    expect(screen.getByText(/Muy afectuosa: te consuela primero/)).toBeInTheDocument();
+  });
+
+  it("create sends sentimental when the slider is at the top stop", async () => {
+    let captured: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        captured = await request.json();
+        return HttpResponse.json(detail("sentimental"), { status: 201 });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Akira" } });
+    fireEvent.change(slider(), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(captured).toEqual({ name: "Akira", prompt: "", locale: "es", warmth: "sentimental" });
+  });
+
+  it("create sends warmth only when not cold", async () => {
+    let captured: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        captured = await request.json();
+        return HttpResponse.json(detail("empathetic"), { status: 201 });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Akira" } });
+    fireEvent.change(slider(), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(captured).toEqual({ name: "Akira", prompt: "", locale: "es", warmth: "empathetic" });
+  });
+
+  it("edit hydrates warmth and PUTs only when it changed", async () => {
+    let captured: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail("in_character"))),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        captured = await request.json();
+        return HttpResponse.json(detail("free"));
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+    await waitFor(() => expect(slider()).toHaveAttribute("aria-valuetext", "En personaje"));
+    fireEvent.change(slider(), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(captured).toEqual({ prompt: "Eres ingeniosa.", warmth: "free" });
+  });
+
+  it("saving the ACTIVE profile re-applies it through the switch API", async () => {
+    let switched: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail("cold"))),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail("free"))),
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, async ({ request }) => {
+        switched = await request.json();
+        return HttpResponse.json({ command_id: "c1", status: "queued" }, { status: 202 });
+      })
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["status"], { active_profile: "Akira" });
+    const onClose = vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileEditor open mode="edit" initialName="Akira" onClose={onClose} />
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Eres ingeniosa."));
+    fireEvent.change(slider(), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(switched).toEqual({ name: "Akira" }));
+  });
+
+  it("saving a NON-active profile does not switch", async () => {
+    let switchCalls = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail("cold"))),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail("free"))),
+      http.post(`${API_BASE_URL}/api/perfiles/switch`, () => {
+        switchCalls += 1;
+        return HttpResponse.json({ command_id: "c1", status: "queued" }, { status: 202 });
+      })
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["status"], { active_profile: "Otra" });
+    const onClose = vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileEditor open mode="edit" initialName="Akira" onClose={onClose} />
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Eres ingeniosa."));
+    fireEvent.change(slider(), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(switchCalls).toBe(0);
+  });
+});
+
+describe("ProfileEditor owner address selector (owner_gender)", () => {
+  const detail = (ownerGender?: string) => ({
+    id: "profile-id-akira",
+    name: "Akira",
+    prompt: "Eres ingeniosa.",
+    use_system: false,
+    ...(ownerGender !== undefined ? { owner_gender: ownerGender } : {})
+  });
+
+  const select = () => screen.getByRole("combobox", { name: "Cómo se dirige Kira a ti" });
+
+  it("defaults to unspecified with the four options and a hint", () => {
+    renderEditor({ open: true, mode: "create", onClose: () => {} });
+    expect(select()).toHaveTextContent("Sin especificar");
+    fireEvent.click(select());
+    const labels = screen.getAllByRole("option").map((o) => o.textContent?.replace("✓", "").trim());
+    expect(labels).toEqual(["Sin especificar", "Masculino", "Femenino", "Neutro"]);
+    expect(screen.getByText(/Sin especificar, Kira no lo asume/)).toBeInTheDocument();
+  });
+
+  const LABELS: Record<string, string> = { "": "Sin especificar", masculine: "Masculino", feminine: "Femenino", neutral: "Neutro" };
+  function pick(value: string) {
+    fireEvent.click(select());
+    fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${LABELS[value]}`) }));
+  }
+
+  async function createWith(ownerGender: string | null) {
+    let captured: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/perfiles`, async ({ request }) => {
+        captured = await request.json();
+        return HttpResponse.json(detail("feminine"), { status: 201 });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "create", onClose });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Akira" } });
+    if (ownerGender !== null) pick(ownerGender);
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    return captured;
+  }
+
+  it("create omits owner_gender when unspecified", async () => {
+    expect(await createWith(null)).toEqual({ name: "Akira", prompt: "", locale: "es" });
+  });
+
+  it("create sends owner_gender when chosen", async () => {
+    expect(await createWith("feminine")).toEqual({ name: "Akira", prompt: "", locale: "es", owner_gender: "feminine" });
+  });
+
+  it("edit hydrates the stored value and PUTs only when it changed (including back to unspecified)", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail("masculine"))),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(detail(""));
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+    await waitFor(() => expect(select()).toHaveTextContent("Masculino"));
+    pick("");
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(bodies[0]).toEqual({ prompt: "Eres ingeniosa.", owner_gender: "" });
+  });
+
+  it("edit with no change does not send owner_gender", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () => HttpResponse.json(detail())),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(detail());
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+    await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Eres ingeniosa."));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(bodies[0]).toEqual({ prompt: "Eres ingeniosa." });
   });
 });

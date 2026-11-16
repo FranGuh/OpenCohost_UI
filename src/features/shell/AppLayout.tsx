@@ -6,7 +6,8 @@ import { MainStage } from "./MainStage.js";
 import { ConversationPanel } from "../experiencia/ConversationPanel.js";
 import { StatusRail } from "./StatusRail.js";
 import { SettingsPopover } from "./SettingsPopover.js";
-import { TITLEBAR_APP_CONTROLS_SLOT_ID } from "./TitleBar.js";
+import { StageControls } from "./StageControls.js";
+import { TITLEBAR_APP_CONTROLS_SLOT_ID, TITLEBAR_STAGE_CONTROLS_SLOT_ID } from "./TitleBar.js";
 // import { PlayerBar } from "../experiencia/PlayerBar.js";
 import { ProfileSwitchProvider } from "../../api/useProfileSwitch.js";
 import { PlaybackProvider } from "../../state/PlaybackProvider.js";
@@ -78,8 +79,10 @@ export function AppLayout() {
   // cluster into the bar's slot is what makes it appear "when ready" — and it
   // keeps handleShowWelcome (which drives this component's activeSection) local.
   const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
+  const [stageSlot, setStageSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     setControlsSlot(document.getElementById(TITLEBAR_APP_CONTROLS_SLOT_ID));
+    setStageSlot(document.getElementById(TITLEBAR_STAGE_CONTROLS_SLOT_ID));
   }, []);
 
   function handleShowWelcome() {
@@ -107,7 +110,7 @@ export function AppLayout() {
 
   return (
     <ProfileSwitchProvider>
-      <PlaybackProvider>
+      <PlaybackProvider mode="host">
         <MusicDuckingWatcher />
         {controlsSlot &&
           createPortal(
@@ -117,6 +120,7 @@ export function AppLayout() {
             </>,
             controlsSlot
           )}
+        {stageSlot && activeSection === "experiencia" && createPortal(<StageControls />, stageSlot)}
         <div className="w-full min-w-0 text-foreground" style={gridStyle}>
           <div className="grid min-h-0 [grid-area:side]">
             <Sidebar

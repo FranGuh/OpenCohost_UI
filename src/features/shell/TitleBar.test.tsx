@@ -9,9 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const minimize = vi.fn().mockResolvedValue(undefined);
 const toggleMaximize = vi.fn().mockResolvedValue(undefined);
 const close = vi.fn().mockResolvedValue(undefined);
+const openExternalUrl = vi.fn().mockResolvedValue(true);
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ minimize, toggleMaximize, close })
+}));
+
+vi.mock("../../lib/openUrl.js", () => ({
+  openExternalUrl: (url: string) => openExternalUrl(url)
 }));
 
 import { TITLEBAR_APP_CONTROLS_SLOT_ID, TitleBar } from "./TitleBar.js";
@@ -69,6 +74,14 @@ describe("TitleBar", () => {
     expect(credit).toHaveAttribute("href", "https://github.com/franguh");
     expect(credit).toHaveAttribute("target", "_blank");
     expect(credit).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("invokes openExternalUrl when clicking the credit link", () => {
+    render(<TitleBar />);
+    const credit = screen.getByRole("link", { name: "Developed by Franguh", hidden: true });
+    fireEvent.click(credit);
+    expect(openExternalUrl).toHaveBeenCalledTimes(1);
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/franguh");
   });
 
   it("has no account avatar (the app has no user accounts)", () => {

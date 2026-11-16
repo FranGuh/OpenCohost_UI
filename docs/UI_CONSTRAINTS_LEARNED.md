@@ -155,7 +155,7 @@ zero inner scroll boxes outside the owners listed above. Do not add one; the pat
 
 ## 7. A fragile invariant nothing in the UI enforces
 
-`src-tauri/tauri.conf.json` sets `minWidth: 1280`, `minHeight: 820` (default 1440×950).
+`src-tauri/tauri.conf.json` sets `minWidth: 1280`, `minHeight: 680` (default 1440×950). The height floor was lowered from 820 in 2026-11 so the window fits a 1366×768 screen at 100% and 1080p at 150% (1280×720 logical) once the taskbar is subtracted; `KiraCover`'s static fallback circle is now `min(620px, 72dvh)` for the same reason.
 
 Several things are correct *only* because of that floor: `WelcomeCard` is a fixed 680px with no
 scroll (and a test pins the absence of `overflow-y-auto`), `KiraCover` clips a 520px stage with no

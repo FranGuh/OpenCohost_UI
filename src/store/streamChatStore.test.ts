@@ -260,11 +260,15 @@ describe("streamChatStore (Kira replies to stream chat)", () => {
     ]);
   });
 
-  it("is a no-op for a turnId already stored (dedup)", () => {
+  it("never duplicates a turnId: same text is a no-op, newer text updates it in place", () => {
     useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "primera", ts: 1000 });
-    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "duplicada", ts: 2000 });
+    const before = useStreamChatStore.getState();
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "primera", ts: 2000 });
+    expect(useStreamChatStore.getState()).toBe(before);
+
+    useStreamChatStore.getState().addKiraReply({ turnId: 1, text: "primera, completa", ts: 3000 });
     expect(selectKiraStreamReplies(useStreamChatStore.getState())).toEqual([
-      { turnId: 1, text: "primera", ts: 1000 }
+      { turnId: 1, text: "primera, completa", ts: 1000 }
     ]);
   });
 

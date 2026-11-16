@@ -40,4 +40,14 @@ describe("EventBridge", () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
     expect(useAvatarLiveState.getState().listening).toBe(true);
   });
+
+  it("intercepts F10, F1, and F5 keydown and calls preventDefault", () => {
+    renderBridge();
+    for (const key of ["F10", "F1", "F5"]) {
+      const event = new KeyboardEvent("keydown", { key, cancelable: true });
+      const preventDefaultSpy = vi.spyOn(event, "preventDefault");
+      window.dispatchEvent(event);
+      expect(preventDefaultSpy).toHaveBeenCalled();
+    }
+  });
 });

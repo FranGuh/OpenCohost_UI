@@ -1,14 +1,36 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, AudioLines, CloudOff, Cpu, VenetianMask } from "lucide-react";
+import {
+  Activity,
+  Box,
+  CloudOff,
+  Cpu,
+  Database,
+  Eye,
+  Gauge,
+  HardDrive,
+  Layers,
+  RefreshCw,
+  Server,
+  Sparkles,
+  User,
+  Volume2,
+  Zap
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useStatusQuery } from "../../api/status.js";
+import { useTtsConfigQuery } from "../../api/tts.js";
+import { useVisionPhaseStore } from "../../store/visionStore.js";
+import { useVisionQuery, visionReadiness, visionReasonKey } from "../../api/vision.js";
+import type { VisionState } from "../../api/vision.js";
 import type { StatusResponse } from "../../api/client.js";
 import { useTriggerCloudProbe } from "../../api/llmProvider.js";
 import type { BadgeTone } from "../../ui/Badge.js";
 import { Alert } from "../../ui/Alert.js";
 import { Button } from "../../ui/Button.js";
 import { cn } from "../../lib/cn.js";
+import { SetupHint } from "../setup/SetupHint.js";
+import { ChatStatsChip } from "../experiencia/ChatStatsChip.js";
 import { t, useT } from "../../i18n/t.js";
 
 // health.overall_status/*_status are untyped strings on the backend (no
@@ -56,7 +78,10 @@ interface HealthInputs {
   vram_status: string;
   rtf_status: string;
   ollama_status: string;
-  qwen_status: string;
+  // RETIRED 2026-09-21: Qwen3-TTS moved to a separate legacy repository. The backend
+  // still sends qwen_status (always "unavailable"), the UI no longer reads
+  // it. Optional so this parses both the current and a future field-less wire.
+  qwen_status?: string;
 }
 
 interface SistemaInputs {
@@ -77,26 +102,30 @@ export interface MotorRollup {
 // A dim is a "problem" (named in the Motor why-copy) when its healthTone is
 // warn/danger OR its raw value is "unknown"/"unhealthy" — EXCEPT "unavailable",
 // which is graceful degradation (pynvml or a service simply absent), never a
-// fault. This mirrors the backend's own red condition for qwen
-// (_compute_overall), so a red chip is always traceable to the dim that caused
-// it instead of leaving the why-copy with empty parens.
+// fault. (Qwen3-TTS retired 2026-09-21: no qwen dim anymore; the backend's own
+// red condition for qwen in _compute_overall can no longer fire either.)
 function isDimProblem(value: string): boolean {
   if (value === "unavailable") return false;
   const tone = healthTone(value);
   return tone === "warn" || tone === "danger" || value === "unknown" || value === "unhealthy";
 }
 
-// Built inside the function (not module scope) because two of the four names
-// are translated copy — "VRAM"/"Ollama" are proper nouns/acronyms and stay
-// literal, "velocidad"/"voz (Qwen)" are real words and need t(). Resolving
+// Built inside the function (not module scope) because one of the three names
+// is translated copy — "VRAM"/"Ollama" are proper nouns/acronyms and stay
+// literal, "velocidad" is a real word and needs t(). Resolving
 // them here keeps this a join-site: the ", " separator stays as punctuation
 // in the component, never baked into a pre-joined bundle string (§6).
+// (Qwen dim retired 2026-09-21 with Qwen3-TTS; shell.statusRail.dim.voice
+// stays in the bundles as an unused key — a missing EN key is a compile
+// error, an unused one is harmless.)
 function degradedDims(health: HealthInputs): string {
-  const dimNames: Array<[keyof HealthInputs, string]> = [
+  // Narrowed to the three live dims: qwen_status is optional since the
+  // 2026-09-21 retirement, so keyof HealthInputs would widen health[key] to
+  // string | undefined and break isDimProblem's contract.
+  const dimNames: Array<["vram_status" | "rtf_status" | "ollama_status", string]> = [
     ["vram_status", "VRAM"],
     ["rtf_status", t("shell.statusRail.dim.speed")],
-    ["ollama_status", "Ollama"],
-    ["qwen_status", t("shell.statusRail.dim.voice")]
+    ["ollama_status", "Ollama"]
   ];
   return dimNames
     .filter(([key]) => isDimProblem(health[key]))
@@ -214,6 +243,7 @@ interface DetailRow {
   /** Renders a divider + label above this row (F11/F14: keeps the four
    * "memory" concepts visually distinct without a new component). */
   sectionLabel?: string;
+  icon?: LucideIcon;
 }
 
 // Display-only heuristic (2.4/F9): flags a large RAM spill as worth a look.
@@ -249,6 +279,10 @@ interface StatusChipProps {
    * "Probar ahora" action). Undefined for every chip but the cloud fallback
    * one → zero visual diff there. */
   footer?: ReactNode;
+  /** Small indicator rendered after the label inside the chip button. */
+  adornment?: ReactNode;
+  /** Overrides the button's accessible name (default: its text content). */
+  ariaLabel?: string;
 }
 
 /**
@@ -256,7 +290,7 @@ interface StatusChipProps {
  * (Enter/Space open via native button click; Escape and outside-click close —
  * same pattern as SettingsPopover). Only `action` fills the chip surface.
  */
-function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail, align = "left", className, footer }: StatusChipProps) {
+function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail, align = "left", className, footer, adornment, ariaLabel }: StatusChipProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -286,21 +320,24 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
   }, [open]);
 
   return (
-    <div ref={rootRef} className={cn("relative shrink-0", className)}>
+    <div ref={rootRef} className={cn("relative shrink-0", open && "z-50", className)}>
       <button
         type="button"
         data-taxonomy={taxonomy}
+        aria-label={ariaLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={popoverId}
         onClick={() => setOpen((value) => !value)}
+        style={{ WebkitAppRegion: "no-drag" }}
         className={cn(
-          "mono inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
+          "mono relative z-20 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors duration-fast ease-io",
           CHIP_ESCALATION[taxonomy]
         )}
       >
         <Icon size={13} aria-hidden="true" />
         {label}
+        {adornment}
       </button>
 
       {open && (
@@ -309,9 +346,13 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
           role="dialog"
           aria-label={labelText}
           className={cn(
-            "absolute top-full z-50 mt-1.5 w-56 animate-rise-in rounded-md border border-border-soft bg-card p-3 text-left shadow-panel",
+            "absolute top-full z-50 mt-1.5 w-64 animate-rise-in rounded-md border border-border-soft bg-card p-3 text-left shadow-panel",
             align === "right" ? "right-0" : "left-0"
           )}
+          style={{
+            backdropFilter: "var(--surface-blur)",
+            WebkitBackdropFilter: "var(--surface-blur)",
+          }}
         >
           <p className="text-[13px] font-semibold text-foreground">{labelText}</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{why}</p>
@@ -319,13 +360,20 @@ function StatusChip({ icon: Icon, taxonomy, label, labelText, why, todo, detail,
           {hasDetail && (
             <>
               <PopoverDivider label={t("shell.statusRail.popover.detail.eyebrow")} />
-              <ul className="flex flex-col gap-1">
+              <ul className="flex flex-col gap-1.5">
                 {detail.map((row) => (
                   <li key={row.label} className="flex flex-col gap-1">
                     {row.sectionLabel && <PopoverDivider label={row.sectionLabel} />}
                     <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="text-muted-foreground">· {row.label}</span>
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                        {row.icon ? (
+                          <row.icon size={12} className="text-dim shrink-0" aria-hidden="true" />
+                        ) : (
+                          <span className="text-dim shrink-0">·</span>
+                        )}
+                        <span className="truncate">{row.label}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1.5">
                         <span className={cn("text-dim", row.mono && "mono")}>{row.value}</span>
                         <span aria-hidden="true" className={cn("h-[6px] w-[6px] rounded-full", DOT_CLASSES[row.tone])} />
                       </span>
@@ -441,6 +489,57 @@ function CloudFallbackChip({
   );
 }
 
+interface VisionFold {
+  state: Exclude<VisionState, "off"> | "looking" | "describing";
+  label: string;
+  why: string;
+  todo?: string;
+  taxonomy: Taxonomy;
+  model: string | undefined;
+}
+
+/**
+ * Vision state folded into the Modelo chip (was a standalone chip, V1.9).
+ * Optional engine, so it is `null` while vision is off and the model chip looks
+ * exactly as before. Failure is `attention`, not `action`: a failed look fails
+ * open and never stops the chat. Reason copy is mapped from the backend code,
+ * never shown raw.
+ */
+function useVisionFold(): VisionFold | null {
+  const { data } = useVisionQuery();
+  const phase = useVisionPhaseStore((s) => s.phase);
+  const readiness = visionReadiness(data);
+  if (readiness === "off") return null;
+  // A look in flight outranks readiness: it is the only thing the owner is waiting on.
+  const state = phase === "looking" || phase === "describing" ? phase : readiness;
+  const taxonomy: Taxonomy = state === "failed" ? "attention" : state === "ready" ? "ok" : "info";
+  const label = t(`shell.statusRail.vision.${state}.label` as const);
+  const why =
+    state === "failed"
+      ? t("shell.statusRail.vision.failed.why", { reason: t(visionReasonKey(data?.status.last_error)) })
+      : t(`shell.statusRail.vision.${state}.why` as const);
+  const todo =
+    state === "failed"
+      ? t("shell.statusRail.vision.failed.todo")
+      : state === "warming"
+        ? t("shell.statusRail.vision.warming.todo")
+        : undefined;
+  return { state, label, why, todo, taxonomy, model: data?.model };
+}
+
+const VISION_EYE_CLASSES: Record<VisionFold["state"], string> = {
+  ready: "text-ok",
+  starting: "animate-pulse text-info",
+  warming: "animate-pulse text-info",
+  looking: "animate-pulse text-info",
+  describing: "animate-pulse text-info",
+  failed: "text-warn"
+};
+
+function VisionEye({ state }: { state: VisionFold["state"] }) {
+  return <Eye size={13} aria-hidden="true" data-vision-state={state} className={VISION_EYE_CLASSES[state]} />;
+}
+
 /**
  * Status rail (spec §3a): a calm cockpit readout — four instrument chips
  * (Motor rollup, Modelo, Kira, Perfil) driven live by useStatusQuery. Color is
@@ -450,6 +549,9 @@ function CloudFallbackChip({
 export function StatusRail() {
   const t = useT();
   const { data, isLoading, isError } = useStatusQuery();
+  const vision = useVisionFold();
+
+  const { data: ttsConfig } = useTtsConfigQuery();
 
   if (isLoading || (!data && !isError)) {
     return (
@@ -464,6 +566,12 @@ export function StatusRail() {
   const motor = computeSistemaRollup(data, isError);
   const showAll = !isError && data !== undefined;
 
+  const isPiper = Boolean(ttsConfig?.local_only || ttsConfig?.edge_tts_offline || ttsConfig?.engine === "piper");
+  const ttsEngineName = isPiper ? "PiperTTS" : "Edge-TTS";
+  const ttsEngineTone: BadgeTone = isPiper
+    ? (ttsConfig?.piper_available === false ? "warn" : "ok")
+    : (ttsConfig?.edge_tts_offline ? "warn" : "ok");
+
   const detail: DetailRow[] = showAll
     ? [
         {
@@ -474,7 +582,8 @@ export function StatusRail() {
             data.health.vram_status === "unavailable"
               ? t("shell.statusRail.detail.unavailable")
               : `${Math.round(data.health.free_vram_mb)} MB`,
-          tone: healthTone(data.health.vram_status)
+          tone: healthTone(data.health.vram_status),
+          icon: HardDrive
         },
         {
           // Same nvmlDeviceGetMemoryInfo() read as VRAM libre — total/used
@@ -484,7 +593,55 @@ export function StatusRail() {
             data.health.vram_status === "unavailable"
               ? t("shell.statusRail.detail.unavailable")
               : `${Math.round(data.health.used_vram_mb ?? 0)}/${Math.round(data.health.total_vram_mb ?? 0)} MB`,
-          tone: healthTone(data.health.vram_status)
+          tone: healthTone(data.health.vram_status),
+          icon: Gauge
+        },
+        {
+          label: "Ollama",
+          value: data.health.ollama_status,
+          tone: healthTone(data.health.ollama_status),
+          mono: true,
+          icon: Server
+        },
+        {
+          // Qwen3-TTS retired 2026-09-21: this row names the live TTS engine
+          // only (PiperTTS/Edge-TTS). No qwen_status read — the backend always
+          // reports "unavailable" now. detail.qwen.notStarted stays in the
+          // bundles as an unused key (missing EN = compile error).
+          label: t("shell.statusRail.detail.qwen"),
+          value: ttsEngineName,
+          tone: ttsEngineTone,
+          mono: true,
+          icon: Volume2
+        },
+        {
+          // rtf_rolling_avg only populates after the first voice synthesis.
+          label: t("shell.statusRail.detail.speed"),
+          value:
+            data.health.rtf_rolling_avg != null
+              ? `RTF ${data.health.rtf_rolling_avg.toFixed(2)}`
+              : t("shell.statusRail.detail.speed.empty"),
+          tone: healthTone(data.health.rtf_status),
+          icon: Zap
+        }
+      ]
+    : [];
+
+  const kira = showAll ? computeKira(data) : null;
+  const modelDetail: DetailRow[] = showAll && kira
+    ? [
+        {
+          label: t("shell.statusRail.detail.state"),
+          value: kira.label,
+          tone: kira.taxonomy === "info" ? "info" : "neutral",
+          icon: Sparkles
+        },
+        {
+          label: t("shell.statusRail.detail.profile"),
+          value: data.active_profile,
+          tone: "neutral",
+          mono: true,
+          icon: User
         },
         {
           // Ollama residency ESTIMATES from ollama.ps() (F9): size/size_vram
@@ -497,7 +654,8 @@ export function StatusRail() {
             data.health.model_resident_mb_est != null
               ? `${Math.round(data.health.model_resident_mb_est)} MB`
               : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral"
+          tone: "neutral",
+          icon: Box
         },
         {
           label: t("shell.statusRail.detail.modelVram"),
@@ -505,7 +663,8 @@ export function StatusRail() {
             data.health.model_vram_mb_est != null
               ? `${Math.round(data.health.model_vram_mb_est)} MB`
               : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral"
+          tone: "neutral",
+          icon: Cpu
         },
         {
           label: t("shell.statusRail.detail.ramSpill"),
@@ -516,13 +675,15 @@ export function StatusRail() {
           tone:
             data.health.model_ram_spill_mb_est != null && data.health.model_ram_spill_mb_est > SPILL_WARN_THRESHOLD_MB
               ? "warn"
-              : "neutral"
+              : "neutral",
+          icon: Layers
         },
         {
           label: "CPU/GPU",
           value: data.health.model_processor_split ?? t("shell.statusRail.detail.unavailable"),
           tone: "neutral",
-          mono: true
+          mono: true,
+          icon: Gauge
         },
         {
           // Unit 2.5 (runtime_findings_batch_20260731 F10/2.3): the KV/context
@@ -538,39 +699,33 @@ export function StatusRail() {
                   ctx: data.ctx_telemetry.effective_ctx
                 })
               : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral"
+          tone: "neutral",
+          icon: Database
         },
         {
           label: t("shell.statusRail.detail.evictedPairs"),
           value: data.ctx_telemetry != null ? String(data.ctx_telemetry.evicted_pairs) : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral"
+          tone: "neutral",
+          icon: RefreshCw
         },
-        {
-          // rtf_rolling_avg only populates after the first voice synthesis.
-          label: t("shell.statusRail.detail.speed"),
-          value:
-            data.health.rtf_rolling_avg != null
-              ? `RTF ${data.health.rtf_rolling_avg.toFixed(2)}`
-              : t("shell.statusRail.detail.speed.empty"),
-          tone: healthTone(data.health.rtf_status)
-        },
-        { label: "Ollama", value: data.health.ollama_status, tone: healthTone(data.health.ollama_status), mono: true },
-        {
-          // "unknown" is what holds overall_status red on the backend, so surface
-          // it as "sin iniciar" with a danger dot — the red is then traceable to
-          // its cause. Raw statuses stay mono; the prose fallback does not.
-          label: t("shell.statusRail.detail.qwen"),
-          value: data.health.qwen_status === "unknown" ? t("shell.statusRail.detail.qwen.notStarted") : data.health.qwen_status,
-          tone:
-            data.health.qwen_status === "unknown" || data.health.qwen_status === "unhealthy"
-              ? "danger"
-              : healthTone(data.health.qwen_status),
-          mono: data.health.qwen_status !== "unknown"
-        }
+        ...(vision
+          ? [
+              {
+                label: t("shell.statusRail.model.vision.row"),
+                value: vision.label,
+                tone: (vision.taxonomy === "attention" ? "warn" : vision.taxonomy === "ok" ? "ok" : "info") as BadgeTone,
+                icon: Eye
+              },
+              ...(vision.model
+                ? [{ label: t("shell.statusRail.model.visionModel.row"), value: vision.model, tone: "neutral" as BadgeTone, mono: true, icon: Box }]
+                : [])
+            ]
+          : [])
       ]
     : [];
 
-  const kira = showAll ? computeKira(data) : null;
+  const modelName = data?.current_model ?? t("shell.statusRail.model.none");
+  const visionFailed = vision?.state === "failed";
 
   return (
     <div
@@ -582,6 +737,13 @@ export function StatusRail() {
       // the group taller than the 40px bar — items-center centers the chips).
       className="flex min-w-0 items-center gap-2 px-2.5"
     >
+      <ChatStatsChip
+        activeProfileId={data?.active_profile_id ?? undefined}
+        activeProfileName={data?.active_profile ?? undefined}
+        activeModelName={data?.current_model ?? undefined}
+        isModelActive={Boolean(data?.is_ready && data?.current_model && !data?.ollama_warming)}
+      />
+
       <StatusChip
         icon={Activity}
         taxonomy={motor.taxonomy}
@@ -592,15 +754,20 @@ export function StatusRail() {
         detail={detail}
       />
 
+      <SetupHint />
+
       {showAll && kira && (
         <>
           <StatusChip
             icon={Cpu}
-            taxonomy="neutral"
-            label={<span className="max-w-[190px] truncate">{data.current_model ?? t("shell.statusRail.model.none")}</span>}
-            labelText={data.current_model ?? t("shell.statusRail.model.none")}
-            why={t("shell.statusRail.model.why")}
-            todo={t("shell.statusRail.model.todo")}
+            taxonomy={visionFailed ? "attention" : "neutral"}
+            label={<span className="max-w-[190px] truncate">{modelName}</span>}
+            labelText={modelName}
+            why={visionFailed && vision ? `${t("shell.statusRail.model.why")} ${vision.why}` : t("shell.statusRail.model.why")}
+            todo={visionFailed && vision?.todo ? `${t("shell.statusRail.model.todo")} ${vision.todo}` : t("shell.statusRail.model.todo")}
+            detail={modelDetail}
+            adornment={vision ? <VisionEye state={vision.state} /> : undefined}
+            ariaLabel={vision ? `${modelName}, ${vision.label}` : undefined}
           />
           {data.fallback_active && (
             <CloudFallbackChip
@@ -608,24 +775,6 @@ export function StatusRail() {
               next_cloud_probe_in_seconds={data.next_cloud_probe_in_seconds}
             />
           )}
-          <StatusChip
-            icon={AudioLines}
-            taxonomy={kira.taxonomy}
-            label={kira.label}
-            labelText={kira.label}
-            why={kira.why}
-            todo={kira.todo}
-          />
-          <StatusChip
-            icon={VenetianMask}
-            taxonomy="neutral"
-            label={data.active_profile}
-            labelText={data.active_profile}
-            why={t("shell.statusRail.profile.why")}
-            todo={t("shell.statusRail.profile.todo")}
-            align="right"
-            className="ml-auto"
-          />
         </>
       )}
     </div>

@@ -99,6 +99,39 @@ select:focus-visible,
   padding: 0.125rem 0.25rem; /* py-0.5 px-1 */
 }
 
+/* Speech Reading Highlight (CSS Custom Highlight API) */
+::highlight(kira-speech-highlight) {
+  background-color: var(--accent-soft);
+  color: var(--primary);
+  border-radius: 2px;
+}
+
+/* Active reading block (subtle indicator on the paragraph/block being read) */
+.oc-reading-active {
+  background-color: color-mix(in srgb, var(--accent-soft) 35%, transparent);
+  border-left: 2px solid var(--kira-cyan, var(--primary));
+  padding-left: 0.5rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  transition: background-color 0.2s ease, border-left-color 0.2s ease;
+  scroll-margin-bottom: 3.5rem;
+  scroll-margin-top: 1rem;
+}
+
+/* Segmented Kira reply (segmentReply.ts): a newly opened bubble settles in
+   with a short fade instead of popping. Only bubbles after the first get it,
+   and a bubble animates once (closed bubbles keep their DOM while streaming).
+   Reduced motion: no animation at all, on top of the global kill switch. */
+@keyframes oc-reply-segment-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.oc-reply-segment-enter {
+  animation: oc-reply-segment-in 180ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .oc-reply-segment-enter { animation: none; }
+}
+
 /* Alert style variants — data-alert-style on <html>, default "sereno" */
 .oc-alert { display: flex; gap: 10px; align-items: flex-start; border-radius: var(--r-md);
   padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--foreground);
@@ -112,6 +145,22 @@ select:focus-visible,
 .oc-alert[data-tone="info"]    { --alert-tone: var(--info);    --alert-bd: var(--info-bd); }
 .oc-alert[data-tone="neutral"] { --alert-tone: var(--muted-foreground); --alert-bd: var(--border); }
 .oc-alert-icon { color: var(--alert-tone); }
+/* Single-row alert (icon, message, action, time): centered, wraps without overlap. */
+.oc-alert.oc-alert-row { align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.oc-alert-row .oc-alert-icon { margin-top: 0; }
+.oc-alert-row-msg { flex: 1 1 8rem; min-width: 0; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.oc-alert-row-time { margin-left: auto; }
+/* Composer send-button shape, quieter: accent text on the soft accent wash instead of the gradient. */
+.oc-alert-row .oc-alert-row-action {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.oc-alert-row .oc-alert-row-action:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+.oc-alert-row .oc-alert-row-action:disabled { opacity: 0.5; }
 
 /* 1) sereno (default) — quiet panel, hairline border, icon carries the tone */
 :root[data-alert-style="sereno"] .oc-alert,
@@ -173,6 +222,36 @@ select:focus-visible,
    bounds the viewport box, which the popovers stay well inside. */
 :root {
   --oc-titlebar-h: 2.5rem; /* h-10 */
+}
+header[data-tauri-drag-region] {
+  position: relative;
+  z-index: 40;
+}
+header[data-tauri-drag-region]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--topbar-line, transparent);
+  pointer-events: none !important;
+  user-select: none;
+  z-index: 0;
+}
+header[data-tauri-drag-region] button,
+header[data-tauri-drag-region] a,
+#oc-titlebar-app-controls {
+  position: relative;
+  z-index: 40;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+[data-theme="kira-aurora"] .border-border-soft {
+  transition: border-color var(--dur-fast) var(--ease-io);
+}
+[data-theme="kira-aurora"] .border-border-soft:hover {
+  border-color: rgba(102, 217, 255, 0.28);
 }
 .oc-root-shell {
   height: 100vh;

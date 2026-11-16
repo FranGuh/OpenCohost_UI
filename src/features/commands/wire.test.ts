@@ -171,11 +171,40 @@ describe("/perfil vocab + request builders (R16/R17/R19)", () => {
     expect(toCohostProfileRequest({ nombre: " Kira dry ", estilo: " seca " })).toEqual({ name: "Kira dry", style: "seca" });
   });
 
+  it("toCohostProfileRequest includes primary-normalized locale when provided", () => {
+    expect(toCohostProfileRequest({ nombre: " Kira ", estilo: " dry " }, "en-US")).toEqual({
+      name: "Kira",
+      style: "dry",
+      locale: "en"
+    });
+    expect(toCohostProfileRequest({ nombre: " Kira ", estilo: "" }, "es")).toEqual({
+      name: "Kira",
+      style: "",
+      locale: "es"
+    });
+  });
+
   it("toAgendaSessionRequest casts turnos to int and maps safety_mode/rhythm (R17/R19)", () => {
     expect(toAgendaSessionRequest({ turnos: "8", modo: "estandar", ritmo: "dinamico" })).toEqual({
       max_turns_per_topic: 8,
       safety_mode: "monologue",
       rhythm: "dinamico"
+    });
+  });
+
+  it("toAgendaSessionRequest includes trimmed profile.style only when estilo is non-empty", () => {
+    expect(
+      toAgendaSessionRequest({ turnos: "6", modo: "live_safe", ritmo: "normal", estilo: "  Seca y directa  " })
+    ).toEqual({
+      max_turns_per_topic: 6,
+      safety_mode: "live_safe",
+      rhythm: "normal",
+      profile: { style: "Seca y directa" }
+    });
+    expect(toAgendaSessionRequest({ turnos: "6", modo: "live_safe", ritmo: "normal", estilo: "   " })).toEqual({
+      max_turns_per_topic: 6,
+      safety_mode: "live_safe",
+      rhythm: "normal"
     });
   });
 });
@@ -219,7 +248,7 @@ describe("errorCopy (D5/F4 — never interpolate raw backend text)", () => {
   it("ValidationError with an UNKNOWN 422 detail → generic fallback, never the raw text", () => {
     const copy = errorCopy(new ValidationError("tema inválido"));
     expect(copy).not.toContain("tema inválido");
-    expect(copy).toMatch(/probá de nuevo/i);
+    expect(copy).toMatch(/prueba de nuevo/i);
   });
 
   it("ConflictError → busy copy", () => {
@@ -250,7 +279,7 @@ describe("errorCopy (D5/F4 — never interpolate raw backend text)", () => {
     expect(copy).toMatch(/video en vivo/i);
   });
 
-  it("StreamConnectTimeoutError → 'no conectó, verificá que esté EN VIVO' copy", () => {
+  it("StreamConnectTimeoutError → 'no conectó, verifica que esté EN VIVO' copy", () => {
     const copy = errorCopy(new StreamConnectTimeoutError());
     expect(copy).toMatch(/no conect/i);
     expect(copy).toMatch(/en vivo/i);
@@ -261,6 +290,6 @@ describe("errorCopy (D5/F4 — never interpolate raw backend text)", () => {
   });
 
   it("unknown/network error → generic retry copy", () => {
-    expect(errorCopy(new Error("offline"))).toMatch(/probá de nuevo/i);
+    expect(errorCopy(new Error("offline"))).toMatch(/prueba de nuevo/i);
   });
 });

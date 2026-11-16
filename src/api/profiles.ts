@@ -33,7 +33,26 @@ export const PROFILES_QUERY_KEY = ["perfiles"] as const;
 // the same way: the backend gained a `locale` field on every profile — a
 // profile can carry its own language — and none of these knew it existed, so
 // the shipped feature was invisible to the UI.
-export type ProfileDetailResponse = components["schemas"]["ProfileDetailResponse"];
+export type ProfileWarmth = "cold" | "empathetic" | "in_character" | "free" | "sentimental";
+export const PROFILE_WARMTHS: readonly ProfileWarmth[] = [
+  "cold",
+  "empathetic",
+  "in_character",
+  "free",
+  "sentimental"
+];
+
+// kira-personal-tone-20261007 P5: optional grammatical gender used to address the
+// owner. "" = unspecified (Kira assumes nothing). Layered on by hand like `warmth`.
+export type ProfileOwnerGender = "" | "masculine" | "feminine" | "neutral";
+export const PROFILE_OWNER_GENDERS: readonly ProfileOwnerGender[] = ["", "masculine", "feminine", "neutral"];
+
+// `warmth` is newer than the generated snapshot, so it is layered on by hand
+// until openapi regenerates. GET always returns it ("cold" when missing).
+export type ProfileDetailResponse = components["schemas"]["ProfileDetailResponse"] & {
+  warmth?: ProfileWarmth;
+  owner_gender?: ProfileOwnerGender;
+};
 
 /** POST /api/perfiles body. `use_system` defaults to `false` server-side when
  * omitted, and stays OPTIONAL here on purpose.
@@ -46,14 +65,20 @@ export type ProfileDetailResponse = components["schemas"]["ProfileDetailResponse
  * bytes on the wire. */
 export type ProfileCreateRequest = Omit<
   components["schemas"]["ProfileCreateRequest"],
-  "use_system"
+  "use_system" | "extended_responses" | "max_turns"
 > &
-  Partial<Pick<components["schemas"]["ProfileCreateRequest"], "use_system">>;
+  Partial<Pick<components["schemas"]["ProfileCreateRequest"], "use_system" | "extended_responses" | "max_turns">> & {
+    warmth?: ProfileWarmth;
+    owner_gender?: ProfileOwnerGender;
+  };
 
 /** PUT /api/perfiles/{name} body. Every field is a PARTIAL update: an omitted
  * field leaves the stored value unchanged (`new_name` renames while
  * preserving the profile's stable on-disk id). */
-export type ProfileUpdateRequest = components["schemas"]["ProfileUpdateRequest"];
+export type ProfileUpdateRequest = components["schemas"]["ProfileUpdateRequest"] & {
+  warmth?: ProfileWarmth;
+  owner_gender?: ProfileOwnerGender;
+};
 
 /** DELETE /api/perfiles/{name} (opencohost/api/main.py ~686-702) has no
  * `response_model` — hand-typed from the literal `{"ok": True}` return,
@@ -150,10 +175,23 @@ export async function deletePerfil(name: string): Promise<DeleteProfileResponse>
   return (await res.json()) as DeleteProfileResponse;
 }
 
-export function useProfilesQuery() {
+/** BCP-47 tag -> primary subtag ("en-US" -> "en"), matching the backend filter. */
+export function primaryLocale(locale: string): string {
+  return locale.split(/[-_]/)[0].toLowerCase();
+}
+
+/**
+ * Profiles of one language. A given locale is ALWAYS sent (Spanish included —
+ * omitting it made the backend return every profile). `enabled: false` lets the
+ * caller hold the fetch until the locale is known, so no unfiltered list flashes.
+ * Omitting `locale` entirely keeps the unfiltered list.
+ */
+export function useProfilesQuery(locale?: string, options: { enabled?: boolean } = {}) {
+  const effectiveLocale = locale ? primaryLocale(locale) : undefined;
   return useQuery({
-    queryKey: PROFILES_QUERY_KEY,
-    queryFn: getPerfiles
+    queryKey: effectiveLocale ? [...PROFILES_QUERY_KEY, effectiveLocale] : PROFILES_QUERY_KEY,
+    queryFn: () => getPerfiles(effectiveLocale),
+    enabled: options.enabled ?? true
   });
 }
 

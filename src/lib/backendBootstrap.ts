@@ -27,9 +27,12 @@ const BOOTSTRAP_TIMEOUT_MS = 2000;
 const BACKEND_RESOLUTION_ERROR = "ipc_unavailable";
 const SAFE_BACKEND_CODES = new Set([
   "runtime_not_ready",
+  "data_root_inside_install",
   "backend_state_unavailable",
   "backend_launch_failed",
   "backend_ports_busy",
+  "backend_foreign_instance",
+  "backend_exited",
   "ipc_unavailable",
   "generic"
 ]);

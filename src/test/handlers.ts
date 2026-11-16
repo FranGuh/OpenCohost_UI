@@ -2,6 +2,7 @@ import { http, HttpResponse } from "msw";
 import { LLM_PROVIDER_PRESETS } from "../api/llmProvider.js";
 import type { paths } from "../api/types.gen.js";
 import type {
+  AgendaProgressionResponse,
   AgendaResponse,
   AgendaTopicOut,
   CohostProfileOut,
@@ -18,6 +19,8 @@ import type {
 import type { EventLogResponse } from "../api/events.js";
 import type { PttConfigResponse, PttStartResponse, PttStateResponse, PttStopResponse, PttTestResponse } from "../api/ptt.js";
 import type { LlmReadinessResponse } from "../api/client.js";
+import type { HfQuantsResponse, ModelDownloadJob, ModelDownloadsResponse } from "../api/modelDownloads.js";
+import type { InferenceTestResponse, SetupStateResponse } from "../api/setup.js";
 
 // Mirrors src/api/client.ts's BASE_URL resolution exactly, so the mock
 // handlers always match whatever base URL the app under test actually uses —
@@ -61,13 +64,27 @@ type StatusResponse = paths["/api/status"]["get"]["responses"][200]["content"]["
   };
 };
 type ProfilesResponse = paths["/api/perfiles"]["get"]["responses"][200]["content"]["application/json"];
+// context_config mirrors src/api/client.ts's hand-added ModelContextConfig
+// (T2/T3, model-context-auto-config-20260928). ponytail: keep in sync.
 type ModelsResponse = paths["/api/models"]["get"]["responses"][200]["content"]["application/json"] & {
   is_reasoning_active?: boolean;
-  reasoning_config?: { enabled: boolean; budget_tokens: number };
+  // budget_tokens: null means Auto (T2, controls-cleanup-adaptive-reasoning-20260928);
+  // mirrors src/api/client.ts's ModelReasoningConfig. ponytail: keep in sync.
+  reasoning_config?: { enabled: boolean; budget_tokens: number | null };
+  context_config?: {
+    model: string;
+    context_tokens: number | null;
+    auto_context_tokens: number;
+    native_context: number | null;
+    effective_context: number | null;
+    policy: string;
+  };
 };
 type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["content"]["application/json"] & {
   piper_available?: boolean;
+  piper_unavailable_reason?: "package_missing" | "voice_file_missing" | null;
   edge_tts_offline?: boolean;
+  discard_speech_residue?: boolean;
 };
 // saved_memorias_total / pinned_total mirror src/api/client.ts's hand-added
 // MemoriaStatsResponse fields (FIX-A, snapshot lag). ponytail: keep in sync.
@@ -90,6 +107,10 @@ export interface LastReplyResponse {
   submitted_under_provider?: string | null;
   provider_changed_while_queued?: boolean | null;
   origin?: string | null;
+  fragments?: string[] | null;
+  is_streaming?: boolean | null;
+  web_searched?: boolean | null;
+  web_sources?: Array<{ host: string; url: string }> | null;
 }
 
 // `avatar_state` is deliberately OMITTED from this base fixture, hence the
@@ -120,10 +141,12 @@ export const defaultStatus: Omit<StatusResponse, "avatar_state"> = {
     vram_status: "ok",
     rtf_status: "ok",
     ollama_status: "ok",
-    qwen_status: "ok",
+    // RETIRED 2026-09-21: Qwen3-TTS lives in a separate legacy repository; the backend
+    // always reports unavailable/stopped. Mock mirrors production.
+    qwen_status: "unavailable",
     overall_status: "ok",
     ollama_lifecycle: "running",
-    qwen_lifecycle: "running",
+    qwen_lifecycle: "stopped",
     free_vram_mb: 4096,
     total_vram_mb: 8192,
     used_vram_mb: 4096,
@@ -171,7 +194,17 @@ export const defaultModels: ModelsResponse = {
   tiers: { quality: "gemma4:e4b", balanced: "llama3.2:3b", fast: "qwen3:1.7b" },
   active_tier: "fast",
   is_reasoning_active: true,
-  reasoning_config: { enabled: false, budget_tokens: 512 }
+  // T2 (controls-cleanup-adaptive-reasoning-20260928): Auto by default
+  // (budget_tokens: null), mirroring the real backend's new default.
+  reasoning_config: { enabled: false, budget_tokens: null },
+  context_config: {
+    model: "qwen3:1.7b",
+    context_tokens: null,
+    auto_context_tokens: 16384,
+    native_context: 262144,
+    effective_context: 16384,
+    policy: "auto"
+  }
 };
 
 /** Cloud mode GET /api/models — mirrors opencohost/api/routers/status.py's
@@ -220,7 +253,8 @@ export const defaultTtsConfig: TtsConfigResponse = {
   engine: "ligero",
   heavy_available: false,
   piper_available: true,
-  edge_tts_offline: false
+  edge_tts_offline: false,
+  discard_speech_residue: false
 };
 
 export const defaultLastReply: LastReplyResponse = {
@@ -233,7 +267,8 @@ export const defaultLastReply: LastReplyResponse = {
   answered_by_transport: null,
   submitted_under_provider: null,
   provider_changed_while_queued: null,
-  origin: null
+  origin: null,
+  fragments: null
 };
 
 export const defaultMemoriaStats: MemoriaStatsResponse = {
@@ -267,6 +302,8 @@ export interface MemoriaListItemFixture {
   // memoria_draft_visibility_20260725: mirrors `imported`'s derivation shape
   // (status='draft' -> true) so MemoriaRow can render the "borrador" badge.
   draft: boolean;
+  // F3: id of the newer row that replaced this one (row is then inactive).
+  superseded_by?: string | null;
 }
 
 export const defaultMemoriaList: { items: MemoriaListItemFixture[] } = {
@@ -352,6 +389,8 @@ export interface MemoriaRowResponseFixture {
    * (src/api/client.ts). No consumer reads it yet, so nothing fails without it;
    * it is here so the fixture cannot disagree with the contract it mirrors. */
   draft: boolean;
+  /** F3 — mirrors MemoriaRowResponse.superseded_by. */
+  superseded_by?: string | null;
 }
 
 export const defaultMemoriaRows: Record<string, MemoriaRowResponseFixture> = {
@@ -392,6 +431,22 @@ export interface MemoriaNoticeResponseFixture {
 }
 
 export const defaultMemoriaNotice: MemoriaNoticeResponseFixture = { dismissed: false };
+
+/** GET/POST /api/memoria/settings response — mirrors
+ * src/api/memoria.ts::MemoriaSettingsResponse (per-layer memory controls). */
+export interface MemoriaSettingsResponseFixture {
+  memorias_enabled: boolean;
+  facts: boolean;
+  episodes: boolean;
+  semantic: boolean;
+}
+
+export const defaultMemoriaSettings: MemoriaSettingsResponseFixture = {
+  memorias_enabled: true,
+  facts: true,
+  episodes: true,
+  semantic: true
+};
 
 /** GET/PUT/DELETE /api/personalization response — mirrors
  * src/api/personalization.ts::PersonalizationResponse. */
@@ -487,13 +542,18 @@ export interface LlmProviderResponseFixture {
   active_provider: string;
   fallback_mode: "auto" | "manual";
   pregen_enabled: boolean;
-  profiles: Record<string, { base_url: string; model: string; preset: string; api_key_set: boolean }>;
+  discard_stale_speech_on_regenerated_reply: boolean;
+  profiles: Record<
+    string,
+    { base_url: string; model: string; preset: string; api_key_set: boolean; model_vision?: boolean }
+  >;
 }
 
 export const defaultLlmProvider: LlmProviderResponseFixture = {
   active_provider: "local",
   fallback_mode: "auto",
   pregen_enabled: false,
+  discard_stale_speech_on_regenerated_reply: false,
   profiles: {
     openai: { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", preset: "openai", api_key_set: true }
   }
@@ -701,7 +761,91 @@ function suggestedTrackFor(library: MusicLibraryResponse, mood: string): string 
   return fallback ? fallback.id : null;
 }
 
+/** One model-download job (opencohost/api/models.py::ModelDownloadJob). */
+export function makeDownloadJob(overrides: Partial<ModelDownloadJob> = {}): ModelDownloadJob {
+  return {
+    id: "job-1",
+    tag: "qwen3:1.7b",
+    state: "downloading",
+    phase: "pulling",
+    total_bytes: 1024 * 1024 * 1024,
+    completed_bytes: 400 * 1024 * 1024,
+    percent: 39.06,
+    speed_bps: 2.5 * 1024 * 1024,
+    eta_seconds: 185,
+    attempt: 1,
+    retries_used: 0,
+    error_category: null,
+    error_type: null,
+    interrupted: false,
+    installed: null,
+    created_at: 1_700_000_000,
+    updated_at: 1_700_000_010,
+    ...overrides
+  };
+}
+
+export const defaultModelDownloads: ModelDownloadsResponse = { jobs: [], active_job_id: null, max_retries: 3 };
+
+/** GET /api/setup/state default (setup-assistant-20261008): setup already done
+ * with a usable engine, so the assistant stays closed and no hint shows —
+ * existing shell tests are unaffected. Setup tests override it per case. */
+export const defaultSetupState: SetupStateResponse = {
+  status: "completed",
+  engine_ready: true,
+  engine: "local",
+  show_on_start: false,
+  checkpoint: null,
+  checkpoint_reset: null
+};
+
+export const defaultInferenceTest: InferenceTestResponse = {
+  status: "passed",
+  provider: "local",
+  model: "qwen3:1.7b",
+  metrics: { load_ms: 1200, first_token_ms: 300, tokens_per_second: 42 },
+  runs: [{ load_ms: 1200, first_token_ms: 300, tokens_per_second: 42, ok: true }],
+  error_code: null
+};
+
+export const defaultHfQuants: HfQuantsResponse = {
+  owner: "bartowski",
+  repo: "SmolLM2-135M-Instruct-GGUF",
+  vram_mb: 8192,
+  quants: [
+    {
+      quant: "Q4_K_M",
+      size_bytes: 105 * 1024 * 1024,
+      file_count: 1,
+      tag: "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M",
+      vram_fit: "fits"
+    },
+    {
+      quant: "Q8_0",
+      size_bytes: 9 * 1024 ** 3,
+      file_count: 1,
+      tag: "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q8_0",
+      vram_fit: "too_large"
+    }
+  ]
+};
+
+/** GET /api/decisions default: every decision in shadow, worker not configured. */
+export const defaultDecisions = {
+  decisions: {
+    vision: { mode: "shadow", threshold: 0.9 },
+    memory: { mode: "shadow", threshold: 0.9 },
+    reply_length: { mode: "shadow", threshold: 0.9 },
+    respond: { mode: "shadow", threshold: 0.9 }
+  },
+  worker: { configured: false, state: "unavailable", checkpoint: null, last_error: null },
+  budget_ms: 600
+};
+
 export const handlers = [
+  http.get(`${API_BASE_URL}/api/web-fetch/tavily`, () => HttpResponse.json({
+    api_key_set: false, stored_key_set: false, source: "none", storage_available: true
+  })),
   http.get(`${API_BASE_URL}/api/status`, () => HttpResponse.json(defaultStatus)),
   http.get(`${API_BASE_URL}/api/perfiles`, () => HttpResponse.json(defaultProfiles)),
   http.get(`${API_BASE_URL}/api/perfiles/:name`, ({ params }) => {
@@ -735,23 +879,77 @@ export const handlers = [
   http.delete(`${API_BASE_URL}/api/perfiles/:name`, () => HttpResponse.json({ ok: true })),
   http.get(`${API_BASE_URL}/api/models`, () => HttpResponse.json(defaultModels)),
   http.put(`${API_BASE_URL}/api/models/reasoning`, async ({ request }) => {
-    const body = (await request.json()) as { enabled?: boolean; budget_tokens?: number; model?: string };
+    const body = (await request.json()) as { enabled?: boolean; budget_tokens?: number | null; model?: string };
     if (defaultModels.reasoning_config) {
       if (body.enabled !== undefined) {
         defaultModels.reasoning_config.enabled = body.enabled;
       }
+      // `!== undefined` (not a nullish check) mirrors the real backend's
+      // model_fields_set distinction: an explicit `null` in the JSON body
+      // (present, T2's clear-to-Auto) DOES persist here, while an omitted
+      // key (JSON.stringify drops `undefined` properties) leaves it as-is.
       if (body.budget_tokens !== undefined) {
         defaultModels.reasoning_config.budget_tokens = body.budget_tokens;
       }
     } else {
       defaultModels.reasoning_config = {
         enabled: body.enabled ?? false,
-        budget_tokens: body.budget_tokens ?? 512
+        budget_tokens: body.budget_tokens ?? null
       };
     }
     return HttpResponse.json(defaultModels.reasoning_config);
   }),
+  http.put(`${API_BASE_URL}/api/models/context`, async ({ request }) => {
+    const body = (await request.json()) as { model: string; context_tokens: number | null };
+    if (defaultModels.context_config) {
+      defaultModels.context_config.model = body.model;
+      defaultModels.context_config.context_tokens = body.context_tokens;
+      defaultModels.context_config.policy = body.context_tokens === null ? "auto" : "requested";
+      defaultModels.context_config.effective_context =
+        body.context_tokens ?? defaultModels.context_config.auto_context_tokens;
+    }
+    return HttpResponse.json(defaultModels.context_config);
+  }),
   http.get(`${API_BASE_URL}/api/llm/readiness`, () => HttpResponse.json(defaultReadiness)),
+  http.get(`${API_BASE_URL}/api/setup/state`, () => HttpResponse.json(defaultSetupState)),
+  http.put(`${API_BASE_URL}/api/setup/state`, async ({ request }) => {
+    const body = (await request.json()) as { status: SetupStateResponse["status"] };
+    return HttpResponse.json({ ...defaultSetupState, status: body.status, show_on_start: false });
+  }),
+  http.put(`${API_BASE_URL}/api/setup/checkpoint`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({ checkpoint: { ...body, updated_at: "2026-11-12T00:00:00+00:00" } });
+  }),
+  http.delete(`${API_BASE_URL}/api/setup/checkpoint`, () => HttpResponse.json({ checkpoint: null })),
+  http.post(`${API_BASE_URL}/api/setup/inference-test`, () => HttpResponse.json(defaultInferenceTest)),
+  http.post(`${API_BASE_URL}/api/speech/say`, () => HttpResponse.json({ job_id: 1 })),
+  http.post(`${API_BASE_URL}/api/speech/stop`, () => HttpResponse.json({ discarded: 0 })),
+  http.get(`${API_BASE_URL}/api/models/downloads`, () => HttpResponse.json(defaultModelDownloads)),
+  http.post(`${API_BASE_URL}/api/models/downloads`, async ({ request }) => {
+    const body = (await request.json()) as { tag: string };
+    return HttpResponse.json(
+      makeDownloadJob({ tag: body.tag, state: "queued", phase: null, percent: null, completed_bytes: null, total_bytes: null, speed_bps: null, eta_seconds: null }),
+      { status: 202 }
+    );
+  }),
+  http.post(`${API_BASE_URL}/api/models/downloads/:id/:action`, ({ params }) => {
+    const stateByAction: Record<string, ModelDownloadJob["state"]> = {
+      pause: "paused",
+      resume: "queued",
+      cancel: "cancelled"
+    };
+    return HttpResponse.json(makeDownloadJob({ id: String(params.id), state: stateByAction[String(params.action)] ?? "queued" }));
+  }),
+  http.get(`${API_BASE_URL}/api/models/hf/:owner/:repo/quants`, ({ params }) => {
+    const owner = String(params.owner);
+    const repo = String(params.repo);
+    return HttpResponse.json({
+      ...defaultHfQuants,
+      owner,
+      repo,
+      quants: defaultHfQuants.quants.map((q) => ({ ...q, tag: `hf.co/${owner}/${repo}:${q.quant}` }))
+    });
+  }),
   http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json(defaultTtsConfig)),
   http.get(`${API_BASE_URL}/api/memoria/stats`, () => HttpResponse.json(defaultMemoriaStats)),
   http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json(defaultMemoriaList)),
@@ -773,6 +971,11 @@ export const handlers = [
     const body = (await request.json()) as { dismissed: boolean };
     return HttpResponse.json({ dismissed: body.dismissed });
   }),
+  http.get(`${API_BASE_URL}/api/memoria/settings`, () => HttpResponse.json(defaultMemoriaSettings)),
+  http.post(`${API_BASE_URL}/api/memoria/settings`, async ({ request }) => {
+    const body = (await request.json()) as Partial<MemoriaSettingsResponseFixture>;
+    return HttpResponse.json({ ...defaultMemoriaSettings, ...body });
+  }),
   http.get(`${API_BASE_URL}/api/personalization`, () => HttpResponse.json(defaultPersonalization)),
   http.put(`${API_BASE_URL}/api/personalization`, async ({ request }) => {
     const body = (await request.json()) as Partial<PersonalizationResponseFixture>;
@@ -793,10 +996,103 @@ export const handlers = [
     });
   }),
   http.get(`${API_BASE_URL}/api/chat/last-reply`, () => HttpResponse.json(defaultLastReply)),
+  http.get(`${API_BASE_URL}/api/remote/messages`, () => HttpResponse.json({ items: [], latest_seq: 0 })),
+  http.get(`${API_BASE_URL}/api/tts/pronunciation`, () =>
+    HttpResponse.json({ entries: [], limits: { max_entries: 200, match_max: 64, replace_max: 128 } })
+  ),
+  http.get(`${API_BASE_URL}/api/guardrails`, () => HttpResponse.json({ rules: [] })),
+  http.get(`${API_BASE_URL}/api/remote/devices`, () => HttpResponse.json({ error: "gateway_disabled" }, { status: 409 })),
+  http.get(`${API_BASE_URL}/api/update`, () =>
+    HttpResponse.json({ enabled: true, current: "0.5.0", latest: null, newer: false, url: null })
+  ),
+  http.put(`${API_BASE_URL}/api/update/config`, async ({ request }) => {
+    const body = (await request.json()) as { enabled?: boolean };
+    return HttpResponse.json({ enabled: body.enabled === true });
+  }),
+  http.get(`${API_BASE_URL}/api/reply-length`, () => HttpResponse.json({ mode: "auto" })),
+  http.get(`${API_BASE_URL}/api/decisions`, () => HttpResponse.json(defaultDecisions)),
+  http.put(`${API_BASE_URL}/api/decisions`, async ({ request }) => {
+    const body = (await request.json()) as { decisions?: Record<string, Record<string, unknown>> };
+    const merged: Record<string, Record<string, unknown>> = { ...defaultDecisions.decisions };
+    for (const [id, patch] of Object.entries(body.decisions ?? {})) merged[id] = { ...merged[id], ...patch };
+    return HttpResponse.json({ ...defaultDecisions, decisions: merged });
+  }),
+  http.post(`${API_BASE_URL}/api/decisions/worker/restart`, () => HttpResponse.json(defaultDecisions.worker)),
+  http.get(`${API_BASE_URL}/api/speech/state`, () =>
+    HttpResponse.json({ paused: false, readaloud_active: false, readaloud_pending: 0 })
+  ),
+  http.get(`${API_BASE_URL}/api/vision`, () =>
+    HttpResponse.json({
+      enabled: false,
+      look_on_ptt: false,
+      capture_delay_s: 0,
+      rule_gate_enabled: false,
+      model: "qwen3-vl:4b-instruct",
+      port: 11435,
+      describe_timeout_s: 8,
+      status: { daemon_state: "stopped", model_installed: null, capture_available: false, armed: false, looking: false }
+    })
+  ),
+  http.get(`${API_BASE_URL}/api/vision/models`, () =>
+    HttpResponse.json({ current: "qwen3-vl:4b-instruct", installed: [], suggested: [], ollama_reachable: true, benchmarks: {} })
+  ),
+  http.get(`${API_BASE_URL}/api/chat/speech-progress`, () => HttpResponse.json({
+    speaking: false, turn_id: null, current_idx: null, played: 0, total: 0,
+    feed_turn_id: null, job_id: null, source: null, fragment: null
+  })),
   http.get(`${API_BASE_URL}/api/avatar/config`, () => HttpResponse.json(defaultAvatarConfig)),
   http.put(`${API_BASE_URL}/api/avatar/config`, async ({ request }) => {
     const body = (await request.json()) as Partial<AvatarConfigResponse>;
     return HttpResponse.json({ ...defaultAvatarConfig, ...body });
+  }),
+  // POST /api/avatar/upload (tauri_avatar_upload_20260911): bytes in, the
+  // config map gains `user/<state>.<ext>` for the uploaded state. Mirrors the
+  // server's fail-closed validation (state/extension/content) so UI request-
+  // shape regressions still get a 422 instead of a lying 200.
+  http.post(`${API_BASE_URL}/api/avatar/upload`, async ({ request }) => {
+    const body = (await request.json()) as { state: string; filename: string; content_b64?: string };
+    const known = [
+      "idle",
+      "listening",
+      "thinking",
+      "speaking",
+      "speaking_alt",
+      "sleeping",
+      "angry",
+      "error"
+    ];
+    if (!known.includes(body.state)) {
+      return HttpResponse.json({ detail: `unknown avatar state: ${body.state}` }, { status: 422 });
+    }
+    if (!body.content_b64 || !/\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(body.filename)) {
+      return HttpResponse.json({ detail: "Unsupported image format" }, { status: 422 });
+    }
+    const ext = body.filename.slice(body.filename.lastIndexOf("."));
+    return HttpResponse.json({
+      ...defaultAvatarConfig,
+      state_images: { ...defaultAvatarConfig.state_images, [body.state]: `user/${body.state}${ext}` }
+    });
+  }),
+  // GET /api/avatar/image?state= — served bytes; tests only assert the URL
+  // shape, so a minimal PNG header is enough for any consumer reading bytes.
+  http.get(`${API_BASE_URL}/api/avatar/image`, () => {
+    const header = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    return new HttpResponse(header, { headers: { "Content-Type": "image/png" } });
+  }),
+  // GET /api/avatar/vrm/folder: where the VRM models are read from (T9).
+  http.get(`${API_BASE_URL}/api/avatar/vrm/folder`, () => {
+    return HttpResponse.json({ path: "C:\\vrm-default", source: "default", exists: true, model_count: 2 });
+  }),
+  // GET /api/avatar/vrm/list — list of available VRM 3D models.
+  http.get(`${API_BASE_URL}/api/avatar/vrm/list`, () => {
+    return HttpResponse.json([
+      { filename: "Kira_Default.vrm", size_mb: 14.5, modified_at: 1700000000 },
+      { filename: "Kira_Casual.vrm", size_mb: 12.8, modified_at: 1700000100 }
+    ]);
+  }),
+  // Static animation assets (/animations/*.vrma)
+  http.get("*/animations/:file", () => {
+    return new HttpResponse(new ArrayBuffer(0), { headers: { "Content-Type": "application/octet-stream" } });
   }),
   http.get(`${API_BASE_URL}/api/obs/config`, () => HttpResponse.json(defaultObsConfig)),
   http.put(`${API_BASE_URL}/api/obs/config`, async ({ request }) => {
@@ -862,6 +1158,21 @@ export const handlers = [
   // POST /api/llm/provider/probe (cloud_rearm_20260801 WU2) — default: cloud
   // arms immediately. Per-test overrides below cover armed:false and 503.
   http.post(`${API_BASE_URL}/api/llm/provider/probe`, () => HttpResponse.json({ armed: true, reason: null })),
+  // GET /api/llm/provider/presets + POST /api/llm/provider/test (cloud-providers-vision P1).
+  http.get(`${API_BASE_URL}/api/llm/provider/presets`, () => HttpResponse.json({ presets: LLM_PROVIDER_PRESETS })),
+  http.post(`${API_BASE_URL}/api/llm/provider/test`, () =>
+    HttpResponse.json({
+      ok: true,
+      error_code: null,
+      models_ok: true,
+      chat_ok: true,
+      chat_error_code: null,
+      http_status: 200,
+      provider_message: null,
+      models: [],
+      recommended: []
+    })
+  ),
   http.get(`${API_BASE_URL}/api/stream/chat-live`, () => HttpResponse.json(defaultStreamChatLive)),
   http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
     HttpResponse.json({ ...defaultStreamChatLive, connected: true, platform: "twitch", source_id: "kira" })
@@ -937,6 +1248,11 @@ export const handlers = [
   }),
   http.post(`${API_BASE_URL}/api/agenda/topic/action`, () => HttpResponse.json(defaultAgenda)),
   http.put(`${API_BASE_URL}/api/agenda/session`, () => HttpResponse.json(defaultAgenda)),
+  http.get(`${API_BASE_URL}/api/agenda/progression`, () => HttpResponse.json(defaultAgendaProgression)),
+  http.put(`${API_BASE_URL}/api/agenda/progression`, async ({ request }) => {
+    const body = (await request.json()) as { enabled: boolean };
+    return HttpResponse.json({ enabled: body.enabled, variant: body.enabled ? "auto" : "", env_override: false });
+  }),
   http.post(`${API_BASE_URL}/api/agenda/session/action`, () => HttpResponse.json(defaultAgenda)),
   http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, () => HttpResponse.json(defaultCohostProfiles)),
   http.post(`${API_BASE_URL}/api/agenda/cohost-profiles`, async ({ request }) => {
@@ -967,10 +1283,19 @@ export const handlers = [
   http.post(`${API_BASE_URL}/api/ptt/stop`, () => HttpResponse.json(defaultPttStop)),
   http.get(`${API_BASE_URL}/api/ptt/state`, () => HttpResponse.json(defaultPttState)),
   http.put(`${API_BASE_URL}/api/ptt/config`, async ({ request }) => {
-    const body = (await request.json()) as { stt_ws_uri: string };
-    return HttpResponse.json({ stt_ws_uri: body.stt_ws_uri });
+    const body = (await request.json()) as {
+      stt_ws_uri?: string;
+      dictation_mode?: string;
+      companion_dictation?: boolean;
+    };
+    return HttpResponse.json({
+      stt_ws_uri: body.stt_ws_uri,
+      ...(body.dictation_mode !== undefined ? { dictation_mode: body.dictation_mode } : {}),
+      ...(body.companion_dictation !== undefined ? { companion_dictation: body.companion_dictation } : {})
+    });
   }),
-  http.post(`${API_BASE_URL}/api/ptt/test`, () => HttpResponse.json({ ok: true, detail: "Conectado." }))
+  http.post(`${API_BASE_URL}/api/ptt/test`, () => HttpResponse.json({ ok: true, detail: "Conectado." })),
+  http.post(`${API_BASE_URL}/api/ptt/focus`, () => HttpResponse.json({ ok: true }))
 ];
 
 /** Per-test override: switch rejected with 409 conflict. */
@@ -1239,6 +1564,27 @@ export function llmProviderProbeUnavailableHandler() {
   );
 }
 
+/** Per-test override: POST /api/llm/provider/test returns `result` and captures
+ * the request body (the write-only key lives only in that body). */
+export function llmProviderTestHandler(
+  result: {
+    ok: boolean;
+    error_code: string | null;
+    models: string[];
+    recommended: string[];
+    chat_ok?: boolean | null;
+    chat_error_code?: string | null;
+    http_status?: number | null;
+    provider_message?: string | null;
+  },
+  capture?: { body?: unknown }
+) {
+  return http.post(`${API_BASE_URL}/api/llm/provider/test`, async ({ request }) => {
+    if (capture) capture.body = await request.json();
+    return HttpResponse.json(result);
+  });
+}
+
 /** Per-test override: POST /api/stream/chat-live/connect rejected with 422 invalid_url. */
 export function streamConnectInvalidUrlHandler() {
   return http.post(`${API_BASE_URL}/api/stream/chat-live/connect`, () =>
@@ -1294,6 +1640,27 @@ export function evolvingLastReplyHandler(
   return http.get(`${API_BASE_URL}/api/chat/last-reply`, () => {
     calls += 1;
     return HttpResponse.json({ ...defaultLastReply, ...(calls > flipAfterCalls ? after : before) });
+  });
+}
+
+/**
+ * Per-test override: GET /api/chat/last-reply serves `newest()` for the plain
+ * poll and `byTurn[turn_id]` for `?turn_id=N`; an unknown id answers the real
+ * backend's 404 `{"detail":"turn_not_found"}`. `newest` is read lazily so a
+ * test can swap it mid-run.
+ */
+export function lastReplyFeedHandler(
+  newest: () => Partial<LastReplyResponse>,
+  byTurn: Record<number, Partial<LastReplyResponse>> = {},
+  seenTurnIds: (string | null)[] = []
+) {
+  return http.get(`${API_BASE_URL}/api/chat/last-reply`, ({ request }) => {
+    const raw = new URL(request.url).searchParams.get("turn_id");
+    if (raw === null) return HttpResponse.json({ ...defaultLastReply, ...newest() });
+    seenTurnIds.push(raw);
+    const hit = byTurn[Number(raw)];
+    if (!hit) return HttpResponse.json({ detail: "turn_not_found" }, { status: 404 });
+    return HttpResponse.json({ ...defaultLastReply, turn_id: Number(raw), ...hit });
   });
 }
 
@@ -1438,6 +1805,28 @@ export function agendaTopicActionCaptureHandler(capture: { body?: unknown }, res
     capture.body = await request.json();
     return HttpResponse.json(response);
   });
+}
+
+/** Default GET /api/agenda/progression: ON by default (owner decision 2026-11-16). */
+export const defaultAgendaProgression: AgendaProgressionResponse = { enabled: true, variant: "auto", env_override: false };
+
+/** Per-test override: GET /api/agenda/progression with a custom state. */
+export function agendaProgressionGetHandler(state: AgendaProgressionResponse) {
+  return http.get(`${API_BASE_URL}/api/agenda/progression`, () => HttpResponse.json(state));
+}
+
+/** Per-test override: PUT /api/agenda/progression captures the body for assertions. */
+export function agendaProgressionPutCaptureHandler(capture: { body?: unknown }) {
+  return http.put(`${API_BASE_URL}/api/agenda/progression`, async ({ request }) => {
+    const body = (await request.json()) as { enabled: boolean };
+    capture.body = body;
+    return HttpResponse.json({ enabled: body.enabled, variant: body.enabled ? "auto" : "", env_override: false });
+  });
+}
+
+/** Per-test override: PUT /api/agenda/progression rejected (e.g. write failed). */
+export function agendaProgressionPutErrorHandler(status = 503, detail = "agenda_settings_write_failed") {
+  return http.put(`${API_BASE_URL}/api/agenda/progression`, () => HttpResponse.json({ detail }, { status }));
 }
 
 /** Per-test override: PUT /api/agenda/session captures the request body for assertions. */

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getModels, updateModelReasoning } from "./client.js";
+import { getModels, updateModelContext, updateModelReasoning } from "./client.js";
 
 export const MODELS_QUERY_KEY = ["models"] as const;
 
@@ -15,7 +15,17 @@ export function useUpdateModelReasoningMutation() {
   return useMutation({
     mutationFn: updateModelReasoning,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
+      return queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
+    }
+  });
+}
+
+export function useUpdateModelContextMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateModelContext,
+    onSuccess: () => {
+      return queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
     }
   });
 }

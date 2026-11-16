@@ -222,4 +222,28 @@ describe("bootstrapBackend", () => {
     const { bootstrapBackend } = await loadBootstrap();
     await expect(bootstrapBackend()).resolves.toEqual({ backendError: "generic", runtimeRequired: true });
   });
+
+  it("preserves data_root_inside_install as runtimeRequired for FirstRunGate repair", async () => {
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "backend_info"
+          ? {
+              base_url: "http://127.0.0.1:8765",
+              managed: false,
+              error: {
+                code: "data_root_inside_install",
+                stage: "runtime",
+                action: "provision_or_repair",
+                message_key: "data_root_inside_install"
+              }
+            }
+          : null
+      )
+    );
+    const { bootstrapBackend } = await loadBootstrap();
+    await expect(bootstrapBackend()).resolves.toEqual({
+      backendError: "data_root_inside_install",
+      runtimeRequired: true
+    });
+  });
 });

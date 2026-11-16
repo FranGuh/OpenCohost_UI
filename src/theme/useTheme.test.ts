@@ -44,6 +44,16 @@ describe("useTheme", () => {
     expect(document.documentElement.dataset.theme).toBe("studio");
   });
 
+  it("restores kira-aurora theme on load", () => {
+    window.localStorage.setItem(STORAGE_KEY, "kira-aurora");
+    useThemeStore.getState()._hydrateForTests();
+
+    const { result } = renderHook(() => useTheme());
+
+    expect(result.current.theme).toBe("kira-aurora");
+    expect(document.documentElement.dataset.theme).toBe("kira-aurora");
+  });
+
   it("falls back to the default theme when localStorage holds an unknown value", () => {
     window.localStorage.setItem(STORAGE_KEY, "not-a-real-theme");
     useThemeStore.getState()._hydrateForTests();
@@ -64,5 +74,22 @@ describe("useTheme", () => {
     expect(consumerA.result.current.theme).toBe("aurora");
     expect(consumerB.result.current.theme).toBe("aurora");
     expect(document.documentElement.dataset.theme).toBe("aurora");
+  });
+
+  it("synchronizes theme across windows when a storage event is received", () => {
+    const { result } = renderHook(() => useTheme());
+    expect(result.current.theme).toBe("cockpit");
+
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: STORAGE_KEY,
+          newValue: "studio",
+        })
+      );
+    });
+
+    expect(result.current.theme).toBe("studio");
+    expect(document.documentElement.dataset.theme).toBe("studio");
   });
 });

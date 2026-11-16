@@ -1,3 +1,5 @@
+// Deprecated, only exist for mockup.
+
 import { useState } from "react";
 import { useStatusQuery } from "../../api/status.js";
 import { useLastReply } from "../../api/chat.js";

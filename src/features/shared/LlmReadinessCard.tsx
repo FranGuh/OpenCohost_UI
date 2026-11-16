@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, Cpu, ExternalLink, HardDrive, RefreshCw, Terminal, X } from "lucide-react";
+import { Check, Copy, Cpu, Download, ExternalLink, HardDrive, RefreshCw, Terminal, X } from "lucide-react";
 import { Card } from "../../ui/Card.js";
 import { Badge, type BadgeTone } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
@@ -11,9 +11,11 @@ import { useLlmReadiness } from "./useLlmReadiness.js";
 import {
   LLM_PROVIDER_PRESETS,
   useLlmProvider,
-  useTriggerCloudProbe,
   useUpdateLlmProvider
 } from "../../api/llmProvider.js";
+import { useStartModelDownload } from "../../api/modelDownloads.js";
+import { ModelDownloadsPanel } from "../models/downloads/ModelDownloadsPanel.js";
+import { requestErrorMessage } from "../models/downloads/downloadCopy.js";
 import { useT } from "../../i18n/t.js";
 import { cn } from "../../lib/cn.js";
 
@@ -21,9 +23,11 @@ export interface LlmReadinessCardProps {
   onClose?: () => void;
   className?: string;
   showDismiss?: boolean;
+  /** Hide the embedded download progress list (the host already renders ModelDownloadsPanel). */
+  hideDownloads?: boolean;
 }
 
-export function LlmReadinessCard({ onClose, className, showDismiss = false }: LlmReadinessCardProps) {
+export function LlmReadinessCard({ onClose, className, showDismiss = false, hideDownloads = false }: LlmReadinessCardProps) {
   const t = useT();
   const { readiness, state, canChat, isReady, refetch } = useLlmReadiness({
     activePolling: true
@@ -31,7 +35,7 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
 
   const { data: providerConfig } = useLlmProvider();
   const updateProvider = useUpdateLlmProvider();
-  const triggerProbe = useTriggerCloudProbe();
+  const startDownload = useStartModelDownload();
 
   const [mode, setMode] = useState<"local" | "cloud">("local");
   const [copied, setCopied] = useState(false);
@@ -45,6 +49,7 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
 
   const recommendedModel = readiness?.hardware?.recommended_model ?? "gemma4:e4b";
   const runCommand = `ollama run ${recommendedModel}`;
+  const needsModel = !isReady && (state === "LOCAL_NO_MODELS" || state === "LOCAL_MODEL_MISSING");
 
   let badgeTone: BadgeTone = "ok";
   let badgeLabel = t("controles.readiness.readyMsg");
@@ -83,6 +88,21 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
       setIsManualChecking(false);
     }
   }
+
+  // T5: re-fetches readiness only. There is no API to wake/start Ollama
+  // (EngineHost._wake_ollama_eager runs once at boot and has no route), so
+  // "Check again" cannot start an installed-but-stopped Ollama by itself.
+  const checkAgainButton = (
+    <Button
+      variant="primary"
+      disabled={isManualChecking}
+      onClick={() => void handleManualRefresh()}
+      className="h-8 self-start text-xs"
+    >
+      <RefreshCw size={12} className={cn("mr-1.5", isManualChecking && "animate-spin")} aria-hidden="true" />
+      {isManualChecking ? t("controles.readiness.checking") : t("models.readiness.checkAgain")}
+    </Button>
+  );
 
   async function handleSaveCloudKey() {
     if (!apiKeyInput.trim()) return;
@@ -187,6 +207,7 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
           {/* Contextual guidance according to state */}
           {state === "LOCAL_OLLAMA_OFFLINE" ? (
             <div className="flex flex-col gap-2 rounded-md border border-border-soft bg-card p-3 text-xs">
+              <p className="text-foreground">{t("models.readiness.offline.body")}</p>
               <p className="font-semibold text-foreground">Cómo iniciar el servicio de Ollama:</p>
               <ul className="list-disc pl-4 text-muted-foreground space-y-1">
                 <li>Abre la aplicación <strong>Ollama</strong> desde el Menú Inicio de Windows.</li>
@@ -202,9 +223,11 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
                   Nota: Ollama no está en tu variable PATH del sistema. Recomendamos abrirlo directamente desde el Menú Inicio.
                 </p>
               )}
+              {checkAgainButton}
             </div>
           ) : state === "LOCAL_OLLAMA_MISSING" ? (
             <div className="flex flex-col gap-2 rounded-md border border-border-soft bg-card p-3">
+              <p className="text-xs text-foreground">{t("models.readiness.missing.body")}</p>
               <p className="text-xs text-muted-foreground">{t("controles.readiness.ollamaStep1")}</p>
               <a
                 href="https://ollama.com/download"
@@ -217,9 +240,33 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
               <p className="text-[11px] text-muted-foreground">
                 Una vez instalado, abre Ollama y presiona "Comprobar conexión".
               </p>
+              {checkAgainButton}
             </div>
           ) : (
             <div className="flex flex-col gap-2 rounded-md border border-border-soft bg-card p-3">
+              {needsModel && (
+                <div className="flex flex-col gap-2 border-b border-border-soft pb-3">
+                  <Button
+                    variant="primary"
+                    className="h-8 self-start text-xs"
+                    disabled={startDownload.isPending}
+                    onClick={() => startDownload.mutate(recommendedModel)}
+                  >
+                    <Download size={12} aria-hidden="true" />
+                    {startDownload.isPending
+                      ? t("models.download.starting")
+                      : t("models.download.recommended", { model: recommendedModel })}
+                  </Button>
+                  {startDownload.error && (
+                    <p role="alert" className="text-xs text-danger">
+                      {requestErrorMessage(startDownload.error, t)}
+                    </p>
+                  )}
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                    {t("models.readiness.commandFallback")}
+                  </span>
+                </div>
+              )}
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs font-semibold text-foreground">
                   {isReady ? "Comando del modelo activo:" : "Ejecutar en tu terminal externa (fuera de OpenCohost):"}
@@ -254,6 +301,8 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
               </p>
             </div>
           )}
+
+          {!hideDownloads && <ModelDownloadsPanel />}
 
           {/* Alternative recommendation for low VRAM or unconfigured Ollama */}
           {!isReady && (
@@ -377,17 +426,22 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
               <div className="flex items-center justify-between pt-1">
                 <Button
                   variant="outline"
-                  disabled={triggerProbe.isPending}
-                  onClick={() => void triggerProbe.mutateAsync()}
+                  disabled={isManualChecking}
+                  onClick={() => void handleManualRefresh()}
                   className="text-xs"
                 >
-                  Probar conexión activa
+                  <RefreshCw size={12} className={cn("mr-1.5", isManualChecking && "animate-spin")} aria-hidden="true" />
+                  {isManualChecking ? t("controles.readiness.checking") : "Verificar conexión activa"}
                 </Button>
-                {triggerProbe.isSuccess && (
-                  <span className={cn("text-xs font-medium", triggerProbe.data?.armed ? "text-ok" : "text-warn")}>
-                    {triggerProbe.data?.armed ? "✓ Conexión exitosa" : `Fallo: ${triggerProbe.data?.reason ?? "desconocido"}`}
+                {isReady ? (
+                  <span className="text-xs font-medium text-ok">
+                    ✓ Conexión lista
                   </span>
-                )}
+                ) : readiness?.cloud?.configured ? (
+                  <span className="text-xs font-medium text-warn">
+                    {readiness?.cloud?.reachable === false ? "No se pudo conectar" : "Sin conexión"}
+                  </span>
+                ) : null}
               </div>
             </div>
           )}
@@ -455,15 +509,7 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
                 />
               </div>
 
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  disabled={triggerProbe.isPending}
-                  onClick={() => void triggerProbe.mutateAsync()}
-                  className="text-xs"
-                >
-                  Probar conexión
-                </Button>
+              <div className="flex items-center justify-end gap-2 pt-1">
                 <Button
                   variant="primary"
                   disabled={!apiKeyInput.trim() || updateProvider.isPending}
@@ -473,12 +519,6 @@ export function LlmReadinessCard({ onClose, className, showDismiss = false }: Ll
                   Guardar y Activar
                 </Button>
               </div>
-
-              {triggerProbe.isSuccess && (
-                <Alert tone={triggerProbe.data?.armed ? "ok" : "warn"}>
-                  {triggerProbe.data?.armed ? "Proveedor conectado con éxito." : `No se pudo conectar: ${triggerProbe.data?.reason ?? "desconocido"}`}
-                </Alert>
-              )}
             </div>
           )}
         </div>

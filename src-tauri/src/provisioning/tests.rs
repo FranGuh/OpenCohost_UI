@@ -1153,6 +1153,7 @@ fn test_bootstrap(bytes: &[u8]) -> BootstrapManifest {
 fn test_config(root: PathBuf, bootstrap: BootstrapManifest) -> ProvisionerConfig {
     ProvisionerConfig {
         data_root: root,
+        msvc_crt_dir: None,
         install_id: "install-1".into(),
         app_module: "opencohost.api.main:app".into(),
         preferred_port: 8765,
@@ -1167,6 +1168,111 @@ fn test_config(root: PathBuf, bootstrap: BootstrapManifest) -> ProvisionerConfig
 
 fn test_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("opencohost-wu3-{label}-{}", std::process::id()))
+}
+
+#[test]
+fn bundled_msvc_runtime_is_materialized_beside_managed_python_and_venv() {
+    let root = test_root("bundled-msvc-runtime");
+    let source = root.join("install/resources/runtime/msvc-crt");
+    let generation = root.join("data/engine/generations/next");
+    let python = generation.join("python/cpython");
+    let scripts = generation.join("venv/Scripts");
+    fs::create_dir_all(&source).unwrap();
+    fs::create_dir_all(&python).unwrap();
+    fs::create_dir_all(&scripts).unwrap();
+    let names = [
+        "concrt140.dll",
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll",
+        "vccorlib140.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "vcruntime140_threads.dll",
+    ];
+    let mut files = serde_json::Map::new();
+    for name in names {
+        let bytes = format!("trusted-{name}").into_bytes();
+        fs::write(source.join(name), &bytes).unwrap();
+        files.insert(
+            name.into(),
+            serde_json::json!({"size": bytes.len(), "sha256": sha256(&bytes)}),
+        );
+    }
+    fs::write(
+        source.join("msvc-crt-manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": 1, "publisher": "Microsoft Corporation", "architecture": "x64",
+            "version": "14.50.35719.0", "files": files,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    super::native_runtime::materialize_msvc_crt(&source, &root.join("data"), &python, &scripts)
+        .unwrap();
+
+    for name in names {
+        let expected = fs::read(source.join(name)).unwrap();
+        assert_eq!(fs::read(python.join(name)).unwrap(), expected);
+        assert_eq!(fs::read(scripts.join(name)).unwrap(), expected);
+    }
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn bundled_msvc_runtime_never_overwrites_unknown_python_runtime_file() {
+    let root = test_root("bundled-msvc-runtime-conflict");
+    let source = root.join("install/resources/runtime/msvc-crt");
+    let data = root.join("data");
+    let python = data.join("engine/generations/next/python");
+    let scripts = data.join("engine/generations/next/venv/Scripts");
+    fs::create_dir_all(&source).unwrap();
+    fs::create_dir_all(&python).unwrap();
+    fs::create_dir_all(&scripts).unwrap();
+    let names = [
+        "concrt140.dll",
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll",
+        "vccorlib140.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "vcruntime140_threads.dll",
+    ];
+    let mut files = serde_json::Map::new();
+    for name in names {
+        let bytes = format!("trusted-{name}").into_bytes();
+        fs::write(source.join(name), &bytes).unwrap();
+        files.insert(
+            name.into(),
+            serde_json::json!({"size": bytes.len(), "sha256": sha256(&bytes)}),
+        );
+    }
+    fs::write(
+        source.join("msvc-crt-manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": 1, "publisher": "Microsoft Corporation", "architecture": "x64",
+            "version": "14.50.35719.0", "files": files,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(python.join("msvcp140.dll"), b"user-owned").unwrap();
+
+    assert!(
+        super::native_runtime::materialize_msvc_crt(&source, &data, &python, &scripts).is_err()
+    );
+    assert_eq!(
+        fs::read(python.join("msvcp140.dll")).unwrap(),
+        b"user-owned"
+    );
+    assert!(!scripts.join("concrt140.dll").exists());
+    let _ = fs::remove_dir_all(root);
 }
 
 #[cfg(windows)]

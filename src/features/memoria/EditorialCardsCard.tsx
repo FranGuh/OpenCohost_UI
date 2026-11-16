@@ -1,39 +1,36 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Card } from "../../ui/Card.js";
 import { Badge } from "../../ui/Badge.js";
 import { Button } from "../../ui/Button.js";
 import { Input } from "../../ui/Input.js";
 import { Alert } from "../../ui/Alert.js";
+import { Switch } from "../../ui/Switch.js";
+import { Segmented } from "../../ui/Segmented.js";
 import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
 import { SubCollapsibleSection } from "../../ui/Collapsible.js";
+import { cn } from "../../lib/cn.js";
 import { ApiError, ConflictError, NotFoundError, ValidationError } from "../../api/client.js";
 import { useArmCardMutation, useCardsQuery, useCreateCardMutation } from "../../api/editorialCards.js";
 import { t, useT } from "../../i18n/t.js";
+import {
+  ActiveCardActions,
+  ActiveCardFactsFields,
+  ActiveCardHelper,
+  ActiveCardSponsorFields,
+  EMPTY_ACTIVE_CARD,
+  activeCardCreateFields,
+  hasLongLine,
+  hasTooManyLines,
+  splitLines
+} from "./ActiveCardControls.js";
+import type { ActiveCardDraft } from "./ActiveCardControls.js";
+import { isTerminalStatus, matchesFilter, statusPresentation } from "./editorialCardStatus.js";
+import type { CardStatusFilter } from "./editorialCardStatus.js";
 
 const TOPIC_MAX = 120;
 const SUMMARY_MAX = 1200;
 const TAKE_MAX = 800;
-const LIST_LINE_MAX = 240;
-const LIST_MAX_LINES = 8;
-
-/** One item per line, trimmed, blanks dropped. Does not collapse internal
- * whitespace like the backend's EditorialCard._clean_list; per-line length
- * and line-count caps (LIST_LINE_MAX, LIST_MAX_LINES below) are enforced
- * separately by hasLongLine/hasTooManyLines. */
-function splitLines(value: string): string[] {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-}
-
-function hasLongLine(value: string): boolean {
-  return splitLines(value).some((line) => line.length > LIST_LINE_MAX);
-}
-
-function hasTooManyLines(value: string): boolean {
-  return splitLines(value).length > LIST_MAX_LINES;
-}
 
 /** Voseo copy per the design's error/edge-case table. Both mutations funnel
  * through here — the subclasses each only ever come from one of the two
@@ -63,14 +60,45 @@ const textareaBase =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring resize-y overflow-y-auto";
 const textareaNarrative = `${textareaBase} min-h-[96px] max-h-[240px]`;
 const textareaCompact = `${textareaBase} min-h-[64px] max-h-[160px]`;
+const fieldLabel = "flex flex-col gap-1 text-[11px] font-semibold text-dim";
+
+/** Visible required marker; the field itself carries aria-required. */
+function RequiredMark() {
+  return (
+    <span aria-hidden="true" className="text-danger">
+      {" *"}
+    </span>
+  );
+}
+
+function SectionHint({ children }: { children: ReactNode }) {
+  return <p className="text-xs leading-relaxed text-dim">{children}</p>;
+}
+
+function ListField({ label, value, onChange }: { label: string; value: string; onChange(next: string): void }) {
+  return (
+    <label className={fieldLabel}>
+      {label}
+      <textarea
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={2}
+        className={textareaCompact}
+      />
+    </label>
+  );
+}
+
+const FILTERS: readonly CardStatusFilter[] = ["active", "disabled", "all"];
 
 /**
  * "Tarjetas editoriales" — operator creates a structured editorial cue card
- * (topic/summary/take + optional one-per-line lists) and arms DRAFT cards.
- * Mirrors MemoriaImportSection 1:1 (design D3): single ConfirmFooter gate,
- * TanStack Query mutations, voseo per-status error copy. Structured fields
- * only — no raw-paste field — keeps the raw-dump rejection a UX property,
- * not just a 422 (design D1).
+ * (topic/summary/take + optional one-per-line lists) and manages every card.
+ * Mirrors MemoriaImportSection (design D3): single ConfirmFooter gate,
+ * TanStack Query mutations, per-status error copy. Structured fields only —
+ * no raw-paste field — keeps the raw-dump rejection a UX property, not just a
+ * 422 (design D1).
  */
 export function EditorialCardsCard() {
   const t = useT();
@@ -81,17 +109,37 @@ export function EditorialCardsCard() {
   const [discussionHooks, setDiscussionHooks] = useState("");
   const [triggers, setTriggers] = useState("");
   const [singleUse, setSingleUse] = useState(false);
+  const [facts, setFacts] = useState<ActiveCardDraft>(EMPTY_ACTIVE_CARD);
   const [confirming, setConfirming] = useState(false);
+  const [filter, setFilter] = useState<CardStatusFilter>("active");
 
   const createMutation = useCreateCardMutation();
   const armMutation = useArmCardMutation();
   const cardsQuery = useCardsQuery();
 
-  const anyLongLine = hasLongLine(counterpoints) || hasLongLine(discussionHooks) || hasLongLine(triggers);
+  const anyLongLine =
+    hasLongLine(counterpoints) ||
+    hasLongLine(discussionHooks) ||
+    hasLongLine(triggers) ||
+    hasLongLine(facts.mustSay) ||
+    hasLongLine(facts.forbidden);
   const anyTooManyLines =
-    hasTooManyLines(counterpoints) || hasTooManyLines(discussionHooks) || hasTooManyLines(triggers);
+    hasTooManyLines(counterpoints) ||
+    hasTooManyLines(discussionHooks) ||
+    hasTooManyLines(triggers) ||
+    hasTooManyLines(facts.mustSay) ||
+    hasTooManyLines(facts.forbidden);
 
-  const canSubmit = Boolean(topic.trim() && summary.trim() && streamerTake.trim()) && !createMutation.isPending;
+  // The backend requires all three (EditorialCard._clean_required).
+  const missingRequired = [
+    [topic, t("controles.editorialCards.topic")],
+    [summary, t("controles.editorialCards.summary")],
+    [streamerTake, t("controles.editorialCards.streamerTake")]
+  ]
+    .filter(([value]) => !value.trim())
+    .map(([, label]) => label);
+  const canSubmit =
+    missingRequired.length === 0 && !anyLongLine && !anyTooManyLines && !createMutation.isPending;
 
   function resetForm() {
     setTopic("");
@@ -101,6 +149,7 @@ export function EditorialCardsCard() {
     setDiscussionHooks("");
     setTriggers("");
     setSingleUse(false);
+    setFacts(EMPTY_ACTIVE_CARD);
   }
 
   function openConfirm() {
@@ -121,17 +170,26 @@ export function EditorialCardsCard() {
         discussion_hooks: splitLines(discussionHooks),
         triggers: splitLines(triggers),
         expires_at: null,
-        single_use: singleUse
+        single_use: singleUse,
+        ...activeCardCreateFields(facts)
       },
       { onSuccess: resetForm }
     );
   }
 
-  // Design D4: GET returns every status, the UI filters to draft/armed —
-  // terminal cards stay counts-only via editorial_cards_by_status in MemoryCard.
-  const visibleCards = (cardsQuery.data?.cards ?? []).filter(
-    (card) => card.status === "draft" || card.status === "armed"
-  );
+  // GET returns every status; the filter splits live cards (draft/armed/active)
+  // from terminal ones (used/expired — disable produces expired).
+  const allCards = cardsQuery.data?.cards ?? [];
+  const counts: Record<CardStatusFilter, number> = {
+    active: allCards.filter((card) => matchesFilter(card.status, "active")).length,
+    disabled: allCards.filter((card) => matchesFilter(card.status, "disabled")).length,
+    all: allCards.length
+  };
+  const visibleCards = allCards.filter((card) => matchesFilter(card.status, filter));
+  const filterOptions = FILTERS.map((value) => ({
+    value,
+    label: t(`controles.editorialCards.filter.${value}`, { count: counts[value] })
+  }));
 
   return (
     <Card className="flex flex-col p-4">
@@ -141,124 +199,175 @@ export function EditorialCardsCard() {
 
       <div className="flex flex-col gap-3.5 pt-3.5">
         <SubCollapsibleSection title={t("controles.editorialCards.create.eyebrow")} persistKey="editorial-create">
-          <div className="space-y-2">
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {t("controles.editorialCards.topic")}
-              <Input
-                aria-label={t("controles.editorialCards.topic")}
-                value={topic}
-                maxLength={TOPIC_MAX}
-                onChange={(event) => setTopic(event.target.value)}
-              />
-            </label>
+          <div className="space-y-4">
+            <section className="space-y-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+                {t("controles.editorialCards.section.content")}
+              </h3>
+              <SectionHint>{t("controles.editorialCards.section.content.hint")}</SectionHint>
+              <label className={fieldLabel}>
+                <span>
+                  {t("controles.editorialCards.topic")}
+                  <RequiredMark />
+                </span>
+                <Input
+                  aria-label={t("controles.editorialCards.topic")}
+                  aria-required="true"
+                  value={topic}
+                  maxLength={TOPIC_MAX}
+                  onChange={(event) => setTopic(event.target.value)}
+                />
+              </label>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {t("controles.editorialCards.summary")}
-              <textarea
-                aria-label={t("controles.editorialCards.summary")}
-                value={summary}
-                maxLength={SUMMARY_MAX}
-                onChange={(event) => setSummary(event.target.value)}
-                rows={3}
-                className={textareaNarrative}
-              />
-            </label>
+              <label className={fieldLabel}>
+                <span>
+                  {t("controles.editorialCards.summary")}
+                  <RequiredMark />
+                </span>
+                <textarea
+                  aria-label={t("controles.editorialCards.summary")}
+                  aria-required="true"
+                  value={summary}
+                  maxLength={SUMMARY_MAX}
+                  onChange={(event) => setSummary(event.target.value)}
+                  rows={3}
+                  className={textareaNarrative}
+                />
+              </label>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {t("controles.editorialCards.streamerTake")}
-              <textarea
-                aria-label={t("controles.editorialCards.streamerTake")}
-                value={streamerTake}
-                maxLength={TAKE_MAX}
-                onChange={(event) => setStreamerTake(event.target.value)}
-                rows={3}
-                className={textareaNarrative}
-              />
-            </label>
+              <label className={fieldLabel}>
+                <span>
+                  {t("controles.editorialCards.streamerTake")}
+                  <RequiredMark />
+                </span>
+                <textarea
+                  aria-label={t("controles.editorialCards.streamerTake")}
+                  aria-required="true"
+                  value={streamerTake}
+                  maxLength={TAKE_MAX}
+                  onChange={(event) => setStreamerTake(event.target.value)}
+                  rows={3}
+                  className={textareaNarrative}
+                />
+              </label>
+            </section>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {t("controles.editorialCards.counterpoints")}
-              <textarea
-                aria-label={t("controles.editorialCards.counterpoints")}
-                value={counterpoints}
-                onChange={(event) => setCounterpoints(event.target.value)}
-                rows={2}
-                className={textareaCompact}
-              />
-            </label>
+            <SubCollapsibleSection
+              title={t("controles.editorialCards.section.conversation")}
+              persistKey="editorial-create-conversation"
+            >
+              <div className="space-y-2">
+                <SectionHint>{t("controles.editorialCards.section.conversation.hint")}</SectionHint>
+                <ListField
+                  label={t("controles.editorialCards.counterpoints")}
+                  value={counterpoints}
+                  onChange={setCounterpoints}
+                />
+                <ListField
+                  label={t("controles.editorialCards.discussionHooks")}
+                  value={discussionHooks}
+                  onChange={setDiscussionHooks}
+                />
+                <ListField label={t("controles.editorialCards.triggers")} value={triggers} onChange={setTriggers} />
+                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-2 p-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[11px] font-semibold text-foreground">
+                      {t("controles.editorialCards.singleUse")}
+                    </span>
+                    <span className="text-xs leading-relaxed text-dim">
+                      {t("controles.editorialCards.singleUse.hint")}
+                    </span>
+                  </div>
+                  <Switch
+                    aria-label={t("controles.editorialCards.singleUse")}
+                    checked={singleUse}
+                    onChange={setSingleUse}
+                  />
+                </div>
+              </div>
+            </SubCollapsibleSection>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {t("controles.editorialCards.discussionHooks")}
-              <textarea
-                aria-label={t("controles.editorialCards.discussionHooks")}
-                value={discussionHooks}
-                onChange={(event) => setDiscussionHooks(event.target.value)}
-                rows={2}
-                className={textareaCompact}
-              />
-            </label>
+            <SubCollapsibleSection
+              title={t("controles.editorialCards.section.limits")}
+              persistKey="editorial-create-limits"
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
+                <SectionHint>{t("controles.editorialCards.section.limits.hint")}</SectionHint>
+                <ActiveCardFactsFields value={facts} onChange={setFacts} />
+                <ActiveCardHelper />
+              </div>
+            </SubCollapsibleSection>
 
-            <label className="flex flex-col gap-1 text-[11px] font-semibold text-dim">
-              {t("controles.editorialCards.triggers")}
-              <textarea
-                aria-label={t("controles.editorialCards.triggers")}
-                value={triggers}
-                onChange={(event) => setTriggers(event.target.value)}
-                rows={2}
-                className={textareaCompact}
-              />
-            </label>
+            <SubCollapsibleSection
+              title={t("controles.editorialCards.section.sponsor")}
+              persistKey="editorial-create-sponsor"
+              defaultOpen={false}
+            >
+              <div className="space-y-2">
+                <SectionHint>{t("controles.editorialCards.section.sponsor.hint")}</SectionHint>
+                <ActiveCardSponsorFields value={facts} onChange={setFacts} />
+              </div>
+            </SubCollapsibleSection>
 
-            <label className="flex items-center gap-2 text-[11px] font-semibold text-dim">
-              <input
-                type="checkbox"
-                aria-label={t("controles.editorialCards.singleUse")}
-                checked={singleUse}
-                onChange={(event) => setSingleUse(event.target.checked)}
-              />
-              {t("controles.editorialCards.singleUse")}
-            </label>
+            <div className="space-y-2">
+              {anyLongLine && (
+                <p role="alert" className="text-xs leading-relaxed text-danger">
+                  {t("controles.editorialCards.lineTooLong.hint")}
+                </p>
+              )}
+              {anyTooManyLines && (
+                <p role="alert" className="text-xs leading-relaxed text-danger">
+                  {t("controles.editorialCards.tooManyLines.hint")}
+                </p>
+              )}
 
-            {anyLongLine && (
-              <p className="text-xs leading-relaxed text-warn">{t("controles.editorialCards.lineTooLong.hint")}</p>
-            )}
-            {anyTooManyLines && (
-              <p className="text-xs leading-relaxed text-warn">{t("controles.editorialCards.tooManyLines.hint")}</p>
-            )}
+              {createMutation.isError && <Alert tone="danger">{cardErrorMessage(createMutation.error)}</Alert>}
+              {createMutation.data && (
+                <p className="text-xs leading-relaxed text-foreground">
+                  {createMutation.data.demoted
+                    ? t("controles.editorialCards.create.success.demoted")
+                    : t("controles.editorialCards.create.success")}
+                </p>
+              )}
 
-            {createMutation.isError && <Alert tone="danger">{cardErrorMessage(createMutation.error)}</Alert>}
-            {createMutation.data && (
-              <p className="text-xs leading-relaxed text-foreground">
-                {createMutation.data.demoted
-                  ? t("controles.editorialCards.create.success.demoted")
-                  : t("controles.editorialCards.create.success")}
-              </p>
-            )}
+              {missingRequired.length > 0 && (
+                <p className="text-xs leading-relaxed text-dim">
+                  {t("controles.editorialCards.required.missing", { fields: missingRequired.join(", ") })}
+                </p>
+              )}
 
-            {confirming ? (
-              <ConfirmFooter
-                active
-                tone="neutral"
-                stages={[
-                  {
-                    message: t("controles.editorialCards.create.confirm", { topic: topic.trim() }),
-                    advanceLabel: t("controles.editorialCards.create.confirm.action")
-                  }
-                ]}
-                onConfirm={handleConfirm}
-                onCancel={() => setConfirming(false)}
-                busy={createMutation.isPending}
-              />
-            ) : (
-              <Button type="button" variant="outline" disabled={!canSubmit} onClick={openConfirm}>
-                {t("controles.editorialCards.create.action")}
-              </Button>
-            )}
+              {confirming ? (
+                <ConfirmFooter
+                  active
+                  tone="neutral"
+                  stages={[
+                    {
+                      message: t("controles.editorialCards.create.confirm", { topic: topic.trim() }),
+                      advanceLabel: t("controles.editorialCards.create.confirm.action")
+                    }
+                  ]}
+                  onConfirm={handleConfirm}
+                  onCancel={() => setConfirming(false)}
+                  busy={createMutation.isPending}
+                />
+              ) : (
+                <Button type="button" variant="outline" disabled={!canSubmit} onClick={openConfirm}>
+                  {t("controles.editorialCards.create.action")}
+                </Button>
+              )}
+            </div>
           </div>
         </SubCollapsibleSection>
 
         <SubCollapsibleSection title={t("controles.editorialCards.list.eyebrow")} persistKey="editorial-list">
           <div className="space-y-2">
+            <Segmented
+              options={filterOptions}
+              value={filter}
+              onChange={setFilter}
+              ariaLabel={t("controles.editorialCards.filter.aria")}
+            />
             {cardsQuery.isError && (
               <p role="alert" className="text-xs leading-relaxed text-danger">
                 {t("controles.editorialCards.list.error")}
@@ -269,36 +378,44 @@ export function EditorialCardsCard() {
               <p className="text-xs leading-relaxed text-foreground">{t("controles.editorialCards.arm.success")}</p>
             )}
 
-            {visibleCards.length === 0 ? (
-              <p className="text-xs text-dim">{t("controles.editorialCards.list.empty")}</p>
+            {cardsQuery.isPending ? null : visibleCards.length === 0 ? (
+              <p className="text-xs text-dim">{t(`controles.editorialCards.list.empty.${filter}`)}</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {visibleCards.map((card) => (
-                  <li
-                    key={card.id}
-                    className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-md border border-border bg-surface-2 p-3"
-                  >
-                    <span className="text-sm text-foreground">{card.topic}</span>
-                    <span className="flex items-center gap-1.5">
-                      <Badge tone={card.status === "armed" ? "info" : "neutral"}>
-                        {card.status === "armed"
-                          ? t("controles.editorialCards.status.armed")
-                          : t("controles.editorialCards.status.draft")}
-                      </Badge>
-                      {card.single_use && <Badge tone="warn">{t("controles.editorialCards.badge.singleUse")}</Badge>}
-                    </span>
-                    {card.status === "draft" && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={armMutation.isPending}
-                        onClick={() => armMutation.mutate(card.id)}
-                      >
-                        {t("controles.editorialCards.arm.action")}
-                      </Button>
-                    )}
-                  </li>
-                ))}
+                {visibleCards.map((card) => {
+                  const terminal = isTerminalStatus(card.status);
+                  const presentation = statusPresentation(card.status);
+                  return (
+                    <li
+                      key={card.id}
+                      data-muted={terminal ? "true" : undefined}
+                      className={cn(
+                        "grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-md border border-border p-3",
+                        terminal ? "bg-transparent opacity-70" : "bg-surface-2"
+                      )}
+                    >
+                      <span className={cn("text-sm", terminal ? "text-muted-foreground" : "text-foreground")}>
+                        {card.topic}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Badge tone={presentation.tone}>{t(presentation.labelKey)}</Badge>
+                        {card.single_use && <Badge tone="warn">{t("controles.editorialCards.badge.singleUse")}</Badge>}
+                        {card.active && <Badge tone="ok">{t("controles.editorialCards.active.badge.active")}</Badge>}
+                      </span>
+                      {card.status === "draft" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={armMutation.isPending}
+                          onClick={() => armMutation.mutate(card.id)}
+                        >
+                          {t("controles.editorialCards.arm.action")}
+                        </Button>
+                      )}
+                      <ActiveCardActions cardId={card.id} active={Boolean(card.active)} terminal={terminal} />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

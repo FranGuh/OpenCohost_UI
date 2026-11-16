@@ -269,7 +269,7 @@ describe("MemoryCard memoria row list + purge (F5)", () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
 
-    expect(await screen.findByText(/Activá un perfil para ver sus memorias/)).toBeInTheDocument();
+    expect(await screen.findByText(/Activa un perfil para ver sus memorias/)).toBeInTheDocument();
     // The null branch replaces both the empty-state message and any rows.
     expect(screen.queryByText(/Kira todavía no guardó memorias/)).not.toBeInTheDocument();
   });
@@ -607,7 +607,7 @@ describe("MemoryCard import section (WU4)", () => {
     // null-profile branch), never a mute disabled button.
     server.use(frozenStatusHandler(1, { active_profile_id: null }));
     renderCard();
-    expect(await screen.findByText(/Activá un perfil para importar memorias/)).toBeInTheDocument();
+    expect(await screen.findByText(/Activa un perfil para importar memorias/)).toBeInTheDocument();
     // The form + submit are replaced by the prompt, not left silently disabled.
     expect(screen.queryByRole("button", { name: "Importar memorias" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Pegar memorias")).not.toBeInTheDocument();
@@ -954,5 +954,205 @@ describe("MemoryCard memoria list — provenance filter chips (Ticket C)", () =>
     await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
     expect(screen.getByText("fijada")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Purgar memorias" })).toBeInTheDocument();
+  });
+});
+
+describe("MemoryCard superseded rows (F3)", () => {
+  const supersededItem = {
+    id: "mem_old",
+    title: "Vieja memoria",
+    created_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T00:00:00+00:00",
+    revision: 1,
+    pinned: false,
+    private: false,
+    inactive: true,
+    imported: false,
+    draft: false,
+    promoted: true,
+    superseded_by: "mem_new"
+  };
+
+  it("shows a 'replaced by a newer memory' badge and a Restore action that clears inactive", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json({ items: [supersededItem] })),
+      http.post(`${API_BASE_URL}/api/memoria/flags`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ok: true });
+      })
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Vieja memoria")).toBeInTheDocument());
+
+    expect(screen.getByText("Reemplazada por una memoria más reciente")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restaurar" }));
+    await waitFor(() =>
+      expect(body).toEqual({ profile_id: "profile-id-default", id: "mem_old", inactive: false })
+    );
+  });
+
+  it("keeps the plain Reactivate label and no badge for a non-superseded inactive row", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/list`, () =>
+        HttpResponse.json({ items: [{ ...supersededItem, superseded_by: null }] })
+      )
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Vieja memoria")).toBeInTheDocument());
+
+    expect(screen.queryByText("Reemplazada por una memoria más reciente")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restaurar" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reactivar" })).toBeInTheDocument();
+  });
+
+  it("hides scrubbed tombstones by default and reveals them when showScrubbed toggle is flipped", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/list`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "mem_valid",
+              title: "Memoria válida activa",
+              created_at: "2026-01-01T00:00:00+00:00",
+              updated_at: "2026-01-01T00:00:00+00:00",
+              revision: 1,
+              pinned: false,
+              private: false,
+              inactive: false,
+              imported: false,
+              draft: false
+            },
+            {
+              id: "mem_scrubbed",
+              title: "",
+              created_at: "2026-01-02T00:00:00+00:00",
+              updated_at: "2026-01-02T00:00:00+00:00",
+              revision: 1,
+              pinned: false,
+              private: false,
+              inactive: true,
+              imported: false,
+              draft: true
+            }
+          ]
+        })
+      )
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Memoria válida activa")).toBeInTheDocument());
+
+    // By default, the empty tombstone is hidden from view
+    expect(screen.queryByText("(Borrador descartado sin texto)")).not.toBeInTheDocument();
+    expect(screen.getByText("Mostrar descartadas (1)")).toBeInTheDocument();
+
+    // Flip the switch to reveal scrubbed tombstones
+    const scrubbedSwitch = screen.getByRole("switch", { name: "Mostrar descartadas (1)" });
+    fireEvent.click(scrubbedSwitch);
+
+    await waitFor(() => expect(screen.getByText("(Borrador descartado sin texto)")).toBeInTheDocument());
+  });
+});
+
+describe("MemoryCard stats race, edit error & import profile isolation (MEDIUM)", () => {
+  it("waits for /api/status to settle before fetching stats (never fires premature global stats request)", async () => {
+    let releaseStatus!: () => void;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    const requestedUrls: string[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, async () => {
+        await statusGate;
+        return HttpResponse.json({
+          is_ready: true,
+          current_model: "qwen3-tts",
+          is_speaking: false,
+          is_processing: false,
+          active_profile: "akira",
+          active_profile_id: "30ea444e-akira",
+          provider: "local",
+          transport: "local",
+          fallback_active: false,
+          session_mode: "inactiva",
+          state_version: 1
+        });
+      }),
+      http.get(`${API_BASE_URL}/api/memoria/stats`, ({ request }) => {
+        requestedUrls.push(request.url);
+        return HttpResponse.json(defaultMemoriaStats);
+      })
+    );
+
+    renderCard();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(requestedUrls).toEqual([]);
+
+    releaseStatus();
+    await waitFor(() => expect(requestedUrls.length).toBe(1));
+    expect(requestedUrls[0]).toContain("profile_id=30ea444e-akira");
+  });
+
+  it("renders rowQuery.isError alert inside MemoriaRow edit mode when GET /api/memoria/row fails", async () => {
+    server.use(memoriaRowNotFoundHandler());
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver" }));
+    await waitFor(() => expect(screen.getByText("Título memoria A")).toBeInTheDocument());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("memoria not found"));
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
+  });
+
+  it("resets MemoriaImportSection confirming, draft content, and result state when active_profile_id switches", async () => {
+    let activeId = "profile-a";
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          is_ready: true,
+          current_model: "qwen3-tts",
+          is_speaking: false,
+          is_processing: false,
+          active_profile: activeId,
+          active_profile_id: activeId,
+          provider: "local",
+          transport: "local",
+          fallback_active: false,
+          session_mode: "inactiva",
+          state_version: 1
+        })
+      ),
+      http.post(`${API_BASE_URL}/api/memoria/import`, () => HttpResponse.json(defaultMemoriaImport))
+    );
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(MemoryCard)));
+
+    // 1. Open confirm dialog on profile-a, then switch to profile-b.
+    await screen.findByRole("button", { name: "Importar memorias" });
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* memoria de A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    expect(screen.getByText(/Vas a importar memorias/)).toBeInTheDocument();
+
+    activeId = "profile-b";
+    await queryClient.invalidateQueries({ queryKey: ["status"] });
+
+    await waitFor(() => expect(screen.queryByText(/Vas a importar memorias/)).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Pegar memorias")).toHaveValue("");
+
+    // 2. Complete an import on profile-b, then switch to profile-c -> stale import summary clears.
+    fireEvent.change(screen.getByLabelText("Pegar memorias"), { target: { value: "* memoria de B" } });
+    fireEvent.click(screen.getByRole("button", { name: "Importar memorias" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar" }));
+    await waitFor(() => expect(screen.getByText(/Se importaron 3/)).toBeInTheDocument());
+
+    activeId = "profile-c";
+    await queryClient.invalidateQueries({ queryKey: ["status"] });
+
+    await waitFor(() => expect(screen.queryByText(/Se importaron 3/)).not.toBeInTheDocument());
   });
 });

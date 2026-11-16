@@ -541,6 +541,114 @@ fn red_install_boundary_rejects_root_descendants_before_creation() {
 }
 
 #[test]
+fn red_embedded_runtime_never_reports_install_dir_as_data_root() {
+    let root = test_root("embedded-runtime-boundary");
+    let local = root.join("local");
+    let exe_dir = local.join("OpenCohost");
+    let embedded_python = exe_dir.join("resources/runtime/python/python.exe");
+    fs::create_dir_all(embedded_python.parent().unwrap()).unwrap();
+    fs::write(&embedded_python, b"fixture").unwrap();
+
+    let status = inspect_runtime_at(Some(&exe_dir), &MemoryHandoff::default());
+    assert_eq!(status.phase, FirstRunPhase::Ready);
+    assert!(status.launchable);
+    assert_eq!(status.install_id.as_deref(), Some("embedded-install"));
+
+    let runtime_root = exe_dir.join("resources/runtime");
+    assert_ne!(
+        status.data_root.as_deref(),
+        Some(runtime_root.to_string_lossy().as_ref())
+    );
+    let data_root = PathBuf::from(status.data_root.as_ref().expect("data_root must be present"));
+    assert!(
+        !data_root.starts_with(&exe_dir),
+        "data_root {} must not be inside install dir {}",
+        data_root.display(),
+        exe_dir.display()
+    );
+    let default_root = PathBuf::from(
+        status
+            .default_data_root
+            .as_ref()
+            .expect("default_data_root must be present"),
+    );
+    assert!(
+        !default_root.starts_with(&exe_dir),
+        "default_data_root {} must not be inside install dir {}",
+        default_root.display(),
+        exe_dir.display()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn red_inspect_runtime_at_rejects_handoff_inside_install_without_preselecting_invalid_root() {
+    let root = test_root("inspect-handoff-boundary");
+    let exe_dir = root.join("local/OpenCohost");
+    fs::create_dir_all(&exe_dir).unwrap();
+
+    // Non-embedded handoff pointing inside exe_dir
+    let handoff = MemoryHandoff::default();
+    handoff
+        .write_values(&[
+            ("DataRoot".into(), exe_dir.join("data").to_string_lossy().into_owned()),
+            ("InstallId".into(), "install-123".into()),
+        ])
+        .unwrap();
+    let status = inspect_runtime_at(Some(&exe_dir), &handoff);
+    assert_eq!(status.phase, FirstRunPhase::Degraded);
+    assert!(!status.launchable);
+    assert_eq!(status.error_code.as_deref(), Some("data_root_inside_install"));
+    assert!(status.data_root.is_none());
+
+    // Embedded runtime present + handoff pointing inside exe_dir
+    let embedded_python = exe_dir.join("resources/runtime/python/python.exe");
+    fs::create_dir_all(embedded_python.parent().unwrap()).unwrap();
+    fs::write(&embedded_python, b"fixture").unwrap();
+    let embedded_handoff = MemoryHandoff::default();
+    embedded_handoff
+        .write_values(&[
+            (
+                "DataRoot".into(),
+                exe_dir
+                    .join("resources/runtime")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            ("InstallId".into(), "install-123".into()),
+        ])
+        .unwrap();
+    let embedded_status = inspect_runtime_at(Some(&exe_dir), &embedded_handoff);
+    assert_eq!(embedded_status.phase, FirstRunPhase::Degraded);
+    assert!(!embedded_status.launchable);
+    assert_eq!(
+        embedded_status.error_code.as_deref(),
+        Some("data_root_inside_install")
+    );
+    assert!(embedded_status.data_root.is_none());
+
+    // Embedded runtime + incomplete handoff (missing InstallId) must also degrade safely
+    let incomplete_handoff = MemoryHandoff::default();
+    incomplete_handoff
+        .write_values(&[(
+            "DataRoot".into(),
+            exe_dir.join("data").to_string_lossy().into_owned(),
+        )])
+        .unwrap();
+    let incomplete_status = inspect_runtime_at(Some(&exe_dir), &incomplete_handoff);
+    assert_eq!(incomplete_status.phase, FirstRunPhase::Degraded);
+    assert!(!incomplete_status.launchable);
+    assert_eq!(
+        incomplete_status.error_code.as_deref(),
+        Some("invalid_handoff")
+    );
+    assert!(incomplete_status.data_root.is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn red_provisioning_failure_does_not_expose_secret_diagnostics() {
     let controller = ProvisioningController::new();
     controller
@@ -1012,6 +1120,7 @@ fn real_production_lifecycle_uses_provisioner_manifest_and_health_gate() {
     };
     let config = ProvisionerConfig {
         data_root: root.clone(),
+        msvc_crt_dir: None,
         install_id: "real-lifecycle-install".into(),
         app_module: "opencohost.api.main:app".into(),
         preferred_port: 18765,
@@ -1078,4 +1187,276 @@ fn wait_for_idle(controller: &ProvisioningController) {
 
 fn test_root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("opencohost-wu3b-{name}-{}", std::process::id()))
+}
+
+struct MockArtifactSource {
+    bytes: BTreeMap<String, Vec<u8>>,
+}
+
+impl ArtifactSource for MockArtifactSource {
+    fn fetch(
+        &self,
+        artifact: &ArtifactSpec,
+        destination: &Path,
+        deadline: &ProvisionDeadline,
+        cancel: &CancellationToken,
+    ) -> Result<(), ProvisionError> {
+        deadline.check(cancel)?;
+        fs::write(
+            destination,
+            self.bytes.get(&artifact.name).cloned().unwrap_or_default(),
+        )
+        .map_err(Into::into)
+    }
+}
+
+struct MockProcessRunner;
+
+impl ProcessRunner for MockProcessRunner {
+    fn run(
+        &self,
+        _program: &Path,
+        args: &[String],
+        _cwd: &Path,
+        env: &BTreeMap<String, String>,
+        cancel: &CancellationToken,
+        deadline: &ProvisionDeadline,
+    ) -> Result<ProcessOutput, ProvisionError> {
+        deadline.check(cancel)?;
+        if args.first().is_some_and(|arg| arg == "python") {
+            if let Some(index) = args.iter().position(|arg| arg == "--install-dir") {
+                let dir = PathBuf::from(&args[index + 1]);
+                let versioned = dir.join("cpython-3.12.4-windows-x86_64-none");
+                fs::create_dir_all(&versioned).unwrap();
+                fs::write(versioned.join("python.exe"), b"python").unwrap();
+            }
+            if args.get(1).is_some_and(|arg| arg == "find") {
+                let install_dir = PathBuf::from(env.get("UV_PYTHON_INSTALL_DIR").unwrap());
+                let exe = install_dir.join("cpython-3.12.4-windows-x86_64-none/python.exe");
+                return Ok(ProcessOutput {
+                    status: 0,
+                    stdout: format!("{}\n", exe.display()),
+                    stderr: String::new(),
+                });
+            }
+        }
+        if args.first().is_some_and(|arg| arg == "sync") {
+            let venv = PathBuf::from(env.get("UV_PROJECT_ENVIRONMENT").unwrap());
+            let bin_dir = venv.join(if cfg!(windows) { "Scripts" } else { "bin" });
+            fs::create_dir_all(&bin_dir).unwrap();
+            fs::write(
+                bin_dir.join(if cfg!(windows) {
+                    "python.exe"
+                } else {
+                    "python"
+                }),
+                b"venv-python",
+            )
+            .unwrap();
+            fs::write(
+                venv.join("pyvenv.cfg"),
+                format!("home = {}\n", env.get("UV_PYTHON_INSTALL_DIR").unwrap()),
+            )
+            .unwrap();
+        }
+        Ok(ProcessOutput {
+            status: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+}
+
+struct SeedingHealthChecker {
+    saw_user_profile_before_seed: Arc<std::sync::atomic::AtomicBool>,
+    saw_user_voice_before_seed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl HealthChecker for SeedingHealthChecker {
+    fn check(
+        &self,
+        _project_dir: &Path,
+        _python_executable: &Path,
+        env: &BTreeMap<String, String>,
+        cancel: &CancellationToken,
+        deadline: &ProvisionDeadline,
+    ) -> Result<(), ProvisionError> {
+        deadline.check(cancel)?;
+        let data_root = PathBuf::from(
+            env.get("OPENCOHOST_DATA_ROOT")
+                .expect("OPENCOHOST_DATA_ROOT must be passed to health check"),
+        );
+        let profiles_path = data_root.join("perfiles.json");
+        let voice_path = data_root.join("config/piper_voice.json");
+        self.saw_user_profile_before_seed.store(
+            profiles_path.is_file(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        self.saw_user_voice_before_seed
+            .store(voice_path.is_file(), std::sync::atomic::Ordering::SeqCst);
+        if !profiles_path.exists() {
+            fs::write(
+                &profiles_path,
+                br#"{"profiles":{"default":{"name":"SeededDefault"}}}"#,
+            )
+            .unwrap();
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn provisioning_adopts_non_memory_legacy_state_before_health_check_seeds_defaults() {
+    use sha2::{Digest, Sha256};
+
+    let root = test_root("t3-pre-health-adoption");
+    let _ = fs::remove_dir_all(&root);
+    let exe_dir = root.join("OpenCohost");
+    let resource_dir = exe_dir.join("resources");
+    let legacy_runtime = resource_dir.join("runtime");
+    let data_root = root.join("OpenCohostData");
+
+    fs::create_dir_all(legacy_runtime.join("opencohost")).unwrap();
+    fs::create_dir_all(legacy_runtime.join("python")).unwrap();
+    fs::create_dir_all(legacy_runtime.join("config")).unwrap();
+    fs::create_dir_all(legacy_runtime.join("data/memorias")).unwrap();
+    fs::create_dir_all(&data_root).unwrap();
+
+    fs::write(legacy_runtime.join("python/python.exe"), b"legacy-python").unwrap();
+    fs::write(legacy_runtime.join("opencohost/__init__.py"), b"").unwrap();
+    let user_profiles = br#"{"profiles":{"owner":{"name":"OwnerVoice"}}}"#;
+    let user_voice = br#"{"voice":"es_ES-davefx-medium"}"#;
+    fs::write(legacy_runtime.join("perfiles.json"), user_profiles).unwrap();
+    fs::write(legacy_runtime.join("config/piper_voice.json"), user_voice).unwrap();
+    fs::write(
+        legacy_runtime.join("data/memorias/memorias.db"),
+        b"legacy-memory-omitted",
+    )
+    .unwrap();
+
+    let uv_bytes = b"uv-binary".to_vec();
+    let engine_bytes = b"engine-payload".to_vec();
+    let digest = |bytes: &[u8]| {
+        let mut hash = Sha256::new();
+        hash.update(bytes);
+        format!("{:x}", hash.finalize())
+    };
+    let bootstrap = BootstrapManifest {
+        schema_version: BOOTSTRAP_SCHEMA_VERSION,
+        product_version: "0.5.0".into(),
+        python_version: "3.12.4".into(),
+        allowed_hosts: vec!["local.test".into()],
+        uv: ArtifactSpec {
+            name: "uv".into(),
+            version: "0.11.6".into(),
+            source: "https://local.test/uv.exe".into(),
+            sha256: digest(&uv_bytes),
+            kind: ArtifactKind::File,
+            expected_size: uv_bytes.len() as u64,
+            max_size: uv_bytes.len() as u64,
+        },
+        engine: ArtifactSpec {
+            name: "engine".into(),
+            version: "0.5.0".into(),
+            source: "https://local.test/engine.bin".into(),
+            sha256: digest(&engine_bytes),
+            kind: ArtifactKind::File,
+            expected_size: engine_bytes.len() as u64,
+            max_size: engine_bytes.len() as u64,
+        },
+    };
+    let config = ProvisionerConfig {
+        data_root: data_root.clone(),
+        msvc_crt_dir: None,
+        install_id: "t3-pre-health-install".into(),
+        app_module: "opencohost.api.main:app".into(),
+        preferred_port: 18765,
+        fallback_port: 18770,
+        bootstrap,
+        max_download_retries: 1,
+        retry_backoff: Duration::ZERO,
+        python_executable_name: "python.exe".into(),
+        operation_timeout: Duration::from_secs(30),
+    };
+
+    let saw_profile = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let saw_voice = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let candidates = legacy_runtime_candidates(Some(&resource_dir), Some(&exe_dir));
+
+    run_production_provisioning(
+        config,
+        &candidates,
+        MockArtifactSource {
+            bytes: BTreeMap::from([("uv".into(), uv_bytes), ("engine".into(), engine_bytes)]),
+        },
+        MockProcessRunner,
+        SeedingHealthChecker {
+            saw_user_profile_before_seed: saw_profile.clone(),
+            saw_user_voice_before_seed: saw_voice.clone(),
+        },
+        NoopProgress,
+        CancellationToken::new(),
+    )
+    .expect("provisioning with pre-health legacy adoption must succeed");
+
+    assert!(
+        saw_profile.load(std::sync::atomic::Ordering::SeqCst),
+        "user perfiles.json must be adopted before PythonHealthChecker::check runs"
+    );
+    assert!(
+        saw_voice.load(std::sync::atomic::Ordering::SeqCst),
+        "user config/piper_voice.json must be adopted before PythonHealthChecker::check runs"
+    );
+    assert_eq!(
+        fs::read(data_root.join("perfiles.json")).unwrap(),
+        user_profiles,
+        "seeded defaults must not shadow adopted user perfiles.json"
+    );
+    assert_eq!(
+        fs::read(data_root.join("config/piper_voice.json")).unwrap(),
+        user_voice
+    );
+    assert!(
+        !data_root.join("data/memorias/memorias.db").exists(),
+        "memories must still be omitted by pre-health adoption"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn adopt_legacy_from_dirs_skips_non_runtime_dirs_and_adopts_venv_layout() {
+    let root = test_root("t3-adopt-candidates");
+    let _ = fs::remove_dir_all(&root);
+    let incomplete = root.join("incomplete");
+    let valid_venv = root.join("valid-venv");
+    let data_root = root.join("data_root");
+
+    fs::create_dir_all(incomplete.join("opencohost")).unwrap();
+    fs::write(incomplete.join("perfiles.json"), b"should-ignore").unwrap();
+
+    fs::create_dir_all(valid_venv.join("opencohost")).unwrap();
+    fs::create_dir_all(valid_venv.join("venv/Scripts")).unwrap();
+    fs::write(valid_venv.join("venv/Scripts/python.exe"), b"py").unwrap();
+    fs::write(valid_venv.join("perfiles.json"), b"venv-owner-profile").unwrap();
+    fs::create_dir_all(&data_root).unwrap();
+
+    let deduped = legacy_runtime_candidates(Some(&root), Some(&root));
+    assert_eq!(
+        deduped
+            .iter()
+            .filter(|path| **path == root.join("runtime"))
+            .count(),
+        1,
+        "identical runtime candidates from resource_dir and exe_dir must be deduplicated"
+    );
+
+    adopt_legacy_from_dirs(&[incomplete, valid_venv], &data_root).unwrap();
+
+    assert_eq!(
+        fs::read(data_root.join("perfiles.json")).unwrap(),
+        b"venv-owner-profile"
+    );
+
+    let _ = fs::remove_dir_all(&root);
 }

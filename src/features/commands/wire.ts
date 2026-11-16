@@ -6,6 +6,7 @@ import type {
   CohostProfileSaveRequest
 } from "../../api/agenda.js";
 import { ApiError, ConflictError, ValidationError } from "../../api/client.js";
+import { primaryLocale } from "../../api/profiles.js";
 import type { MusicMoodResponse } from "../../api/music.js";
 import type { StreamChatLiveResponse, StreamLimitsRequest } from "../../api/stream.js";
 import { StreamConnectTimeoutError } from "../../api/stream.js";
@@ -259,21 +260,29 @@ export const SAFETY_WIRE: Record<string, string> = wireMap(SAFETY_VOCAB);
 
 /** Builds the `POST /api/agenda/cohost-profiles` body (R16) — the cohost
  * IDENTITY, never the LLM persona (`POST /api/perfiles`). */
-export function toCohostProfileRequest(values: Record<string, StepValue>): CohostProfileSaveRequest {
+export function toCohostProfileRequest(
+  values: Record<string, StepValue>,
+  locale?: string
+): CohostProfileSaveRequest {
+  const trimmedLocale = locale?.trim();
+  const normalizedLocale = trimmedLocale ? primaryLocale(trimmedLocale) : "";
   return {
     name: ((values.nombre as string | undefined) ?? "").trim(),
-    style: ((values.estilo as string | undefined) ?? "").trim()
+    style: ((values.estilo as string | undefined) ?? "").trim(),
+    ...(normalizedLocale ? { locale: normalizedLocale } : {})
   };
 }
 
 /** Builds the `PUT /api/agenda/session` body (R17) — `turnos` cast to int,
  * `safety_mode` mapped via SAFETY_WIRE (R19), `rhythm` passed through (already a
- * canonical/alias value). */
+ * canonical/alias value), and optional live `profile.style` when provided. */
 export function toAgendaSessionRequest(values: Record<string, StepValue>): AgendaSessionRequest {
+  const style = ((values.estilo as string | undefined) ?? "").trim();
   return {
     max_turns_per_topic: Number.parseInt(values.turnos as string, 10),
     safety_mode: SAFETY_WIRE[values.modo as string] ?? "live_safe",
-    rhythm: values.ritmo as string
+    rhythm: values.ritmo as string,
+    ...(style ? { profile: { style } } : {})
   };
 }
 

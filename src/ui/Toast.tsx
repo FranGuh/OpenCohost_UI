@@ -77,6 +77,11 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
+/** Like useToast, but null outside a <ToastProvider> (for components also rendered standalone). */
+export function useOptionalToast(): ToastContextValue | null {
+  return useContext(ToastContext);
+}
+
 // --- Provider ---
 
 export interface ToastProviderProps {

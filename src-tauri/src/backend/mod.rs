@@ -1,7 +1,12 @@
 pub mod config;
 pub mod diagnostics;
 pub mod health;
+pub mod identity;
+pub(crate) mod legacy_state;
+pub mod prefs;
 pub mod ptt;
+pub mod shell_log;
+pub mod shutdown;
 pub mod supervisor;
 pub mod token;
 
@@ -18,7 +23,9 @@ pub use diagnostics::{
     BackendDiagnostic, SpawnFailureFacts, ENGINE_MISSING_MARKER, LOG_TAIL_BYTES,
     UVICORN_MISSING_MARKERS,
 };
-pub use health::{decide_action, probe_health, HealthProbe, PortChoice, ResolveAction};
+pub use health::{
+    decide_action, probe_health, probe_health_for, HealthProbe, PortChoice, ResolveAction,
+};
 pub use ptt::{spawn_ptt_bridge, spawn_ptt_bridge_process, PttBridge};
 pub use supervisor::*;
 pub use token::*;

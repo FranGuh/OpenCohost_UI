@@ -3,8 +3,20 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import { Card } from "../../ui/Card.js";
 import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
+import { Select } from "../../ui/Select.js";
+import { Switch } from "../../ui/Switch.js";
+import { ExternalLink } from "lucide-react";
+import { openExternalUrl } from "../../lib/openUrl.js";
+
+export const LIVEAUDIO_DOWNLOAD_URL = "https://liveaudio.opencohost.com/?utm_source=opencohost";
 import { cn } from "../../lib/cn.js";
-import { usePttHold, useTestPttConnectionMutation, useUpdatePttConfigMutation, usePttStateQuery } from "../../api/ptt.js";
+import {
+  usePttHold,
+  useTestPttConnectionMutation,
+  useUpdatePttConfigMutation,
+  usePttStateQuery,
+  type PttDictationMode
+} from "../../api/ptt.js";
 import { errorCopy, stateCopy } from "../experiencia/pttCopy.js";
 import { useLastReply } from "../../api/chat.js";
 import { useT, type TKey } from "../../i18n/t.js";
@@ -37,6 +49,20 @@ function isTypingTarget(target: EventTarget | null): boolean {
 // class that forced CTK's guillotine. The in-app hold below delivers 100% of
 // the backend value; the shortcut later just calls the same usePttHold
 // start/stop — zero backend change. "Mapear atajo" stays disabled.
+export const PTT_HOTKEY_OPTIONS = [
+  "F1", "F2", "F3", "F4", "F5", "F6",
+  "F7", "F8", "F9", "F10", "F11", "F12",
+  "Insert", "ScrollLock", "Pause",
+  "Mouse4", "Mouse5",
+] as const;
+
+/** Dictation mode choices (ptt-dictation-20261111), in display order. */
+const DICTATION_MODES: ReadonlyArray<{ value: PttDictationMode; label: TKey }> = [
+  { value: "send", label: "controles.ptt.dictation.option.send" },
+  { value: "foreground", label: "controles.ptt.dictation.option.foreground" },
+  { value: "always", label: "controles.ptt.dictation.option.always" }
+];
+
 export function PTTCard() {
   const t = useT();
   const { state, error, start, stop } = usePttHold();
@@ -220,17 +246,52 @@ export function PTTCard() {
           </p>
         )}
 
+        <section aria-labelledby="ptt-dictation-label" className="space-y-2">
+          <span id="ptt-dictation-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            {t("controles.ptt.dictation.eyebrow")}
+          </span>
+          <Select
+            aria-label={t("controles.ptt.dictation.eyebrow")}
+            value={pttState.data?.dictation_mode ?? "send"}
+            disabled={updateWsConfig.isPending}
+            options={DICTATION_MODES.map((mode) => ({ value: mode.value, label: t(mode.label) }))}
+            onChange={(mode) => updateWsConfig.mutate({ dictation_mode: mode as PttDictationMode })}
+          />
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.ptt.dictation.hint")}</p>
+          {/* Only meaningful in `always` mode (a companion hold never has the
+              main window's focus), so it stays visible but disabled otherwise. */}
+          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+            <span className="text-[13px] text-foreground">
+              {t("controles.ptt.companionDictation.label")}
+            </span>
+            <Switch
+              aria-label={t("controles.ptt.companionDictation.label")}
+              checked={pttState.data?.companion_dictation ?? false}
+              disabled={updateWsConfig.isPending || (pttState.data?.dictation_mode ?? "send") !== "always"}
+              onChange={(next) => updateWsConfig.mutate({ companion_dictation: next })}
+            />
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.ptt.companionDictation.hint")}</p>
+        </section>
+
         <section aria-labelledby="ptt-hotkey-label" className="space-y-2">
           <span id="ptt-hotkey-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
             {t("controles.ptt.hotkey.eyebrow")}
           </span>
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-            <kbd className="mono w-fit rounded-[6px] border border-border bg-card px-2 py-[3px] text-xs text-foreground">
-              F10
+            <Select
+              aria-label={t("controles.ptt.hotkey.eyebrow")}
+              value={pttState.data?.hotkey ?? "F10"}
+              disabled={updateWsConfig.isPending}
+              options={PTT_HOTKEY_OPTIONS.map((key) => ({
+                value: key,
+                label: key === "F10" ? `${key} · ${t("controles.ptt.hotkey.default")}` : key,
+              }))}
+              onChange={(key) => updateWsConfig.mutate({ hotkey: key })}
+            />
+            <kbd className="mono flex h-11 w-fit items-center rounded-md border border-border bg-surface-2 px-3 text-sm font-semibold text-foreground">
+              {pttState.data?.hotkey ?? "F10"}
             </kbd>
-            <Button type="button" variant="outline" disabled title={t("controles.ptt.hotkey.mapButton.hint")}>
-              {t("controles.ptt.hotkey.mapButton.action")}
-            </Button>
           </div>
           <p role="status" className="text-xs text-muted-foreground">
             {t("controles.ptt.hotkey.desktopOnly.hint")}
@@ -239,16 +300,33 @@ export function PTTCard() {
 
         <section aria-labelledby="ptt-liveaudio-label" className="space-y-3 border-t border-border-soft pt-3.5">
           <span id="ptt-liveaudio-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-            LiveAudio (WhisperLive)
+            LiveAudio (STT)
           </span>
 
           {/* LiveAudio is a separate download, not something OpenCohost ships or
               starts. Without that note the URL field reads like an optional
               tuning knob, and the owner is left wondering why Kira can't hear
               them. */}
-          <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-            {t("controles.ptt.liveAudio.separateApp.hint")}
-          </p>
+          <div className="flex flex-col gap-2.5">
+            <p role="status" className="text-xs leading-relaxed text-muted-foreground">
+              {t("controles.ptt.liveAudio.separateApp.hint")}
+            </p>
+            <div>
+              <a
+                href={LIVEAUDIO_DOWNLOAD_URL}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternalUrl(LIVEAUDIO_DOWNLOAD_URL);
+                }}
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-4 text-sm font-semibold text-foreground transition-colors duration-fast ease-io hover:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                {t("controles.ptt.liveAudio.download")}
+                <ExternalLink size={14} aria-hidden="true" />
+              </a>
+            </div>
+          </div>
 
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
             <span className="text-[13px] text-foreground">{t("controles.ptt.wsUrl.active.label")}</span>
@@ -288,6 +366,24 @@ export function PTTCard() {
           )}
           {testWsConnection.data && (
             <Alert tone={testWsConnection.data.ok ? "ok" : "danger"}>{testWsConnection.data.detail}</Alert>
+          )}
+          {(error === "stt_unreachable" || testWsConnection.isError || (testWsConnection.data && !testWsConnection.data.ok)) && (
+            <Alert tone="warn">
+              <span>{t("controles.ptt.liveAudio.unavailable")}</span>{" "}
+              <a
+                href={LIVEAUDIO_DOWNLOAD_URL}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void openExternalUrl(LIVEAUDIO_DOWNLOAD_URL);
+                }}
+                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                {t("controles.ptt.liveAudio.download")}
+                <ExternalLink size={12} aria-hidden="true" />
+              </a>
+            </Alert>
           )}
         </section>
       </div>

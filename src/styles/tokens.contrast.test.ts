@@ -93,3 +93,34 @@ describe("studio theme contrast (WCAG AA)", () => {
     expect(contrastRatio(end, WHITE)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
   });
 });
+
+function kiraAuroraTokenHex(name: string): string {
+  const block = tokensCss.slice(tokensCss.indexOf('[data-theme="kira-aurora"]'));
+  const match = block.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
+  if (!match) {
+    throw new Error(`token --${name} not found in [data-theme="kira-aurora"] block`);
+  }
+  return match[1];
+}
+
+describe("kira-aurora theme contrast (WCAG AA)", () => {
+  const CARD_BG = "#11182b";
+  const VOID_BG = "#080b14";
+
+  it("foreground meets AA (>=4.5:1) against card and canvas", () => {
+    const fg = kiraAuroraTokenHex("foreground");
+    expect(contrastRatio(fg, CARD_BG)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+    expect(contrastRatio(fg, VOID_BG)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it.each(["ok", "warn", "danger", "info"])("--%s meets 4.5:1 against card surface", (name) => {
+    const hex = kiraAuroraTokenHex(name);
+    expect(contrastRatio(hex, CARD_BG)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+
+  it("primary action button meets AA contrast with its foreground", () => {
+    const primary = kiraAuroraTokenHex("primary");
+    const primaryFg = kiraAuroraTokenHex("primary-foreground");
+    expect(contrastRatio(primary, primaryFg)).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
+  });
+});

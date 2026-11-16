@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Minus, Square, X } from "lucide-react";
 import { BrandMark } from "../../ui/BrandMark.js";
 import { useT } from "../../i18n/t.js";
+import { openExternalUrl } from "../../lib/openUrl.js";
 
 type WindowAction = "minimize" | "toggleMaximize" | "close";
 
@@ -12,6 +13,10 @@ async function runWindowAction(action: WindowAction): Promise<void> {
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow()[action]();
+    if (action === "minimize") {
+      const { reconcileDesktop } = await import("../desktop-companion/desktopClient.js");
+      await reconcileDesktop().catch(() => {});
+    }
   } catch {
     // ponytail: outside Tauri there is no window to drive; no-op.
   }
@@ -35,7 +40,8 @@ function WindowButton({ label, icon, onClick, variant = "ghost" }: WindowButtonP
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors ${hover}`}
+      style={{ WebkitAppRegion: "no-drag" }}
+      className={`relative z-20 inline-flex h-full w-12 items-center justify-center text-muted-foreground transition-colors ${hover}`}
     >
       {icon}
     </button>
@@ -47,6 +53,10 @@ function WindowButton({ label, icon, onClick, variant = "ghost" }: WindowButtonP
  * they appear only once the app is ready — during boot the slot stays empty and
  * the bar shows brand + window buttons only. */
 export const TITLEBAR_APP_CONTROLS_SLOT_ID = "oc-titlebar-app-controls";
+
+/** Portal target id for the avatar-stage controls (framing, animation test,
+ * desktop mode). AppLayout portals them in only while the stage view is active. */
+export const TITLEBAR_STAGE_CONTROLS_SLOT_ID = "oc-titlebar-stage-controls";
 
 /**
  * The single merged window bar for the frameless (decorations:false) Tauri
@@ -85,8 +95,13 @@ export function TitleBar() {
               href="https://github.com/franguh"
               target="_blank"
               rel="noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                void openExternalUrl("https://github.com/franguh");
+              }}
               aria-label={t("shell.titleBar.credit")}
-              className="pointer-events-auto normal-case tracking-normal transition-colors duration-fast ease-io hover:text-[var(--kira-cyan)] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              style={{ WebkitAppRegion: "no-drag" }}
+              className="pointer-events-auto relative z-20 normal-case tracking-normal transition-colors duration-fast ease-io hover:text-[var(--kira-cyan)] focus-visible:rounded-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ring"
             >
               {t("shell.titleBar.credit")}
             </a>
@@ -94,14 +109,30 @@ export function TitleBar() {
         </div>
       </div>
 
+      {/* Avatar-stage controls portal in here (empty elsewhere, so it takes no
+          space). NOT a drag region: its interactive children keep their clicks;
+          the empty bar around it still drags. */}
+      <div
+        id={TITLEBAR_STAGE_CONTROLS_SLOT_ID}
+        style={{ WebkitAppRegion: "no-drag" }}
+        className="relative z-40 flex min-w-0 shrink-0 items-center gap-2"
+      />
+
       {/* Drag space — the big grab zone between brand and controls. */}
       <div data-tauri-drag-region className="h-full flex-1" />
 
       {/* App controls (StatusRail + SettingsPopover) portal in here past the
           gate. NOT a drag region: its interactive children must keep clicks. */}
-      <div id={TITLEBAR_APP_CONTROLS_SLOT_ID} className="flex min-w-0 items-center gap-3" />
+      <div
+        id={TITLEBAR_APP_CONTROLS_SLOT_ID}
+        style={{ WebkitAppRegion: "no-drag" }}
+        className="relative z-40 flex min-w-0 items-center gap-3"
+      />
 
-      <div className="flex h-full items-center">
+      <div
+        style={{ WebkitAppRegion: "no-drag" }}
+        className="relative z-20 flex h-full items-center"
+      >
         <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-border-soft" />
         <WindowButton
           label={t("shell.titleBar.window.minimize.action")}

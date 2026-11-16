@@ -17,6 +17,8 @@ import {
 } from "../test/handlers.js";
 import { useEngineCommand } from "./engineCommand.js";
 import { MODELS_QUERY_KEY } from "./models.js";
+import { STATUS_QUERY_KEY } from "./status.js";
+import { TTS_CONFIG_QUERY_KEY } from "./tts.js";
 import type { StatusResponse } from "./client.js";
 import { useEventStore } from "../store/eventStore.js";
 
@@ -280,5 +282,141 @@ describe("useEngineCommand immediate failure event resolution (model_switch_fail
     expect(result.current.pending).toBe(false);
     expect(result.current.isFailed).toBe(true);
     expect(result.current.isTimeout).toBe(false);
+  });
+});
+
+describe("useEngineCommand settled invalidation and rollback signals", () => {
+  it("invalidates STATUS, MODELS, and TTS_CONFIG on command error when manualConvergence is false", async () => {
+    server.use(commandConflictHandler());
+    const { queryClient, wrapper } = createWrapperWithClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const onError = vi.fn();
+
+    const { result } = renderHook(() => useEngineCommand(undefined, { onError }), { wrapper });
+
+    let runResult: unknown = "unset";
+    await act(async () => {
+      runResult = await result.current.run("set_piper_voice", "neutral");
+    });
+
+    expect(runResult).toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: STATUS_QUERY_KEY }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: MODELS_QUERY_KEY }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: TTS_CONFIG_QUERY_KEY }));
+  });
+
+  it("does not invalidate TTS_CONFIG in onSettled when manualConvergence is true", async () => {
+    server.use(commandConflictHandler());
+    const { queryClient, wrapper } = createWrapperWithClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result } = renderHook(
+      () => useEngineCommand(undefined, { manualConvergence: true }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.run("set_tts_local_only", false);
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: STATUS_QUERY_KEY }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: TTS_CONFIG_QUERY_KEY }));
+  });
+
+  it("invokes onTimeout when a post-accept command times out and when a stalled POST times out", async () => {
+    vi.useFakeTimers();
+    server.use(neverConvergesStatusHandler());
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-timeout", status: "queued", state_version: 1 })
+      )
+    );
+
+    const onTimeout = vi.fn();
+    const matches = (status: StatusResponse, value: unknown) => status.current_model === value;
+    const { result } = renderHook(() => useEngineCommand(matches, { onTimeout }), {
+      wrapper: createWrapper()
+    });
+
+    await act(async () => {
+      await result.current.run("switch_model", "gemma4:e4b");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+
+    expect(result.current.isTimeout).toBe(true);
+    expect(result.current.pending).toBe(false);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds a stalled POST /api/commands request on default non-manual commands and calls onError + onTimeout", async () => {
+    vi.useFakeTimers();
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, () => new Promise(() => {}))
+    );
+
+    const onError = vi.fn();
+    const onTimeout = vi.fn();
+    const { result } = renderHook(() => useEngineCommand(undefined, { onError, onTimeout }), {
+      wrapper: createWrapper()
+    });
+
+    let settled = false;
+    let runPromise!: Promise<unknown>;
+    await act(async () => {
+      runPromise = result.current.run("set_piper_voice", "neutral").then((res) => {
+        settled = true;
+        return res;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.pending).toBe(true);
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    const runResult = await runPromise;
+
+    expect(settled).toBe(true);
+    expect(runResult).toBeUndefined();
+    expect(result.current.pending).toBe(false);
+    expect(result.current.isError).toBe(true);
+    expect(result.current.isTimeout).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it("invokes onFailed when a failure event resolves pending state", async () => {
+    vi.useFakeTimers();
+    server.use(neverConvergesStatusHandler());
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, () =>
+        HttpResponse.json({ accepted: true, command_id: "cmd-fail-cb", status: "queued", state_version: 1 })
+      )
+    );
+
+    const onFailed = vi.fn();
+    const matches = (status: StatusResponse, value: unknown) => status.current_model === value;
+    const { result } = renderHook(() => useEngineCommand(matches, { onFailed }), {
+      wrapper: createWrapper()
+    });
+
+    await act(async () => {
+      await result.current.run("switch_model", "gemma4:e4b");
+    });
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "evt-failed-cb",
+        ts: Date.now(),
+        source: "motor",
+        action: "model_switch_failed",
+        label: "Fallo al cambiar modelo",
+        tone: "danger"
+      });
+    });
+
+    expect(result.current.isFailed).toBe(true);
+    expect(result.current.pending).toBe(false);
+    expect(onFailed).toHaveBeenCalledTimes(1);
   });
 });

@@ -14,7 +14,7 @@ import {
   defaultLastReply,
   lastReplyHandler
 } from "../test/handlers.js";
-import { useLastReply, useSendChatTurn } from "./chat.js";
+import { useLastReply, useLastReplyByTurn, useSendChatTurn } from "./chat.js";
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -181,7 +181,7 @@ describe("useLastReply", () => {
   afterEach(() => vi.useRealTimers());
 
   it("fetches the shape returned by GET /api/chat/last-reply", async () => {
-    server.use(lastReplyHandler({ text: "todo bien por acá", source: "llm", turn_id: 3, ts: 1000 }));
+    server.use(lastReplyHandler({ text: "todo bien por aquí", source: "llm", turn_id: 3, ts: 1000 }));
     const { result } = renderHook(() => useLastReply(), { wrapper: createWrapper() });
 
     await act(() => vi.advanceTimersByTimeAsync(0));
@@ -191,7 +191,7 @@ describe("useLastReply", () => {
     // tauri_stream_chat_20260812 follow-up: also grew `origin`, null here for
     // the same reason.
     expect(result.current.data).toEqual({
-      text: "todo bien por acá",
+      text: "todo bien por aquí",
       source: "llm",
       turn_id: 3,
       ts: 1000,
@@ -200,7 +200,8 @@ describe("useLastReply", () => {
       answered_by_transport: null,
       submitted_under_provider: null,
       provider_changed_while_queued: null,
-      origin: null
+      origin: null,
+      fragments: null
     });
   });
 
@@ -226,5 +227,46 @@ describe("useLastReply", () => {
 
     await act(() => vi.advanceTimersByTimeAsync(1500));
     expect(calls).toBe(2);
+  });
+});
+
+describe("useLastReplyByTurn", () => {
+  it("fetches GET /api/chat/last-reply?turn_id=N when enabled", async () => {
+    const seen: (string | null)[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/chat/last-reply`, ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get("turn_id"));
+        return HttpResponse.json({ ...defaultLastReply, turn_id: 4, text: "viejo", fragments: ["viejo"] });
+      })
+    );
+    const { result } = renderHook(() => useLastReplyByTurn(4, true, 1), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.data?.fragments).toEqual(["viejo"]));
+    expect(seen).toEqual(["4"]);
+  });
+
+  it("does not fetch while disabled or without a turn id", async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/api/chat/last-reply`, () => {
+        calls += 1;
+        return HttpResponse.json(defaultLastReply);
+      })
+    );
+    renderHook(() => useLastReplyByTurn(null, true, 1), { wrapper: createWrapper() });
+    renderHook(() => useLastReplyByTurn(4, false, 1), { wrapper: createWrapper() });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBe(0);
+  });
+
+  it("resolves a 404 turn_not_found to null without an error", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/chat/last-reply`, () =>
+        HttpResponse.json({ detail: "turn_not_found" }, { status: 404 })
+      )
+    );
+    const { result } = renderHook(() => useLastReplyByTurn(9, true, 1), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+    expect(result.current.isError).toBe(false);
   });
 });

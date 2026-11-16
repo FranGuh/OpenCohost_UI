@@ -85,8 +85,20 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // "ptt.toggle" stub label now that PTTCard drives real /api/ptt/* mutations.
   "ptt.started": () => t("experiencia.events.pttStarted"),
   "ptt.stopped": () => t("experiencia.events.pttStopped"),
+  // Outcome rows: `stopped` fires on release, BEFORE the backend knows whether
+  // the hold produced a turn, so "sent" is only claimed on `flushed`.
+  "ptt.flushed": () => t("experiencia.events.pttFlushed"),
+  "ptt.empty": () => t("experiencia.events.pttEmpty"),
+  // ptt-dictation-20261111: the hold's words went to the chat composer, not to
+  // Kira (server echo, quiet feed row like `flushed`). `dictation_lost` is
+  // emitted by THIS window when it had no text to insert: it toasts.
+  "ptt.dictated": () => t("experiencia.events.pttDictated"),
+  "ptt.dictation_lost": () => t("experiencia.events.pttDictationLost"),
   "ptt.error": () => t("experiencia.events.pttError"),
   "ptt.buffer_full": () => t("experiencia.events.pttBufferFull"),
+  // runtime-fixes-20261110 T3: vision went from starting/warming to ready
+  // (emitted once per transition by useVisionReadyNotice; no detail, no content).
+  "vision.ready": () => t("experiencia.events.visionReady"),
 
   // --- Item B: engine-initiated motor events (feed-only, never toasted).
   // Deliberate SUBSET of the server's whitelist (engine_host.py) — per-turn
@@ -134,6 +146,8 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // is never toasted), honest and actionable: it does NOT auto-switch, so the
   // operator stays on cloud and must act. `detail` is always null server-side.
   "motor.cloud_llm_error": () => t("shell.events.motor.cloudLlmError"),
+  "motor.reasoning_budget_exhausted": () => t("shell.events.motor.reasoningBudgetExhausted"),
+  "motor.turn_dropped": () => t("shell.events.motor.turnDropped"),
   // Unit 2.1 (runtime_findings_batch_20260731) — `bad_key` cloud class:
   // never retried engine-side, latched to one emission per failure event.
   // `detail` is always null server-side.
@@ -186,10 +200,27 @@ const KNOWN_SILENT = new Set<string>([
   "motor.idle",
   "motor.speaking_start",
   "motor.speaking_end",
-  "ptt.flushed",
-  "ptt.empty",
-  "ptt.auto_stopped"
+  "ptt.auto_stopped",
+  // Vision (V1.9): routed in src/api/events.ts (indicator cache + per-turn
+  // badge store). Metadata-only and per-turn, so never a feed row.
+  "vision.vision_looking",
+  "vision.vision_describing",
+  "vision.vision_result",
+  // Rendered as an inline action row by ConversationPanel (visionStore).
+  "vision.vision_off_request"
 ]);
+
+/** Failure events must not inherit the success-green default. Explicit caller
+ * tones still win, which keeps this a safe default rather than a hard override. */
+const EVENT_DEFAULT_TONES: Partial<Record<string, AppEventTone>> = {
+  "motor.cloud_llm_error": "warn",
+  "motor.reasoning_budget_exhausted": "warn",
+  "motor.turn_dropped": "warn",
+  "motor.cloud_bad_key": "danger",
+  "motor.cloud_probe_gave_up": "warn",
+  "ptt.error": "danger",
+  "ptt.dictation_lost": "warn"
+};
 
 const MAX_DETAIL_CHARS = 48;
 const MAX_DETAIL_WORDS = 6;
@@ -242,7 +273,7 @@ export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?:
     label,
     // Guardrail refusals always warn-tint regardless of caller — a refused
     // prefetch is a notable-but-not-fatal event (I2).
-    tone: isGuardrail ? "warn" : (input.tone ?? "ok")
+    tone: isGuardrail ? "warn" : (input.tone ?? EVENT_DEFAULT_TONES[key] ?? "ok")
   };
   useEventStore.getState().append(event);
   // Toast unless suppressed. EXCEPTION: ptt.* server echoes pass toast:false
@@ -250,7 +281,11 @@ export function emitAppEvent(input: AppEventInput, id?: string, opts?: { toast?:
   // external F10 bridge, which only emits server events — needs immediate
   // feedback, so ptt.started/stopped/error always toast. (These are the only
   // ptt.* keys mapped above; silent ptt actions never reach here.)
-  if (opts?.toast !== false || input.source === "ptt") toastSink?.(label, event.tone);
+  // `ptt.flushed` is the quiet success confirmation (feed row only); `empty`
+  // ("No te escuché") toasts because the owner is often looking at the game.
+  // `ptt.dictated` is quiet too: the composer itself shows the result.
+  const pttToast = input.source === "ptt" && input.action !== "flushed" && input.action !== "dictated";
+  if (opts?.toast !== false || pttToast) toastSink?.(label, event.tone);
 }
 
 /** Global feeder: one subscriber on the shared MutationCache. Queries (all

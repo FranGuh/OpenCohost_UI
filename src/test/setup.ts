@@ -21,3 +21,8 @@ if (typeof window !== "undefined" && window.HTMLMediaElement) {
 if (typeof window !== "undefined" && window.Element && !window.Element.prototype.scrollIntoView) {
   window.Element.prototype.scrollIntoView = () => {};
 }
+
+// jsdom lacks BroadcastChannel by default; map to Node's globalThis.BroadcastChannel
+if (typeof window !== "undefined" && !window.BroadcastChannel && typeof globalThis.BroadcastChannel !== "undefined") {
+  window.BroadcastChannel = globalThis.BroadcastChannel;
+}

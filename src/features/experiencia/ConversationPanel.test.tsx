@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
 import { useEventStore } from "../../store/eventStore.js";
 import { useStreamChatStore } from "../../store/streamChatStore.js";
@@ -17,11 +17,15 @@ import {
   evolvingAgendaHandler,
   evolvingLastReplyHandler,
   frozenStatusHandler,
+  lastReplyFeedHandler,
   lastReplyHandler,
   pttSessionFlowHandlers,
   pttStartUnreachableHandler
 } from "../../test/handlers.js";
 import { useLogsPrefStore } from "../../store/useLogsPref.js";
+import { useSpeechProgressStore } from "../../store/speechProgressStore.js";
+import { useChatStatsStore } from "../../store/chatStatsStore.js";
+import { useUiLocaleStore } from "../../i18n/locale.js";
 import { ConversationPanel, TRANSCRIPT_CAP } from "./ConversationPanel.js";
 
 // The LiveAudio WS echo hook is unit-tested in src/api/liveTranscript.test.ts;
@@ -57,16 +61,82 @@ const tab = (name: string | RegExp) => within(strip()).getByRole("tab", { name }
 
 beforeEach(() => {
   useEventStore.setState({ events: [] });
+  act(() => useUiLocaleStore.setState({ locale: "es" }));
   // The Logs-tab preference is a module singleton — default OFF, reset per test.
   useLogsPrefStore.setState({ showLogs: false });
   liveTranscriptCb = null;
 });
 
+afterEach(() => act(() => useUiLocaleStore.setState({ locale: "es" })));
+
 describe("ConversationPanel", () => {
+  it("shows an accepted Companion operator turn once despite duplicate notifications", async () => {
+    renderPanel();
+    const sender = new BroadcastChannel("opencohost-companion-operator-turn");
+    try {
+      const turn = { type: "operator-turn-accepted", id: "companion-turn-1", text: "Companion question", ts: Date.now() };
+      sender.postMessage(turn);
+      expect(await screen.findByText("Companion question")).toBeInTheDocument();
+      sender.postMessage(turn);
+      // BroadcastChannel delivers in order: once the sentinel renders, the
+      // duplicate sent before it has already been handled.
+      sender.postMessage({ type: "operator-turn-accepted", id: "companion-turn-1-sentinel", text: "Duplicate sentinel", ts: Date.now() + 1 });
+      await screen.findByText("Duplicate sentinel");
+      expect(screen.getAllByText("Companion question")).toHaveLength(1);
+    } finally {
+      sender.close();
+    }
+  });
+
+  it("inserts a delayed Companion notification before the reply already polled", async () => {
+    const now = Date.now();
+    server.use(lastReplyHandler({ text: "Answer to Companion", turn_id: 1, ts: now / 1000 }));
+    renderPanel();
+    await screen.findByText("Answer to Companion");
+    const sender = new BroadcastChannel("opencohost-companion-operator-turn");
+    try {
+      sender.postMessage({ type: "operator-turn-accepted", id: "companion-turn-2", text: "Earlier Companion question", ts: now - 1000 });
+      await screen.findByText("Earlier Companion question");
+      const content = timeline().textContent ?? "";
+      expect(content.indexOf("Earlier Companion question")).toBeLessThan(content.indexOf("Answer to Companion"));
+    } finally {
+      sender.close();
+    }
+  });
+
   it("renders Kira's fetched reply, not a canned transcript", async () => {
     server.use(lastReplyHandler({ text: "todo joya, arrancamos con el stream", turn_id: 1 }));
     renderPanel();
     expect(await screen.findByText("todo joya, arrancamos con el stream")).toBeInTheDocument();
+  });
+
+  // T7: a copy control on Kira's own messages, copying the exact raw reply
+  // text (not the rendered Markdown/DOM), with brief "Copied" feedback.
+  it("copies Kira's raw reply text via a copy control on her message, with copied feedback", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
+    // Inline code (`pnpm test`) proves the copy uses the RAW source text —
+    // the rendered DOM splits this into "dale con " + <code> + " así",
+    // matched here the same way Markdown.test.tsx already proves inline
+    // code renders as its own element.
+    server.use(lastReplyHandler({ text: "dale con `pnpm test` así", turn_id: 1 }));
+    renderPanel();
+    await screen.findByText("pnpm test");
+
+    const copyButton = screen.getByRole("button", { name: "Copiar mensaje" });
+    fireEvent.click(copyButton);
+
+    expect(writeTextMock).toHaveBeenCalledWith("dale con `pnpm test` así");
+    expect(await screen.findByRole("button", { name: "¡Copiado!" })).toBeInTheDocument();
+  });
+
+  it("never renders a copy control on the operator's own message or the pending indicator", async () => {
+    renderPanel();
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    expect(screen.queryByRole("button", { name: "Copiar mensaje" })).not.toBeInTheDocument();
   });
 
   it("renders nothing for Kira when no reply has landed yet (text: null)", () => {
@@ -82,7 +152,7 @@ describe("ConversationPanel", () => {
   });
 
   it("filters the visible turns by tab and wires honest tab<->tabpanel ARIA", async () => {
-    server.use(lastReplyHandler({ text: "todo bien por acá", turn_id: 1 }));
+    server.use(lastReplyHandler({ text: "todo bien por aquí", turn_id: 1 }));
     // The muted-viewers notice is no longer an in-timeline alert (it now
     // anchors above the composer); use an injected app-event divider as the
     // alert-kind turn this filtering test asserts against.
@@ -92,20 +162,20 @@ describe("ConversationPanel", () => {
         .append({ id: "e-filter", ts: Date.now(), source: "model", label: "Modelo → qwen3:8b", tone: "ok" });
     });
     renderPanel();
-    await screen.findByText("todo bien por acá");
+    await screen.findByText("todo bien por aquí");
     const chatTab = tab("Chat");
     const alertasTab = tab("Alertas");
 
     // Todo (default): both a chat turn and the alert-kind divider are visible.
     const todoPanel = timeline();
-    expect(todoPanel).toHaveTextContent(/todo bien por acá/);
+    expect(todoPanel).toHaveTextContent(/todo bien por aquí/);
     expect(todoPanel).toHaveTextContent(/Modelo → qwen3:8b/);
 
     fireEvent.click(chatTab);
     const chatPanel = timeline();
     expect(chatTab).toHaveAttribute("aria-controls", chatPanel.id);
     expect(chatPanel).toHaveAttribute("aria-labelledby", chatTab.id);
-    expect(chatPanel).toHaveTextContent(/todo bien por acá/);
+    expect(chatPanel).toHaveTextContent(/todo bien por aquí/);
     expect(chatPanel).not.toHaveTextContent(/Modelo → qwen3:8b/);
 
     fireEvent.click(alertasTab);
@@ -113,15 +183,15 @@ describe("ConversationPanel", () => {
     expect(alertasTab).toHaveAttribute("aria-controls", alertasPanel.id);
     expect(alertasPanel).toHaveAttribute("aria-labelledby", alertasTab.id);
     expect(alertasPanel).toHaveTextContent(/Modelo → qwen3:8b/);
-    expect(alertasPanel).not.toHaveTextContent(/todo bien por acá/);
+    expect(alertasPanel).not.toHaveTextContent(/todo bien por aquí/);
   });
 });
 
 describe("ConversationPanel — empty state + viewers-muted banner (P3/§3b)", () => {
   it("shows the Kira empty-state invitation on Todo when no chat turns have landed", () => {
     renderPanel();
-    expect(screen.getByText("Empezá a chatear con Kira")).toBeInTheDocument();
-    expect(screen.getByText(/mantené el micrófono para hablarle/i)).toBeInTheDocument();
+    expect(screen.getByText("Empieza a chatear con Kira")).toBeInTheDocument();
+    expect(screen.getByText(/mantén el micrófono para hablarle/i)).toBeInTheDocument();
   });
 
   it("keeps the invitation even when only alert-kind event lines exist (motor.* must not kill it)", () => {
@@ -129,7 +199,7 @@ describe("ConversationPanel — empty state + viewers-muted banner (P3/§3b)", (
       useEventStore.getState().append({ id: "e-motor", ts: Date.now(), source: "model", label: "Motor: listo", tone: "ok" });
     });
     renderPanel();
-    expect(screen.getByText("Empezá a chatear con Kira")).toBeInTheDocument();
+    expect(screen.getByText("Empieza a chatear con Kira")).toBeInTheDocument();
     expect(screen.getByText("Motor: listo")).toBeInTheDocument();
   });
 
@@ -137,21 +207,19 @@ describe("ConversationPanel — empty state + viewers-muted banner (P3/§3b)", (
     server.use(lastReplyHandler({ text: "hola operador", turn_id: 1 }));
     renderPanel();
     await screen.findByText("hola operador");
-    expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
+    expect(screen.queryByText("Empieza a chatear con Kira")).not.toBeInTheDocument();
   });
 
   it("keeps 'Sin turnos en este filtro.' as the Alertas empty case, not the invitation", () => {
     renderPanel();
     fireEvent.click(tab("Alertas"));
     expect(screen.getByText("Sin turnos en este filtro.")).toBeInTheDocument();
-    expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
+    expect(screen.queryByText("Empieza a chatear con Kira")).not.toBeInTheDocument();
   });
 
-  it("anchors the viewers-muted banner exactly once, outside the scrollable timeline", () => {
+  it("does not render the obsolete static viewers-muted banner in the composer", () => {
     renderPanel();
-    expect(screen.getAllByText("Chat de viewers silenciado")).toHaveLength(1);
-    // The banner lives above the composer, not inside the scroll region.
-    expect(timeline()).not.toHaveTextContent(/Chat de viewers silenciado/);
+    expect(screen.queryByText("Chat de viewers silenciado")).not.toBeInTheDocument();
   });
 });
 
@@ -171,11 +239,11 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
     );
     renderPanel();
 
-    const mic = screen.getByRole("button", { name: "Mantené para hablar con Kira" });
+    const mic = screen.getByRole("button", { name: "Mantén para hablar con Kira" });
     fireEvent.pointerDown(mic, { pointerId: 1 });
     await waitFor(() => expect(startCalls).toBe(1));
 
-    const listeningMic = await screen.findByRole("button", { name: "Escuchando… soltá para enviar" });
+    const listeningMic = await screen.findByRole("button", { name: "Escuchando… suelta para enviar" });
     expect(listeningMic).toHaveAttribute("aria-pressed", "true");
     fireEvent.pointerUp(listeningMic, { pointerId: 1 });
     await waitFor(() => expect(stopCalls).toBe(1));
@@ -187,21 +255,25 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
       http.post(`${API_BASE_URL}/api/ptt/start`, () => {
         startCalls += 1;
         return HttpResponse.json({ session_id: "s1", state: "listening" });
-      })
+      }),
+      ...pttSessionFlowHandlers(1)
     );
     renderPanel();
 
     fireEvent.keyDown(window, { code: "Space" });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(startCalls).toBe(0);
+    // Observable sentinel instead of a sleep: a real pointer hold reaches the
+    // listening state, so any start call the Space key caused is already counted.
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
+    await screen.findByRole("button", { name: "Escuchando… suelta para enviar" });
+    expect(startCalls).toBe(1);
   });
 
   it("confirms the send with a 'Turno de voz enviado' chip after a completed hold", async () => {
     server.use(...pttSessionFlowHandlers(1));
     renderPanel();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
-    const listeningMic = await screen.findByRole("button", { name: "Escuchando… soltá para enviar" });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
+    const listeningMic = await screen.findByRole("button", { name: "Escuchando… suelta para enviar" });
     fireEvent.pointerUp(listeningMic, { pointerId: 1 });
 
     await waitFor(() => expect(screen.getByText("Turno de voz enviado")).toBeInTheDocument(), { timeout: 4000 });
@@ -211,17 +283,101 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
     server.use(pttStartUnreachableHandler());
     renderPanel();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
 
-    await waitFor(() => expect(screen.getByText(/STT \(WhisperLive\) no disponible/)).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Escuchando… soltá para enviar" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Instala LiveAudio para activar el STT y PTT."));
+    expect(screen.queryByRole("button", { name: "Escuchando… suelta para enviar" })).not.toBeInTheDocument();
+  });
+
+  it("shows localized LiveAudio install guidance and a safe external link for stt_unreachable", async () => {
+    server.use(pttStartUnreachableHandler());
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Instala LiveAudio para activar el STT y PTT");
+    const link = within(alert).getByRole("link", { name: "Descargar LiveAudio en liveaudio.opencohost.com" });
+    expect(link).toHaveAttribute("href", "https://liveaudio.opencohost.com");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("renders the STT install alert and download link in English", async () => {
+    act(() => useUiLocaleStore.setState({ locale: "en" }));
+    server.use(pttStartUnreachableHandler());
+    renderPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Hold to talk to Kira" }), { pointerId: 1 });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Install LiveAudio to enable STT and PTT.");
+    expect(within(alert).getByRole("link", { name: "Download LiveAudio at liveaudio.opencohost.com" })).toHaveAttribute(
+      "href",
+      "https://liveaudio.opencohost.com"
+    );
+  });
+
+  it("keeps LiveAudio guidance visible when the degraded mic is pressed and still retries PTT", async () => {
+    let startCalls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, () => {
+        startCalls += 1;
+        return HttpResponse.json({ detail: "stt_unreachable" }, { status: 503 });
+      })
+    );
+    renderPanel();
+
+    const mic = screen.getByRole("button", { name: "Mantén para hablar con Kira" });
+    fireEvent.pointerDown(mic, { pointerId: 1 });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Instala LiveAudio para activar el STT y PTT");
+
+    fireEvent.pointerUp(mic, { pointerId: 1 });
+    fireEvent.pointerDown(mic, { pointerId: 2 });
+
+    expect(await within(alert).findByRole("link", { name: "Descargar LiveAudio en liveaudio.opencohost.com" })).toHaveAttribute(
+      "href",
+      "https://liveaudio.opencohost.com"
+    );
+    expect(startCalls).toBe(2);
+  });
+
+  it("retains guidance after the error clears during a degraded retry and subsequent click", async () => {
+    let startCalls = 0;
+    server.use(
+      http.post(`${API_BASE_URL}/api/ptt/start`, () => {
+        startCalls += 1;
+        if (startCalls === 1) return HttpResponse.json({ detail: "stt_unreachable" }, { status: 503 });
+        return new Promise<never>(() => {});
+      })
+    );
+    renderPanel();
+
+    const mic = screen.getByRole("button", { name: "Mantén para hablar con Kira" });
+    fireEvent.pointerDown(mic, { pointerId: 1 });
+    const initialAlert = await screen.findByRole("alert");
+    expect(initialAlert).toHaveTextContent("Instala LiveAudio para activar el STT y PTT.");
+    await waitFor(() => expect(mic).toHaveAttribute("title", "PTT no disponible — el servicio de reconocimiento de voz no responde."));
+    fireEvent.pointerUp(mic, { pointerId: 1 });
+
+    fireEvent.pointerDown(mic, { pointerId: 2 });
+    expect(screen.getByRole("button", { name: "Conectando…" })).toBeInTheDocument();
+    const retryAlert = await screen.findByRole("alert");
+    expect(retryAlert).toHaveTextContent("Instala LiveAudio para activar el STT y PTT.");
+    expect(retryAlert).toHaveTextContent("Descargar LiveAudio en liveaudio.opencohost.com");
+    expect(startCalls).toBe(2);
+
+    fireEvent.pointerUp(mic, { pointerId: 2 });
+    fireEvent.click(mic);
+    expect(screen.getByRole("alert")).toHaveTextContent("Instala LiveAudio para activar el STT y PTT.");
   });
 
   it("tints the mic button visibly while connecting (start in flight)", () => {
     server.use(http.post(`${API_BASE_URL}/api/ptt/start`, () => new Promise<never>(() => {}))); // never resolves
     renderPanel();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
 
     const connectingMic = screen.getByRole("button", { name: "Conectando…" });
     expect(connectingMic).toHaveClass("bg-info-bg");
@@ -234,10 +390,10 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
     server.use(pttStartUnreachableHandler());
     renderPanel();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
 
     const alertLine = await screen.findByRole("alert");
-    expect(alertLine).toHaveTextContent(/STT \(WhisperLive\) no disponible/);
+    expect(alertLine).toHaveTextContent("Instala LiveAudio para activar el STT y PTT.");
   });
 
   it("fills the mic while HELD (listening) and drains it on release", async () => {
@@ -251,8 +407,8 @@ describe("ConversationPanel — composer mic (pure PTT relocation, §3b(vi))", (
     );
     renderPanel();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantené para hablar con Kira" }), { pointerId: 1 });
-    const listeningMic = await screen.findByRole("button", { name: "Escuchando… soltá para enviar" });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Mantén para hablar con Kira" }), { pointerId: 1 });
+    const listeningMic = await screen.findByRole("button", { name: "Escuchando… suelta para enviar" });
 
     // The fill layer is present and carries the filling class while listening.
     const fill = listeningMic.querySelector(".mic-fill");
@@ -320,6 +476,13 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 1000 });
     Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
     panel.scrollTop = 0;
+    // T6 fix: the append effect now reads the last GENUINE scroll event
+    // instead of re-measuring live (appending content grows scrollHeight on
+    // its own, which would misread as "near the bottom" if not for this) —
+    // so establishing "scrolled up" for the append below needs a real scroll
+    // event first, exactly as a real operator dragging the scrollbar would.
+    fireEvent.scroll(panel);
+    await screen.findByRole("button", { name: /Ver lo más reciente/ });
 
     appendEvent("e-up");
 
@@ -335,6 +498,10 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 1000 });
     Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
     panel.scrollTop = 0;
+    // T6 fix: seed "scrolled up" via a real scroll event first (see the
+    // sibling test above for why).
+    fireEvent.scroll(panel);
+    await screen.findByRole("button", { name: /Ver lo más reciente/ });
 
     appendEvent("e-up2");
     const jump = await screen.findByRole("button", { name: /Ver lo más reciente/ });
@@ -342,6 +509,42 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     fireEvent.click(jump);
     expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument());
+  });
+
+  // T6 (owner-observed 2026-09-25): "seguir lectura" stopped following right
+  // after the owner sent a chat message. Root cause — ConversationPanel.tsx's
+  // append-decision effect used to re-measure scrollHeight/scrollTop AFTER
+  // React had already committed the new turn: appending real content grows
+  // scrollHeight while scrollTop hasn't moved, so the live re-measurement
+  // read "far from the bottom" even though the operator was sitting AT the
+  // bottom the instant before sending. Reproduced here by growing scrollHeight
+  // between the "operator was at the bottom" scroll event and the send, the
+  // way a real bubble + the "pensando" row would in the live WebView2 shell
+  // (jsdom never grows scrollHeight from appended content on its own).
+  it("keeps following (no jump pill) when the operator's own message grows scrollHeight past the threshold", async () => {
+    renderPanel();
+    const panel = timeline();
+    const scrollSpy = vi.fn();
+    panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
+
+    // The operator is genuinely at the bottom: distance = 300 - 220 - 300 < 0.
+    Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 300 });
+    Object.defineProperty(panel, "clientHeight", { configurable: true, value: 300 });
+    panel.scrollTop = 220;
+    fireEvent.scroll(panel);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument());
+
+    // Sending grows the DOM (the operator's own bubble, then "pensando") —
+    // scrollTop stays put, so a live re-measurement now would read
+    // 900 - 220 - 300 = 380 > 80, i.e. "far from the bottom".
+    Object.defineProperty(panel, "scrollHeight", { configurable: true, value: 900 });
+
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
+    expect(screen.queryByRole("button", { name: /Ver lo más reciente/ })).not.toBeInTheDocument();
   });
 
   // The transient "pensando" row is appended AFTER the sorted list and stays
@@ -355,7 +558,7 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     const scrollSpy = vi.fn();
     panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     await screen.findByText(/pensando/i);
     scrollSpy.mockClear(); // the operator's own bubble already followed
@@ -396,7 +599,7 @@ describe("ConversationPanel — auto-scroll + jump-to-recent (Item 3)", () => {
     const scrollSpy = vi.fn();
     panel.scrollTo = scrollSpy as unknown as typeof panel.scrollTo;
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     await screen.findByText(/pensando/i);
     scrollSpy.mockClear();
@@ -412,7 +615,7 @@ describe("ConversationPanel — 'pensando' state (spec P3/S3)", () => {
     renderPanel();
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument()); // let the initial GET land
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByText(/pensando/i)).toBeInTheDocument());
@@ -427,7 +630,7 @@ describe("ConversationPanel — 'pensando' state (spec P3/S3)", () => {
 
     // Submit immediately — no await before this, so GET /api/chat/last-reply
     // has not resolved yet and currentTurnId is still null at submit time.
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByText(/pensando/i)).toBeInTheDocument());
@@ -445,7 +648,7 @@ describe("ConversationPanel — D3b bounded-wait receipt + F12 provider disclosu
     renderPanel();
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() =>
@@ -460,7 +663,7 @@ describe("ConversationPanel — D3b bounded-wait receipt + F12 provider disclosu
     renderPanel();
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByText(/pensando/i)).toBeInTheDocument());
@@ -472,7 +675,7 @@ describe("ConversationPanel — D3b bounded-wait receipt + F12 provider disclosu
   it("surfaces queue_wait_ms and the answering provider on the landed reply", async () => {
     server.use(
       lastReplyHandler({
-        text: "todo tranquilo por acá",
+        text: "todo tranquilo por aquí",
         turn_id: 1,
         queue_wait_ms: 42000,
         answered_by_provider: "local"
@@ -480,7 +683,7 @@ describe("ConversationPanel — D3b bounded-wait receipt + F12 provider disclosu
     );
     renderPanel();
 
-    await screen.findByText("todo tranquilo por acá");
+    await screen.findByText("todo tranquilo por aquí");
     expect(screen.getByText("esperó 42 s en cola · Ollama local")).toBeInTheDocument();
   });
 
@@ -526,7 +729,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     );
     renderPanel();
 
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "¿Cómo viene el stream hoy?" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
@@ -554,7 +757,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     );
     renderPanel();
 
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
     fireEvent.change(input, { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
@@ -567,7 +770,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     server.use(chatTurnConflictHandler());
     renderPanel();
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
@@ -577,7 +780,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     server.use(chatTurnQueueFullHandler());
     renderPanel();
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
@@ -587,7 +790,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     server.use(chatTurnValidationHandler("text must be non-empty"));
     renderPanel();
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("text must be non-empty"));
@@ -597,7 +800,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     server.use(chatTurnNetworkErrorHandler());
     renderPanel();
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "hola" } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
@@ -605,7 +808,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
 
   it("does not submit an empty/whitespace-only message", () => {
     renderPanel();
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value: "   " } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value: "   " } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -626,7 +829,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     );
     renderPanel();
 
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…") as HTMLInputElement;
     const form = input.closest("form") as HTMLFormElement;
     fireEvent.change(input, { target: { value: "hola" } });
     fireEvent.submit(form);
@@ -637,7 +840,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     fireEvent.submit(form);
 
     expect(postCount).toBe(1);
-    expect(screen.getAllByText("hola")).toHaveLength(1);
+    expect(screen.getAllByText("hola", { ignore: "textarea, script, style" })).toHaveLength(1);
 
     resolveRequest();
     await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).not.toBeDisabled());
@@ -647,12 +850,12 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     server.use(chatTurnNetworkErrorHandler());
     renderPanel();
 
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "hola" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.getAllByText("hola")).toHaveLength(1);
+    expect(screen.getAllByText("hola", { ignore: "textarea, script, style" })).toHaveLength(1);
     expect(input.value).toBe("hola"); // kept in the input so the retry below resubmits it
 
     server.use(
@@ -663,7 +866,7 @@ describe("ConversationPanel composer — wired to POST /api/chat/turn", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(input.value).toBe(""));
-    expect(screen.getAllByText("hola")).toHaveLength(1);
+    expect(screen.getAllByText("hola", { ignore: "textarea, script, style" })).toHaveLength(1);
   });
 });
 
@@ -722,7 +925,7 @@ describe("ConversationPanel transcript accumulation (WU-F)", () => {
 
   it("keeps every operator message visible across multiple sends (they must not be replaced either)", async () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…") as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: "primer mensaje" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
@@ -818,7 +1021,7 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
 
   it("interleaves an app event between transcript turns by ts, in document order", async () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…") as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: "primer mensaje" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
@@ -841,21 +1044,34 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
 
 describe("ConversationPanel — markdown only on Kira turns", () => {
   it("renders **bold** in a Kira reply as a <strong>", async () => {
-    server.use(lastReplyHandler({ text: "che, mirá **esto**", turn_id: 1 }));
+    server.use(lastReplyHandler({ text: "che, mira **esto**", turn_id: 1 }));
     renderPanel();
     const strong = await screen.findByText("esto");
     expect(strong.tagName).toBe("STRONG");
   });
 
-  it("keeps operator ('Vos') turns as literal text — **asterisks** are not markdown", async () => {
+  it("renders operator ('Vos') turns as Markdown - **bold** becomes <strong>, never raw HTML", async () => {
     renderPanel();
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
-      target: { value: "**test**" }
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), {
+      target: { value: "**test** <b>raw</b>" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
-    const bubble = await screen.findByText("**test**");
-    expect(bubble.querySelector("strong")).toBeNull();
+    const strong = await screen.findByText("test");
+    expect(strong.tagName).toBe("STRONG");
+    expect(document.querySelector(".oc-md b")).toBeNull();
+    expect(screen.getByText(/<b>raw<\/b>/)).toBeInTheDocument();
+  });
+
+  it("keeps line breaks in the operator bubble", async () => {
+    renderPanel();
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), {
+      target: { value: "primera\nsegunda" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await screen.findByText(/primera/);
+    expect(document.querySelector("[data-turn-role=operator] .oc-md p br, .oc-md p br")).not.toBeNull();
   });
 });
 
@@ -869,14 +1085,14 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
     expect(screen.getAllByText("hola kira como andás")).toHaveLength(1);
     expect(screen.getByText("Anónimo · voz")).toBeInTheDocument();
     // A voice turn is a chat turn: the empty-state invitation must be gone.
-    expect(screen.queryByText("Empezá a chatear con Kira")).not.toBeInTheDocument();
+    expect(screen.queryByText("Empieza a chatear con Kira")).not.toBeInTheDocument();
   });
 
   it("keeps typed turns labeled plain 'Anónimo' — the voice label never bleeds onto composer sends", async () => {
     renderPanel();
     echo("turno de voz previo");
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), {
       target: { value: "turno tipeado" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
@@ -899,7 +1115,7 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
     renderPanel();
     echo("saludo por voz");
 
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), {
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), {
       target: { value: "saludo tipeado" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
@@ -912,7 +1128,7 @@ describe("ConversationPanel — voice transcript echo (transcript-echo follow-up
   it("degraded path: no echo resolved -> timeline untouched, no crash, no alert spam", () => {
     renderPanel();
     // The hook (mocked to its contract) never fires — LiveAudio WS down.
-    expect(screen.getByText("Empezá a chatear con Kira")).toBeInTheDocument();
+    expect(screen.getByText("Empieza a chatear con Kira")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -926,13 +1142,13 @@ describe("ConversationPanel — unified tab strip (owner layout correction 2026-
       expect(tab(name)).toBeInTheDocument();
     }
     expect(tab("Todo")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByPlaceholderText("Escribí un mensaje para Kira…")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Escribe un mensaje para Kira…")).toBeInTheDocument();
   });
 
   it("shows the composer on every feed tab and hides it on Comandos and Logs (R8)", () => {
     useLogsPrefStore.getState().setShowLogs(true);
     renderPanel();
-    const composer = () => screen.queryByPlaceholderText("Escribí un mensaje para Kira…");
+    const composer = () => screen.queryByPlaceholderText("Escribe un mensaje para Kira…");
 
     expect(composer()).toBeInTheDocument(); // Todo (default)
     fireEvent.click(tab("Chat"));
@@ -965,7 +1181,7 @@ describe("ConversationPanel — unified tab strip (owner layout correction 2026-
   it("selecting the Stream tab swaps the panel: timeline hidden, composer unmounted", () => {
     renderPanel();
     expect(tab("Stream chat")).toBeInTheDocument();
-    const composer = () => screen.queryByPlaceholderText("Escribí un mensaje para Kira…");
+    const composer = () => screen.queryByPlaceholderText("Escribe un mensaje para Kira…");
     expect(composer()).toBeInTheDocument(); // Todo (default)
 
     fireEvent.click(tab("Stream chat"));
@@ -1060,7 +1276,7 @@ describe("ConversationPanel — origin routing keeps stream-chat replies out of 
 describe("ConversationPanel — emergent command launcher (owner layout correction 2026-07-18)", () => {
   const launcher = () => screen.queryByRole("listbox", { name: "Comandos disponibles" });
   function typeComposer(value: string) {
-    fireEvent.change(screen.getByPlaceholderText("Escribí un mensaje para Kira…"), { target: { value } });
+    fireEvent.change(screen.getByPlaceholderText("Escribe un mensaje para Kira…"), { target: { value } });
   }
 
   it("stays hidden until the composer input starts with '/' or '!', and filters as you type", () => {
@@ -1084,7 +1300,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
   it("ArrowDown + Enter opens the command in the floating panel WITHOUT leaving the chat (R8/R9)", () => {
     renderPanel();
     typeComposer("/"); // all 7, highlight on /agenda
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
     fireEvent.keyDown(input, { key: "ArrowDown" }); // → /perfil
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -1096,7 +1312,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
     // staying put is worthless if the conversation went away with it.
     expect(tab("Comandos")).toHaveAttribute("aria-selected", "false");
     expect(tab("Todo")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByPlaceholderText("Escribí un mensaje para Kira…")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Escribe un mensaje para Kira…")).toBeInTheDocument();
     expect(timeline()).toBeInTheDocument();
     // The launcher itself closed, and it took the "/" with it.
     expect(launcher()).not.toBeInTheDocument();
@@ -1105,7 +1321,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
 
   it("Cancelar inside the floating command closes it and hands focus back to the composer", () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
     typeComposer("/perfil");
     fireEvent.keyDown(input, { key: "Enter" });
     expect(screen.getByRole("dialog", { name: "Comandos del chat" })).toBeInTheDocument();
@@ -1118,7 +1334,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
 
   it("typing '/' again while a command is open does NOT relaunch over it", () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
     typeComposer("/perfil");
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -1134,7 +1350,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
 
   it("closes on Escape, clears the composer, and restores focus to the input", () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…") as HTMLInputElement;
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…") as HTMLInputElement;
     input.focus();
     typeComposer("/ag");
     expect(launcher()).toBeInTheDocument();
@@ -1148,7 +1364,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
   it("Enter/arrows from another focused composer control (e.g. the mic button) do NOT navigate or select (F2)", () => {
     renderPanel();
     typeComposer("/"); // all 7, highlight on /agenda
-    const mic = screen.getByRole("button", { name: "Mantené para hablar con Kira" });
+    const mic = screen.getByRole("button", { name: "Mantén para hablar con Kira" });
     fireEvent.keyDown(mic, { key: "ArrowDown" });
     fireEvent.keyDown(mic, { key: "Enter" });
 
@@ -1160,7 +1376,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
 
   it("composer input carries the combobox pattern — expanded/controls/activedescendant follow the highlight (F3)", () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
     expect(input).toHaveAttribute("role", "combobox");
     expect(input).toHaveAttribute("aria-expanded", "false");
 
@@ -1176,7 +1392,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
 
   it("zero-match state collapses the combobox contract — no listbox, no controls/activedescendant, hint stays visible (F1)", () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
     typeComposer("/xyz");
 
     expect(launcher()).not.toBeInTheDocument();
@@ -1189,7 +1405,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
 
   it("activedescendant always references a currently-listed option while the filter narrows, even right after ArrowDown (F2)", () => {
     renderPanel();
-    const input = screen.getByPlaceholderText("Escribí un mensaje para Kira…");
+    const input = screen.getByPlaceholderText("Escribe un mensaje para Kira…");
 
     typeComposer("/a"); // /agenda, /acciones
     fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight → /acciones (2nd match)
@@ -1230,7 +1446,7 @@ describe("ConversationPanel — emergent command launcher (owner layout correcti
     );
     renderPanel();
     typeComposer("/xyz"); // unknown → Enter is inert, no select, no chat send
-    fireEvent.submit(screen.getByPlaceholderText("Escribí un mensaje para Kira…").closest("form") as HTMLFormElement);
+    fireEvent.submit(screen.getByPlaceholderText("Escribe un mensaje para Kira…").closest("form") as HTMLFormElement);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(chatPosts).toBe(0);
   });
@@ -1500,5 +1716,442 @@ describe("ConversationPanel transcript ring buffer (progressive-slowdown guard)"
     expect(screen.getByText(`flood turno numero ${flood}`)).toBeInTheDocument();
     expect(rendered[0]).toHaveTextContent(`flood turno numero ${flood - TRANSCRIPT_CAP + 1}`);
     expect(rendered[rendered.length - 1]).toHaveTextContent(`flood turno numero ${flood}`);
+  });
+});
+
+describe("ConversationPanel terminal cloud failures", () => {
+  it("clears thinking for a fresh manual failure but ignores history and automatic fallback", async () => {
+    act(() => {
+      useEventStore.getState().append({
+        id: "historic-cloud-error", ts: Date.now(), source: "motor", action: "cloud_llm_error", label: "Cloud error", tone: "warn"
+      });
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "auto-fallback", ts: Date.now(), source: "motor", action: "cloud_fallback_engaged", label: "Fallback local", tone: "info"
+      });
+    });
+    expect(screen.getByText(/pensando/i)).toBeInTheDocument();
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "current-manual-cloud-error", ts: Date.now(), source: "motor", action: "cloud_llm_error", label: "Cloud error", tone: "warn"
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument());
+  });
+
+  it("clears thinking when reasoning_budget_exhausted arrives, ignoring historical occurrences", async () => {
+    act(() => {
+      useEventStore.getState().append({
+        id: "historic-reasoning-error",
+        ts: Date.now(),
+        source: "motor",
+        action: "reasoning_budget_exhausted",
+        label: "Motor: el modelo pensó demasiado y no llegó a responder",
+        tone: "warn"
+      });
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "current-reasoning-error",
+        ts: Date.now(),
+        source: "motor",
+        action: "reasoning_budget_exhausted",
+        label: "Motor: el modelo pensó demasiado y no llegó a responder",
+        tone: "warn"
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument());
+  });
+
+  it("clears thinking when turn_dropped arrives, unblocking the interface", async () => {
+    act(() => {
+      useEventStore.getState().append({
+        id: "historic-turn-dropped",
+        ts: Date.now(),
+        source: "motor",
+        action: "turn_dropped",
+        label: "Kira no respondió a este turno",
+        tone: "warn"
+      });
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "current-turn-dropped",
+        ts: Date.now(),
+        source: "motor",
+        action: "turn_dropped",
+        label: "Kira no respondió a este turno",
+        tone: "warn"
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument());
+  });
+
+  it("clears thinking when llm_timeout_recovered arrives, unblocking the interface", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "current-timeout-recovered",
+        ts: Date.now(),
+        source: "motor",
+        action: "llm_timeout_recovered",
+        label: "Motor: recuperado tras timeout",
+        tone: "warn"
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument());
+  });
+
+  it("clears thinking when ollama_unavailable arrives, unblocking the interface", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    act(() => {
+      useEventStore.getState().append({
+        id: "current-ollama-unavailable",
+        ts: Date.now(),
+        source: "motor",
+        action: "ollama_unavailable",
+        label: "Ollama no disponible",
+        tone: "warn"
+      });
+    });
+    await waitFor(() => expect(screen.queryByText(/pensando/i)).not.toBeInTheDocument());
+  });
+
+  it("keeps the auto-follow toggle on after sending a chat message (T6 probe)", async () => {
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: /Seguir lectura/i });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.change(screen.getByPlaceholderText(/mensaje para Kira/i), { target: { value: "hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByText(/pensando/i);
+
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(localStorage.getItem("oc-autofollow-reading")).not.toBe("false");
+  });
+
+  it("renders auto-follow toggle in feed header and persists toggle to localStorage", async () => {
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: /Seguir lectura/i });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(localStorage.getItem("oc-autofollow-reading")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(localStorage.getItem("oc-autofollow-reading")).toBe("true");
+  });
+
+  it("keeps Markdown rendered during active speech progress without stripping structure", async () => {
+    server.use(
+      lastReplyHandler({
+        turn_id: 10,
+        text: "Hola! **Texto en negrita** con `código`.",
+        answered_by_provider: "local",
+        fragments: ["Hola!", "Texto en negrita con código."]
+      })
+    );
+
+    renderPanel();
+    const strong = await screen.findByText("Texto en negrita");
+    expect(strong.tagName).toBe("STRONG");
+
+    // Start speech progress
+    act(() => {
+      useSpeechProgressStore.getState().setProgress(true, 0, 2, 10);
+    });
+
+    // Check that strong and code elements still exist and were not unmounted/stripped
+    expect(screen.getByText("Texto en negrita").tagName).toBe("STRONG");
+    expect(screen.getByText("código").tagName).toBe("CODE");
+
+    // Advance to fragment 1
+    act(() => {
+      useSpeechProgressStore.getState().setProgress(true, 1, 2, 10);
+    });
+
+    expect(screen.getByText("Texto en negrita").tagName).toBe("STRONG");
+    expect(screen.getByText("código").tagName).toBe("CODE");
+  });
+
+  it("aligns speech reading tracker when quotes are present in DOM but stripped in TTS fragments", async () => {
+    server.use(
+      lastReplyHandler({
+        turn_id: 20,
+        text: 'En lugar de preguntar "¿qué consideras útil sobre X?", pregunta: "¿Qué implicaciones tiene?"',
+        answered_by_provider: "local",
+        fragments: ['En lugar de preguntar ¿qué consideras útil sobre X?, pregunta: ¿Qué implicaciones tiene?']
+      })
+    );
+
+    renderPanel();
+    const paragraph = await screen.findByText(/consideras útil/);
+    expect(paragraph).toBeInTheDocument();
+
+    act(() => {
+      useSpeechProgressStore.getState().setProgress(true, 0, 1, 20);
+    });
+
+    const activeBlock = document.querySelector(".oc-reading-active");
+    expect(activeBlock).not.toBeNull();
+    expect(activeBlock).toHaveTextContent(/implicaciones/);
+  });
+});
+
+
+// follow-reading fix (live-polish-repetition-follow P4): the highlight follows
+// the SPOKEN turn (`feed_turn_id`) and the backend's spoken `fragment`, never
+// "the newest turn" and never a random long word.
+describe("ConversationPanel follow-reading target", () => {
+  const T1 = "Alpha uno primera. Beta dos primera.";
+  const T2 = "Gamma tres segunda. Delta cuatro segunda.";
+  const activeBlocks = () => Array.from(document.querySelectorAll(".oc-reading-active"));
+
+  beforeEach(() => {
+    useSpeechProgressStore.getState().reset();
+    localStorage.removeItem("oc-autofollow-reading");
+  });
+
+  async function renderTwoTurns(first: Record<string, unknown> = {}) {
+    let newest: Record<string, unknown> = { turn_id: 1, text: T1, fragments: ["Alpha uno primera.", "Beta dos primera."], ...first };
+    server.use(lastReplyFeedHandler(() => newest));
+    renderPanel();
+    await screen.findByText(/Alpha uno primera/);
+    act(() => useSpeechProgressStore.getState().setProgress(false, null, 0));
+    newest = { turn_id: 2, text: T2, fragments: ["Gamma tres segunda.", "Delta cuatro segunda."] };
+    await waitFor(() => expect(screen.queryByText(/Gamma tres segunda/)).not.toBeNull(), { timeout: 4000 });
+  }
+
+  it("highlights only the spoken turn when a newer reply is queued behind it", async () => {
+    await renderTwoTurns();
+    act(() =>
+      useSpeechProgressStore.getState().setProgress(true, 1, 2, 1, { jobId: 3, fragment: "Beta dos primera." })
+    );
+    await waitFor(() => expect(activeBlocks()).toHaveLength(1));
+    expect(activeBlocks()[0]).toHaveTextContent(/Alpha uno primera/);
+    expect(activeBlocks()[0]).not.toHaveTextContent(/Gamma/);
+  });
+
+  it("highlights nothing when the speech has no feed turn (read-aloud, vision, notices)", async () => {
+    await renderTwoTurns();
+    act(() =>
+      useSpeechProgressStore.getState().setProgress(true, 0, 2, null, { jobId: 4, fragment: "Delta cuatro segunda." })
+    );
+    await new Promise((r) => setTimeout(r, 150));
+    expect(activeBlocks()).toHaveLength(0);
+  });
+
+  it("drops the highlight when a new speech job replaces the current one", async () => {
+    await renderTwoTurns();
+    act(() =>
+      useSpeechProgressStore.getState().setProgress(true, 0, 2, 1, { jobId: 3, fragment: "Alpha uno primera." })
+    );
+    await waitFor(() => expect(activeBlocks()).toHaveLength(1));
+    act(() =>
+      useSpeechProgressStore.getState().setProgress(true, null, 0, null, { jobId: 4, fragment: null })
+    );
+    await waitFor(() => expect(activeBlocks()).toHaveLength(0));
+  });
+
+  it("fetches ?turn_id= fragments when the spoken turn has none in the feed", async () => {
+    const seen: (string | null)[] = [];
+    server.use(
+      lastReplyFeedHandler(() => ({ turn_id: 1, text: T1, fragments: null }), {
+        1: { text: T1, fragments: ["Alpha uno primera.", "Beta dos primera."] }
+      }, seen)
+    );
+    renderPanel();
+    await screen.findByText(/Alpha uno primera/);
+    act(() => useSpeechProgressStore.getState().setProgress(true, 1, 2, 1, { jobId: 3, fragment: null }));
+    await waitFor(() => expect(activeBlocks()).toHaveLength(1));
+    expect(seen).toContain("1");
+    expect(activeBlocks()[0]).toHaveTextContent(/Beta dos primera/);
+  });
+
+  it("shows no highlight and no error when ?turn_id= answers 404", async () => {
+    const seen: (string | null)[] = [];
+    server.use(lastReplyFeedHandler(() => ({ turn_id: 1, text: T1, fragments: null }), {}, seen));
+    renderPanel();
+    await screen.findByText(/Alpha uno primera/);
+    act(() => useSpeechProgressStore.getState().setProgress(true, 0, 2, 1, { jobId: 3, fragment: null }));
+    await waitFor(() => expect(seen).toContain("1"));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(activeBlocks()).toHaveLength(0);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not fall back to a long word when the fragment text is not in the turn", async () => {
+    server.use(
+      lastReplyHandler({
+        turn_id: 1,
+        text: "La palabra extraordinaria aparece aqui.",
+        fragments: ["otra extraordinaria cosa distinta"]
+      })
+    );
+    renderPanel();
+    await screen.findByText(/palabra extraordinaria/);
+    act(() =>
+      useSpeechProgressStore
+        .getState()
+        .setProgress(true, 0, 1, 1, { jobId: 3, fragment: "otra extraordinaria cosa distinta" })
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    expect(activeBlocks()).toHaveLength(0);
+  });
+
+  it("scrolls to the spoken fragment when Seguir lectura is switched on mid-speech", async () => {
+    localStorage.setItem("oc-autofollow-reading", "false");
+    const scrolled: Element[] = [];
+    const spy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        scrolled.push(this);
+      });
+    try {
+      await renderTwoTurns();
+      act(() =>
+        useSpeechProgressStore.getState().setProgress(true, 1, 2, 1, { jobId: 3, fragment: "Beta dos primera." })
+      );
+      await waitFor(() => expect(activeBlocks()).toHaveLength(1));
+      const before = scrolled.filter((el) => el.classList.contains("oc-reading-active")).length;
+      expect(before).toBe(0);
+      fireEvent.click(screen.getByRole("switch", { name: /Seguir lectura/i }));
+      await waitFor(() => expect(scrolled.some((el) => el.classList.contains("oc-reading-active"))).toBe(true));
+      const target = scrolled.find((el) => el.classList.contains("oc-reading-active"))!;
+      expect(target).toHaveTextContent(/Alpha uno primera/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("records web search in chat stats when last-reply has web_searched: true", async () => {
+    const initialSearches = useChatStatsStore.getState().searchesCount;
+    server.use(
+      lastReplyHandler({
+        turn_id: 1,
+        text: "Encontré estos resultados en la web.",
+        web_searched: true,
+      })
+    );
+    renderPanel();
+    await screen.findByText(/Encontré estos resultados/);
+    expect(useChatStatsStore.getState().searchesCount).toBe(initialSearches + 1);
+  });
+});
+
+describe("ConversationPanel composer - multiline textarea", () => {
+  const PLACEHOLDER = "Escribe un mensaje para Kira…";
+
+  function captureTurns() {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ accepted: true, command_id: "cmd-ml", status: "queued", state_version: 2 });
+      })
+    );
+    return bodies;
+  }
+
+  it("is an auto-growing <textarea> with a single row", () => {
+    renderPanel();
+    const el = screen.getByPlaceholderText(PLACEHOLDER);
+    expect(el.tagName).toBe("TEXTAREA");
+    expect(el).toHaveAttribute("rows", "1");
+  });
+
+  it("Enter submits the message", async () => {
+    const bodies = captureTurns();
+    renderPanel();
+    const el = screen.getByPlaceholderText(PLACEHOLDER);
+    fireEvent.change(el, { target: { value: "hola" } });
+    fireEvent.keyDown(el, { key: "Enter" });
+    await waitFor(() => expect(bodies).toEqual([{ text: "hola" }]));
+  });
+
+  it("Shift+Enter does not submit (it inserts a newline)", async () => {
+    const bodies = captureTurns();
+    renderPanel();
+    const el = screen.getByPlaceholderText(PLACEHOLDER);
+    fireEvent.change(el, { target: { value: "hola" } });
+    const notPrevented = fireEvent.keyDown(el, { key: "Enter", shiftKey: true });
+    expect(notPrevented).toBe(true); // default action (newline) is left alone
+    await new Promise((r) => setTimeout(r, 30));
+    expect(bodies).toEqual([]);
+  });
+
+  it("Enter during IME composition does not submit", async () => {
+    const bodies = captureTurns();
+    renderPanel();
+    const el = screen.getByPlaceholderText(PLACEHOLDER);
+    fireEvent.change(el, { target: { value: "にほん" } });
+    fireEvent.keyDown(el, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(el, { key: "Enter", keyCode: 229 });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(bodies).toEqual([]);
+  });
+
+  it("sends a multiline message with its newlines intact", async () => {
+    const bodies = captureTurns();
+    renderPanel();
+    const el = screen.getByPlaceholderText(PLACEHOLDER);
+    fireEvent.change(el, { target: { value: "- uno\n- dos" } });
+    fireEvent.keyDown(el, { key: "Enter" });
+    await waitFor(() => expect(bodies).toEqual([{ text: "- uno\n- dos" }]));
+  });
+
+  it("resets the textarea height after a send", async () => {
+    const spy = vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockReturnValue(120);
+    try {
+      captureTurns();
+      renderPanel();
+      const el = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
+      fireEvent.change(el, { target: { value: "a\nb\nc\nd" } });
+      await waitFor(() => expect(el.style.height).toBe("120px"));
+      spy.mockReturnValue(44);
+      fireEvent.keyDown(el, { key: "Enter" });
+      await waitFor(() => expect(el.value).toBe(""));
+      expect(el.style.height).toBe("44px");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

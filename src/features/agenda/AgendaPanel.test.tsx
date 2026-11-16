@@ -8,6 +8,9 @@ import {
   API_BASE_URL,
   agendaGetErrorHandler,
   agendaGetHandler,
+  agendaProgressionGetHandler,
+  agendaProgressionPutCaptureHandler,
+  agendaProgressionPutErrorHandler,
   agendaSessionActionCaptureHandler,
   agendaSessionActionEmptyQueueHandler,
   agendaSessionActionErrorHandler,
@@ -20,13 +23,18 @@ import {
   cohostProfileSelectCaptureHandler,
   cohostProfileSelectNotFoundHandler,
   defaultAgenda,
-  defaultCohostProfiles
+  defaultCohostProfiles,
+  defaultI18nState,
+  defaultTtsConfig,
+  i18nStateHandler
 } from "../../test/handlers.js";
 import { AgendaPanel } from "./AgendaPanel.js";
 import { ToastProvider } from "../../ui/Toast.js";
+import { useUiLocaleStore } from "../../i18n/locale.js";
 
 beforeEach(() => {
   window.localStorage.clear();
+  useUiLocaleStore.getState().setLocale("es");
 });
 
 // AgendaPanel now splits into two panes (PaneSwitcher): "Perfil co-host"
@@ -74,7 +82,7 @@ describe("AgendaPanel hydrates Now/Queue from GET /api/agenda", () => {
 
   it("hydrates session settings (turnos/ritmo/modo) from GET", async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "Intentos por tema" })).toHaveValue(3));
     expect(screen.getByRole("button", { name: "Normal" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("combobox", { name: "Modo de seguridad en vivo" })).toHaveTextContent("Live-safe");
   });
@@ -163,9 +171,10 @@ describe("AgendaPanel session settings fire PUT /api/agenda/session", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(capture));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
+    const turnsInput = await screen.findByRole("spinbutton", { name: "Intentos por tema" });
+    await waitFor(() => expect(turnsInput).toHaveValue(3));
 
-    selectCustomOption("Intentos por tema", "5");
+    fireEvent.change(turnsInput, { target: { value: "5" } });
 
     await waitFor(() => expect(capture.body).toEqual({ max_turns_per_topic: 5 }));
   });
@@ -174,7 +183,7 @@ describe("AgendaPanel session settings fire PUT /api/agenda/session", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(capture));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "Intentos por tema" })).toHaveValue(3));
 
     fireEvent.click(screen.getByRole("button", { name: "Dinámico" }));
 
@@ -185,7 +194,7 @@ describe("AgendaPanel session settings fire PUT /api/agenda/session", () => {
     const capture: { body?: unknown } = {};
     server.use(agendaSessionCaptureHandler(capture));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Intentos por tema" })).toHaveTextContent("3"));
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "Intentos por tema" })).toHaveValue(3));
 
     selectCustomOption("Modo de seguridad en vivo", "Monólogo");
 
@@ -203,7 +212,7 @@ describe("AgendaPanel session badge reflects live data, not the mock fixture", (
       })
     );
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     expect(screen.getByText("pausa suave")).toBeInTheDocument();
     expect(screen.queryByText("activa")).not.toBeInTheDocument();
@@ -279,7 +288,7 @@ describe("AgendaPanel co-host profile hydrates from GET /api/agenda/cohost-profi
     expect(screen.getByRole("combobox", { name: "Perfiles guardados" })).toHaveTextContent("Natural");
   });
 
-  it("selecting a saved profile fires POST /api/agenda/cohost-profiles/select with its name", async () => {
+  it("selecting a saved profile fires POST /api/agenda/cohost-profiles/select with its name and explicit locale", async () => {
     const capture: { body?: unknown } = {};
     server.use(cohostProfileSelectCaptureHandler(capture, { selected: "Filosa" }));
     renderPanel();
@@ -289,7 +298,7 @@ describe("AgendaPanel co-host profile hydrates from GET /api/agenda/cohost-profi
 
     selectCustomOption("Perfiles guardados", "Filosa");
 
-    await waitFor(() => expect(capture.body).toEqual({ name: "Filosa" }));
+    await waitFor(() => expect(capture.body).toEqual({ name: "Filosa", locale: "es" }));
     expect(screen.getByLabelText("Estilo del perfil co-host")).toHaveValue(defaultCohostProfiles.profiles[1].style);
   });
 
@@ -304,10 +313,114 @@ describe("AgendaPanel co-host profile hydrates from GET /api/agenda/cohost-profi
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("profile not found"));
   });
+
+  it("scopes profiles by active_locale (normalized BCP-47) rather than piper_voice, and holds list until i18n settles", async () => {
+    const englishProfiles = {
+      profiles: [
+        {
+          name: "Natural",
+          style: "Sound like a natural stream co-host: warm, with dry humor.",
+          default_priority: "normal",
+          default_response_length: "normal"
+        }
+      ]
+    };
+    const requestedLocales: Array<string | null> = [];
+    let releaseI18n!: () => void;
+    server.use(
+      http.get(
+        `${API_BASE_URL}/api/i18n`,
+        () =>
+          new Promise((resolve) => {
+            releaseI18n = () => resolve(HttpResponse.json({ ...defaultI18nState, active_locale: "en-US" }));
+          })
+      ),
+      http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, ({ request }) => {
+        const loc = new URL(request.url).searchParams.get("locale");
+        requestedLocales.push(loc);
+        if (loc === "en") {
+          return HttpResponse.json(englishProfiles);
+        }
+        return HttpResponse.json(defaultCohostProfiles);
+      })
+    );
+    const capture: { body?: unknown } = {};
+    server.use(cohostProfileSaveCaptureHandler(capture, englishProfiles));
+
+    renderPanel();
+    await waitFor(() => expect(typeof releaseI18n).toBe("function"));
+    // Held until GET /api/i18n settles: zero premature ?locale=es requests
+    expect(requestedLocales).toEqual([]);
+
+    releaseI18n();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Estilo del perfil co-host")).toHaveValue(englishProfiles.profiles[0].style)
+    );
+    expect(requestedLocales).toEqual(["en"]);
+
+    fireEvent.change(screen.getByLabelText("Nombre del perfil co-host"), { target: { value: "Natural EN" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil" }));
+
+    await waitFor(() =>
+      expect(capture.body).toEqual({
+        name: "Natural EN",
+        style: englishProfiles.profiles[0].style,
+        locale: "en"
+      })
+    );
+  });
+
+  it("ignores piper_voice=english when active_locale is es, and sends ?locale=es explicitly", async () => {
+    const requestedLocales: Array<string | null> = [];
+    server.use(
+      i18nStateHandler({ ...defaultI18nState, active_locale: "es" }),
+      http.get(`${API_BASE_URL}/api/tts/config`, () =>
+        HttpResponse.json({ ...defaultTtsConfig, piper_voice: "english" })
+      ),
+      http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, ({ request }) => {
+        requestedLocales.push(new URL(request.url).searchParams.get("locale"));
+        return HttpResponse.json(defaultCohostProfiles);
+      })
+    );
+    const capture: { body?: unknown } = {};
+    server.use(cohostProfileSaveCaptureHandler(capture, defaultCohostProfiles));
+
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Estilo del perfil co-host")).toHaveValue(defaultCohostProfiles.profiles[0].style)
+    );
+    expect(requestedLocales).toEqual(["es"]);
+
+    fireEvent.change(screen.getByLabelText("Nombre del perfil co-host"), { target: { value: "Kira ES" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar perfil" }));
+
+    await waitFor(() =>
+      expect(capture.body).toEqual({
+        name: "Kira ES",
+        style: defaultCohostProfiles.profiles[0].style,
+        locale: "es"
+      })
+    );
+  });
+
+  it("falls back to uiLocale when GET /api/i18n fails", async () => {
+    useUiLocaleStore.getState().setLocale("en");
+    const requestedLocales: Array<string | null> = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/i18n`, () => HttpResponse.json({ detail: "down" }, { status: 500 })),
+      http.get(`${API_BASE_URL}/api/agenda/cohost-profiles`, ({ request }) => {
+        requestedLocales.push(new URL(request.url).searchParams.get("locale"));
+        return HttpResponse.json(defaultCohostProfiles);
+      })
+    );
+
+    renderPanel();
+    await waitFor(() => expect(requestedLocales).toEqual(["en"]));
+  });
 });
 
 describe("AgendaPanel co-host profile save fires POST /api/agenda/cohost-profiles", () => {
-  it("saving sends the edited name and current style text", async () => {
+  it("saving sends the edited name, current style text, and explicit locale", async () => {
     const capture: { body?: unknown } = {};
     server.use(cohostProfileSaveCaptureHandler(capture));
     renderPanel();
@@ -319,7 +432,11 @@ describe("AgendaPanel co-host profile save fires POST /api/agenda/cohost-profile
     fireEvent.click(screen.getByRole("button", { name: "Guardar perfil" }));
 
     await waitFor(() =>
-      expect(capture.body).toEqual({ name: "Natural remix", style: defaultCohostProfiles.profiles[0].style })
+      expect(capture.body).toEqual({
+        name: "Natural remix",
+        style: defaultCohostProfiles.profiles[0].style,
+        locale: "es"
+      })
     );
   });
 
@@ -400,7 +517,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaSessionActionCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -411,7 +528,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaSessionActionCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Pausa suave" }));
 
@@ -422,7 +539,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     const capture: { body?: unknown } = {};
     server.use(agendaSessionActionCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Emergencia" }));
 
@@ -441,7 +558,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
       )
     );
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -456,7 +573,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
   it("surfaces an error when a session action is rejected", async () => {
     server.use(agendaSessionActionErrorHandler());
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
@@ -470,13 +587,13 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     server.use(agendaGetHandler({ ...defaultAgenda, queued_topics: [] }));
     server.use(agendaSessionActionEmptyQueueHandler());
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
 
     await waitFor(() =>
       expect(
-        screen.getByText("No hay temas en cola — agregá o aprobá un tema primero.")
+        screen.getByText("No hay temas en cola — agrega o aprueba un tema primero.")
       ).toBeInTheDocument()
     );
     // A 200 empty-queue outcome is NOT an error path.
@@ -487,13 +604,13 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
     server.use(agendaGetHandler({ ...defaultAgenda, queued_topics: [] }));
     server.use(agendaSessionActionEmptyQueueHandler());
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
 
     // Enable is refused because the queue is empty — the alert appears.
     fireEvent.click(screen.getByRole("button", { name: "Activar" }));
     await waitFor(() =>
       expect(
-        screen.getByText("No hay temas en cola — agregá o aprobá un tema primero.")
+        screen.getByText("No hay temas en cola — agrega o aprueba un tema primero.")
       ).toBeInTheDocument()
     );
 
@@ -508,7 +625,7 @@ describe("AgendaPanel session control fires POST /api/agenda/session/action", ()
 
     await waitFor(() =>
       expect(
-        screen.queryByText("No hay temas en cola — agregá o aprobá un tema primero.")
+        screen.queryByText("No hay temas en cola — agrega o aprueba un tema primero.")
       ).not.toBeInTheDocument()
     );
   });
@@ -528,7 +645,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
     const capture: { bodies: unknown[] } = { bodies: [] };
     server.use(topicCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
     goToTopics();
 
     fireEvent.change(screen.getByLabelText("Título del tema"), { target: { value: "Un tema nuevo" } });
@@ -556,7 +673,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
     const capture: { bodies: unknown[] } = { bodies: [] };
     server.use(topicCaptureHandler(capture));
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
     goToTopics();
 
     fireEvent.change(screen.getByLabelText("Temas en lote"), {
@@ -596,7 +713,7 @@ describe("AgendaPanel add-topic extra fields, bulk, and templates (WU3)", () => 
 
   it("prefills the form when a template is clicked", async () => {
     renderPanel();
-    await screen.findByRole("combobox", { name: "Intentos por tema" });
+    await screen.findByRole("spinbutton", { name: "Intentos por tema" });
     goToTopics();
 
     fireEvent.click(screen.getByRole("button", { name: /Nostalgia de los 2000 en gaming/ }));
@@ -653,5 +770,53 @@ describe("AgendaPanel pane switcher (Perfil co-host / Temas)", () => {
     goToTopics();
 
     expect(screen.getByLabelText("Título del tema")).toHaveValue("Borrador sin guardar");
+  });
+});
+
+describe("AgendaPanel topic progression toggle", () => {
+  it("shows the progression switch ON by default", async () => {
+    renderPanel();
+    const toggle = await screen.findByRole("switch", { name: "Progresión de temas" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("PUTs enabled:false when switched off and reflects the saved state", async () => {
+    const capture: { body?: unknown } = {};
+    server.use(agendaProgressionPutCaptureHandler(capture));
+    renderPanel();
+    const toggle = await screen.findByRole("switch", { name: "Progresión de temas" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    fireEvent.click(toggle);
+    await waitFor(() => expect(capture.body).toEqual({ enabled: false }));
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Progresión de temas" })).toHaveAttribute("aria-checked", "false")
+    );
+  });
+
+  it("surfaces an error and keeps the previous state when the save fails", async () => {
+    server.use(agendaProgressionPutErrorHandler());
+    renderPanel();
+    const toggle = await screen.findByRole("switch", { name: "Progresión de temas" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    fireEvent.click(toggle);
+    expect(await screen.findByText("No se pudo guardar la progresión de temas.")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Progresión de temas" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("notes when the environment variable overrides the switch", async () => {
+    server.use(agendaProgressionGetHandler({ enabled: false, variant: "v3", env_override: true }));
+    renderPanel();
+    expect(await screen.findByText(/OPENCOHOST_AGENDA_PROGRESSION/)).toBeInTheDocument();
+  });
+
+  it("uses English copy under the en locale", async () => {
+    useUiLocaleStore.getState().setLocale("en");
+    renderPanel();
+    expect(await screen.findByRole("switch", { name: "Topic progression" })).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Uses short, fixed-length lines. Reasoning or heavily quantized models may give short or empty lines; turn it off if that happens."
+      )
+    ).toBeInTheDocument();
   });
 });

@@ -89,7 +89,7 @@ describe("ConversationPanel LLM readiness integration & message buffering", () =
       expect(screen.getByText("Asistente de Preparación LLM")).toBeInTheDocument();
     });
 
-    const input = screen.getByPlaceholderText(/escribí un mensaje/i);
+    const input = screen.getByPlaceholderText(/escribe un mensaje/i);
     fireEvent.change(input, { target: { value: "Mensaje de prueba" } });
     fireEvent.submit(input.closest("form")!);
 
@@ -126,7 +126,7 @@ describe("ConversationPanel LLM readiness integration & message buffering", () =
       expect(screen.getByText("Asistente de Preparación LLM")).toBeInTheDocument();
     });
 
-    const input = screen.getByPlaceholderText(/escribí un mensaje/i);
+    const input = screen.getByPlaceholderText(/escribe un mensaje/i);
     fireEvent.change(input, { target: { value: "Mensaje que voy a cancelar" } });
     fireEvent.submit(input.closest("form")!);
 
@@ -175,7 +175,7 @@ describe("ConversationPanel LLM readiness integration & message buffering", () =
       expect(screen.getByText("Asistente de Preparación LLM")).toBeInTheDocument();
     });
 
-    const input = screen.getByPlaceholderText(/escribí un mensaje/i);
+    const input = screen.getByPlaceholderText(/escribe un mensaje/i);
     fireEvent.change(input, { target: { value: "Auto-resume test message" } });
     fireEvent.submit(input.closest("form")!);
 

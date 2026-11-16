@@ -62,10 +62,25 @@ describe("ProfileSwitcher (spec R4, R5)", () => {
     const { handler, release } = gatedStatusHandler("default", "Akira");
     server.use(handler);
 
+    // The profile list is fetched after GET /api/i18n resolves the backend
+    // locale, so wait until it has been served before opening the select.
+    let listServed!: () => void;
+    const served = new Promise<void>((resolve) => (listServed = resolve));
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles`, () => {
+        listServed();
+        return HttpResponse.json({ profiles: ["default", "Akira"] });
+      })
+    );
+
     renderSwitcher();
 
     const trigger = await screen.findByRole("combobox", { name: "Perfil activo" });
     await waitFor(() => expect(trigger).toHaveTextContent("default"));
+    await served;
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
 
     selectCustomOption("Perfil activo", "Akira");
 
@@ -88,7 +103,9 @@ describe("ProfileSwitcher (spec R4, R5)", () => {
     vi.useFakeTimers();
 
     renderSwitcher();
-    await act(() => vi.advanceTimersByTimeAsync(0));
+    // i18n state resolves first, then the (locale-filtered) profile list.
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    await act(() => vi.advanceTimersByTimeAsync(50));
 
     selectCustomOption("Perfil activo", "Akira");
     await act(() => vi.advanceTimersByTimeAsync(0));

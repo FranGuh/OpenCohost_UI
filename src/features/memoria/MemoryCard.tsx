@@ -9,6 +9,7 @@ import { Select } from "../../ui/Select.js";
 import { Alert } from "../../ui/Alert.js";
 import { ConfirmFooter } from "../../ui/ConfirmFooter.js";
 import { Segmented } from "../../ui/Segmented.js";
+import { Switch } from "../../ui/Switch.js";
 import { SubCollapsibleSection, useCollapsible } from "../../ui/Collapsible.js";
 import { ApiError } from "../../api/client.js";
 import type { MemoriaListItem } from "../../api/client.js";
@@ -26,6 +27,7 @@ import type { MemoriaImportResponse } from "../../api/memoria.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
 import { useStatusQuery } from "../../api/status.js";
 import { t, useT, type TKey } from "../../i18n/t.js";
+import { MemoryLayersSection } from "./MemoryLayersSection.js";
 
 // R8 (privacy): this card renders counts ONLY, never raw chat/persona content.
 function countRows(stats: {
@@ -102,7 +104,9 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
   return (
     <li className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-3">
       <div className="grid grid-cols-[1fr_auto] items-start gap-2">
-        <span className="text-sm font-semibold text-foreground">{item.title}</span>
+        <span className={cn("text-sm font-semibold truncate", !item.title?.trim() && "italic text-muted-foreground")}>
+          {item.title?.trim() || (item.inactive ? t("controles.memory.row.scrubbed") : t("controles.memory.row.untitled"))}
+        </span>
         <span className="mono whitespace-nowrap text-[11px] text-dim">{item.updated_at}</span>
       </div>
 
@@ -110,6 +114,9 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
         {item.pinned && <Badge tone="info">{t("controles.memory.row.badge.pinned")}</Badge>}
         {item.private && <Badge tone="neutral">{t("controles.memory.row.badge.private")}</Badge>}
         {item.inactive && <Badge tone="warn">{t("controles.memory.row.badge.inactive")}</Badge>}
+        {item.superseded_by && (
+          <Badge tone="warn">{t("controles.memory.row.badge.superseded")}</Badge>
+        )}
         {item.imported && <Badge tone="neutral">{t("controles.memory.row.badge.imported")}</Badge>}
         {/* memoria_draft_visibility_20260725: an auto-captured row with no
             operator confirmation — display-only, mirrors EditorialCardsCard's
@@ -124,7 +131,7 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
         <Card className="flex min-h-0 w-full flex-col overflow-y-auto p-4">
           <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
             <h2 id={`memoria-row-title-${item.id}`} className="text-sm font-bold text-foreground">
-              {item.title}
+              {item.title?.trim() || (item.inactive ? t("controles.memory.row.scrubbed") : t("controles.memory.row.untitled"))}
             </h2>
             <button
               type="button"
@@ -172,6 +179,10 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
             {t("controles.memory.row.edit.contentLabel")}
             {rowQuery.isFetching && !rowQuery.data ? (
               <p className="text-xs text-dim">{t("controles.memory.row.edit.loading")}</p>
+            ) : rowQuery.isError ? (
+              <p role="alert" className="text-xs leading-relaxed text-danger">
+                {rowQuery.error?.message ?? t("controles.memory.row.load.error")}
+              </p>
             ) : (
               <textarea
                 aria-label={t("controles.memory.row.edit.content.aria")}
@@ -189,7 +200,7 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
             <Button
               type="button"
               variant="outline"
-              disabled={busy || !editTitle.trim() || !editContent.trim()}
+              disabled={busy || rowQuery.isError || !editTitle.trim() || !editContent.trim()}
               onClick={() => {
                 updateMutation.mutate(
                   { id: item.id, title: editTitle, content: editContent },
@@ -251,7 +262,9 @@ function MemoriaRow({ item, profileId }: { item: MemoriaListItem; profileId: str
                 onClick={() => flagsMutation.mutate({ id: item.id, inactive: !item.inactive })}
               >
                 {item.inactive
-                  ? t("controles.memory.row.reactivate.action")
+                  ? item.superseded_by
+                    ? t("controles.memory.row.restore.action")
+                    : t("controles.memory.row.reactivate.action")
                   : t("controles.memory.row.deactivate.action")}
               </Button>
               <Button type="button" variant="ghost" disabled={busy} onClick={startEdit}>
@@ -498,6 +511,10 @@ function MemoriaImportSection({ profileId }: { profileId: string }) {
   );
 }
 
+export function isScrubbedTombstone(item: MemoriaListItem): boolean {
+  return !item.title || item.title.trim() === "";
+}
+
 // Ticket C: client-side provenance filter for the row list. `imported` is the
 // only provenance signal MemoriaListItem actually carries (WU4) — "native"
 // is just its honest complement (not imported). Per-source origin
@@ -515,9 +532,14 @@ function buildTierOptions(t: ReturnType<typeof useT>) {
   ] as const;
 }
 
-function filterByTier(items: MemoriaListItem[], tier: MemoriaTierFilter): MemoriaListItem[] {
-  if (tier === "all") return items;
-  return items.filter((item) => (tier === "imported" ? item.imported : !item.imported));
+function filterByTier(
+  items: MemoriaListItem[],
+  tier: MemoriaTierFilter,
+  showScrubbed = false
+): MemoriaListItem[] {
+  const visible = showScrubbed ? items : items.filter((item) => !isScrubbedTombstone(item));
+  if (tier === "all") return visible;
+  return visible.filter((item) => (tier === "imported" ? item.imported : !item.imported));
 }
 
 /**
@@ -536,11 +558,16 @@ export function MemoryCard() {
   // at boot (FIX-A) or applies a switch; on an older backend that never seeds,
   // the empty-string fallback degrades gracefully via the `enabled` /
   // disabled-button guards AND the explicit null-profile branch below.
-  const profileId = useStatusQuery().data?.active_profile_id ?? "";
+  const statusQuery = useStatusQuery();
+  const profileId = statusQuery.data?.active_profile_id ?? "";
   // Per-profile stats (FIX-A): the headline count uses the same profile as the
   // row list, so "Memorias guardadas: N" and the list agree instead of showing
-  // a global total next to a per-profile (often empty) list.
-  const { data, isError: statsError } = useMemoriaStatsQuery(profileId);
+  // a global total next to a per-profile (often empty) list. Wait for /api/status
+  // to settle so mount never fires an unscoped global request while pending,
+  // while still honoring older backends whose settled active_profile_id is null.
+  const { data, isError: statsError } = useMemoriaStatsQuery(profileId, {
+    enabled: !statusQuery.isPending
+  });
   const clearCommand = useEngineCommand<void>();
   const [confirming, setConfirming] = useState(false);
 
@@ -552,7 +579,9 @@ export function MemoryCard() {
   // survives panel navigation like every other section.
   const [listOpen, toggleList] = useCollapsible(false, "memoria-list");
   const [tierFilter, setTierFilter] = useState<MemoriaTierFilter>("all");
-  const filteredItems = listData ? filterByTier(listData.items, tierFilter) : [];
+  const [showScrubbed, setShowScrubbed] = useState(false);
+  const scrubbedCount = listData ? listData.items.filter(isScrubbedTombstone).length : 0;
+  const filteredItems = listData ? filterByTier(listData.items, tierFilter, showScrubbed) : [];
 
   function handleConfirmClear() {
     setConfirming(false);
@@ -597,6 +626,8 @@ export function MemoryCard() {
           )}
         </section>
 
+        <MemoryLayersSection />
+
         {clearCommand.isError && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
             {clearCommand.error?.message ?? t("controles.memory.clear.error")}
@@ -630,7 +661,7 @@ export function MemoryCard() {
           )}
         </SubCollapsibleSection>
 
-        <MemoriaImportSection profileId={profileId} />
+        <MemoriaImportSection key={profileId} profileId={profileId} />
 
         <section aria-labelledby="memory-list-label" className="space-y-2">
           <div className="flex items-center justify-between gap-3">
@@ -690,12 +721,26 @@ export function MemoryCard() {
                   )}
                   {listData && listData.items.length > 0 && (
                     <>
-                      <Segmented
-                        options={tierOptions}
-                        value={tierFilter}
-                        onChange={setTierFilter}
-                        ariaLabel={t("controles.memory.list.filter.aria")}
-                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Segmented
+                          options={tierOptions}
+                          value={tierFilter}
+                          onChange={setTierFilter}
+                          ariaLabel={t("controles.memory.list.filter.aria")}
+                        />
+                        {scrubbedCount > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-dim">
+                              {t("controles.memory.list.showScrubbed", { count: scrubbedCount })}
+                            </span>
+                            <Switch
+                              checked={showScrubbed}
+                              onChange={setShowScrubbed}
+                              aria-label={t("controles.memory.list.showScrubbed", { count: scrubbedCount })}
+                            />
+                          </div>
+                        )}
+                      </div>
                       {filteredItems.length === 0 ? (
                         <p className="text-xs text-dim">{t("controles.memory.list.filter.empty")}</p>
                       ) : (

@@ -1,8 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useProfilesQuery, useSwitchProfileMutation } from "./profiles.js";
 import { usePollUntilApplied } from "./status.js";
 import { useSwitchStore } from "../store/switchStore.js";
+import { getI18nState } from "./i18n.js";
+import { useUiLocale } from "../i18n/locale.js";
 
 /**
  * Extracted profile-switch orchestration (queued -> applying -> applied).
@@ -16,7 +19,14 @@ import { useSwitchStore } from "../store/switchStore.js";
 const NO_PROFILES: string[] = [];
 
 function useProfileSwitch() {
-  const profilesQuery = useProfilesQuery();
+  const { locale: uiLocale } = useUiLocale();
+  // Profiles follow the backend (TTS/app) language, not the UI-only locale.
+  // While GET /api/i18n is loading the profile fetch is held (no unfiltered
+  // flash); if it fails we fall back to the UI locale rather than hide profiles.
+  const i18nQuery = useQuery({ queryKey: ["i18n"], queryFn: getI18nState, staleTime: 60_000 });
+  const i18nSettled = !i18nQuery.isPending;
+  const profileLocale = i18nQuery.data?.active_locale ?? uiLocale;
+  const profilesQuery = useProfilesQuery(profileLocale, { enabled: i18nSettled });
   // `mutate` is referentially stable across renders (unlike the mutation object
   // itself), so it can be a dependency without defeating the memo.
   const { mutate: switchMutate, isError: switchError } = useSwitchProfileMutation();
@@ -26,9 +36,18 @@ function useProfileSwitch() {
   // clears pendingSwitch.
   const statusQuery = usePollUntilApplied(pendingSwitch?.name ?? null);
 
-  const profiles = profilesQuery.data?.profiles ?? NO_PROFILES;
   const activeProfile = statusQuery.data?.active_profile;
-  const profilesLoading = profilesQuery.isLoading;
+  const fetchedProfiles = profilesQuery.data?.profiles ?? NO_PROFILES;
+  // Active profile first, the rest in backend order — done once here so every
+  // consumer (playlist, switcher) shares it.
+  const profiles = useMemo(
+    () =>
+      activeProfile && fetchedProfiles.includes(activeProfile)
+        ? [activeProfile, ...fetchedProfiles.filter((n) => n !== activeProfile)]
+        : fetchedProfiles,
+    [fetchedProfiles, activeProfile]
+  );
+  const profilesLoading = !i18nSettled || profilesQuery.isLoading;
 
   const switchTo = useCallback(
     (name: string) => {

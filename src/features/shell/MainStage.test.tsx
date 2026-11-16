@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { server } from "../../test/server.js";
@@ -21,17 +21,51 @@ function renderStage() {
 }
 
 describe("MainStage — experiencia stage wired to GET /api/status", () => {
-  it("layers Welcome as a modal without replacing Kira and persists explicit dismissal", () => {
+  it("layers the setup assistant over Kira when the backend asks for it, and records a skip on close", async () => {
+    const puts: unknown[] = [];
+    server.use(
+      http.get(`${API_BASE_URL}/api/setup/state`, () =>
+        HttpResponse.json({ status: "pending", engine_ready: false, engine: null, show_on_start: true })
+      ),
+      http.put(`${API_BASE_URL}/api/setup/state`, async ({ request }) => {
+        puts.push(await request.json());
+        return HttpResponse.json({ status: "skipped", engine_ready: false, engine: null, show_on_start: false });
+      })
+    );
     renderStage();
 
-    expect(screen.getByRole("dialog", { name: "Conocé a Kira" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Asistente de configuración" });
+    // The stage underneath stays mounted (the VRM context must survive the modal).
+    expect(screen.getByRole("main")).toContainElement(dialog);
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar asistente" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(puts).toEqual([{ status: "skipped" }]));
+  });
+
+  it("does not open anything when setup is already done", async () => {
+    renderStage();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  // Fallback path: the setup route is unreachable, so the old localStorage
+  // welcome card keeps working. The "default" heading assertions belong to
+  // KiraCover (owner's uncommitted work) and are unchanged.
+  it("layers Welcome as a modal without replacing Kira and persists explicit dismissal", async () => {
+    server.use(http.get(`${API_BASE_URL}/api/setup/state`, () => new HttpResponse(null, { status: 503 })));
+    renderStage();
+
+    expect(await screen.findByRole("dialog", { name: "Conoce a Kira" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "default" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Omitir" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(window.localStorage.getItem("oc-welcome-dismissed-v1")).toBe("true");
-    expect(screen.getByRole("heading", { name: "Kira" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "default" })).toBeInTheDocument();
   });
 
   it("shows the real current_model from status, not a hardcoded 'Qwen 3 (1.7B)'", async () => {
