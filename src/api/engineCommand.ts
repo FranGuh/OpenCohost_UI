@@ -168,7 +168,7 @@ export function useEngineCommand<TValue = unknown>(
   }, [changePendingCommand, matches, options.manualConvergence, pendingCommand]);
 
   // Immediate failure resolution: when the backend fires a failure event
-  // (model_switch_failed, llm_tier_switch_failed), clear pending immediately
+  // (model_switch_failed, llm_tier_switch_failed, piper/edge_voice_switch_failed), clear pending immediately
   // instead of holding the control disabled until the 15s timeout ceiling.
   useEffect(() => {
     if (!pendingCommand) {
@@ -177,9 +177,14 @@ export function useEngineCommand<TValue = unknown>(
     return useEventStore.subscribe((state) => {
       const latest = state.events[state.events.length - 1];
       if (!latest) return;
+      // Voice failures only fail the voice command that is actually pending,
+      // so an unrelated pending setting is never marked failed by them.
+      const voiceFailure =
+        (latest.action === "piper_voice_switch_failed" && pendingCommand.intentKey.startsWith("set_piper_voice:")) ||
+        (latest.action === "edge_voice_switch_failed" && pendingCommand.intentKey.startsWith("set_edge_voice:"));
       if (
         latest.source === "motor" &&
-        (latest.action === "model_switch_failed" || latest.action === "llm_tier_switch_failed")
+        (latest.action === "model_switch_failed" || latest.action === "llm_tier_switch_failed" || voiceFailure)
       ) {
         changePendingCommand(null);
         setFailed(true);

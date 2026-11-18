@@ -285,6 +285,67 @@ describe("useEngineCommand immediate failure event resolution (model_switch_fail
   });
 });
 
+describe("useEngineCommand voice switch failure events", () => {
+  function voiceFailureCase(command: "set_piper_voice" | "set_edge_voice", action: string, otherAction: string) {
+    return async () => {
+      server.use(
+        http.post(`${API_BASE_URL}/api/commands`, () =>
+          HttpResponse.json({ accepted: true, command_id: "cmd-voice", status: "queued", state_version: 1 })
+        )
+      );
+      const { result } = renderHook(() => useEngineCommand(undefined, { manualConvergence: true }), {
+        wrapper: createWrapper()
+      });
+      await act(async () => {
+        await result.current.run(command, command === "set_piper_voice" ? { value: "a.onnx", speaker_id: 1 } : "es-MX-JorgeNeural");
+      });
+      expect(result.current.pending).toBe(true);
+
+      // The other engine's voice failure must not fail this pending command.
+      act(() => {
+        useEventStore.getState().append({
+          id: `evt-${command}-${otherAction}`, ts: Date.now(), source: "motor", action: otherAction, label: "x", tone: "danger"
+        });
+      });
+      expect(result.current.pending).toBe(true);
+
+      act(() => {
+        useEventStore.getState().append({
+          id: `evt-${command}-${action}`, ts: Date.now(), source: "motor", action, label: "x", tone: "danger"
+        });
+      });
+      expect(result.current.pending).toBe(false);
+      expect(result.current.isFailed).toBe(true);
+    };
+  }
+
+  it(
+    "clears a pending set_piper_voice on piper_voice_switch_failed only",
+    voiceFailureCase("set_piper_voice", "piper_voice_switch_failed", "edge_voice_switch_failed")
+  );
+  it(
+    "clears a pending set_edge_voice on edge_voice_switch_failed only",
+    voiceFailureCase("set_edge_voice", "edge_voice_switch_failed", "piper_voice_switch_failed")
+  );
+
+  it("posts a structured piper payload with speaker_id", async () => {
+    let body: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "cmd-p", status: "queued", state_version: 1 });
+      })
+    );
+    const { result } = renderHook(() => useEngineCommand(undefined, { manualConvergence: true }), {
+      wrapper: createWrapper()
+    });
+    await act(async () => {
+      await result.current.run("set_piper_voice", { value: "a.onnx", speaker_id: 2 });
+    });
+    expect(body).toEqual({ command: "set_piper_voice", payload: { value: "a.onnx", speaker_id: 2 } });
+  });
+});
+
 describe("useEngineCommand settled invalidation and rollback signals", () => {
   it("invalidates STATUS, MODELS, and TTS_CONFIG on command error when manualConvergence is false", async () => {
     server.use(commandConflictHandler());

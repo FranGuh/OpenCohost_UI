@@ -169,7 +169,21 @@ export type TtsConfigResponse = GeneratedTtsConfigResponse & {
   piper_unavailable_reason?: "package_missing" | "voice_file_missing" | null;
   edge_tts_offline?: boolean;
   discard_speech_residue?: boolean;
+  /** Catalog id (filename) of the effective Piper voice; `piper_voice` may hold the same id. */
+  piper_voice_id?: string | null;
+  piper_speaker_id?: number | null;
+  /** Why the last Piper switch failed; null/absent when none did. */
+  piper_switch_failure_reason?: string | null;
+  /** Effective Edge-TTS voice for the active locale. */
+  edge_voice?: string | null;
+  edge_voice_failure_reason?: string | null;
 };
+
+/** `set_piper_voice` value when a speaker is chosen (sent as `{value, speaker_id}`). */
+export interface PiperVoiceCommandValue {
+  value: string;
+  speaker_id?: number;
+}
 type GeneratedMemoriaStatsResponse = paths["/api/memoria/stats"]["get"]["responses"][200]["content"]["application/json"];
 /**
  * FIX-A: `saved_memorias`/`pinned` are per-profile counts when the request
@@ -331,6 +345,7 @@ export type EngineCommand =
   | "set_tts_local_only"
   | "set_tts_speed"
   | "set_piper_voice"
+  | "set_edge_voice"
   | "set_motor_tts"
   | "set_discard_speech_residue"
   | "switch_model"
@@ -716,7 +731,12 @@ export async function postCommand(
   idempotencyKey: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<CommandAccepted> {
-  const payload = command === "clear_history" ? {} : { value };
+  const payload =
+    command === "clear_history"
+      ? {}
+      : command === "set_piper_voice" && typeof value === "object" && value !== null
+        ? value
+        : { value };
   const res = await authFetch(`${getApiBaseUrl()}/api/commands`, {
     method: "POST",
     headers: {

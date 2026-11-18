@@ -34,11 +34,44 @@ function defaultCommandHandler() {
   );
 }
 
+const VOICE_NAME = "Voz (Piper)";
+const SECOND_VOICE = {
+  id: "es_AR-other.onnx",
+  label: "Otra (es_AR)",
+  lang: "es",
+  num_speakers: 1,
+  speakers: [],
+  sample_rate: 22050,
+  bundled: false,
+  status: "ok",
+  reason: null
+};
+
+/** Catalog with the bundled voice plus a second one, so a voice switch is possible. */
+function twoVoicesHandler() {
+  return http.get(`${API_BASE_URL}/api/tts/piper/voices`, () =>
+    HttpResponse.json([
+      {
+        id: "es_MX-claude-high.onnx",
+        label: "Claude (es_MX)",
+        lang: "es",
+        num_speakers: 1,
+        speakers: [],
+        sample_rate: 22050,
+        bundled: true,
+        status: "ok",
+        reason: null
+      },
+      SECOND_VOICE
+    ])
+  );
+}
+
 describe("VoiceCard populates from GET /api/tts/config", () => {
-  it("shows the live piper_voice, local-only, closest speed preset, and engine", async () => {
+  it("shows the live Piper catalog voice, local-only, closest speed preset, and engine", async () => {
     renderCard();
     await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Idioma" })).toHaveTextContent("🌎 Neutral")
+      expect(screen.getByRole("combobox", { name: VOICE_NAME })).toHaveTextContent("Claude (es_MX)")
     );
     expect(screen.getByRole("switch", { name: "Solo TTS local (Piper)" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Descartar residuos al interrumpir" })).toHaveAttribute("aria-checked", "false");
@@ -64,28 +97,22 @@ describe("VoiceCard populates from GET /api/tts/config", () => {
 });
 
 describe("VoiceCard set_piper_voice — accepted -> poll -> applied", () => {
-  it("dispatches set_piper_voice, disables only the select while applying", async () => {
-    // state_version pinned — never advances independently of a subsequent
-    // POST, matching the real single-dispatcher counter; convergence here
-    // must come from the optimistic timer, not a state_version comparison.
-    server.use(frozenStatusHandler(1));
-    server.use(defaultCommandHandler());
+  it("dispatches set_piper_voice, disables only the voice controls while applying", async () => {
+    server.use(frozenStatusHandler(1), twoVoicesHandler(), defaultCommandHandler());
     renderCard();
 
-    const select = await screen.findByRole("combobox", { name: "Idioma" });
+    const select = await screen.findByRole("combobox", { name: VOICE_NAME });
+    await waitFor(() => expect(select).toHaveTextContent("Claude (es_MX)"));
     fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
+    fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
 
-    expect(select).toHaveTextContent("🌎 Neutral");
-    expect(select).toBeDisabled();
-    expect(screen.getByText("aplicando…")).toBeInTheDocument();
+    await waitFor(() => expect(select).toBeDisabled());
+    expect(screen.getByText("Aplicando voz…")).toBeInTheDocument();
 
-    // independence — the other three controls stay enabled
+    // independence: the other controls stay enabled
     expect(screen.getByRole("switch", { name: "Solo TTS local (Piper)" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Media" })).not.toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Motor TTS" })).not.toBeDisabled();
-
-    await waitFor(() => expect(select).not.toBeDisabled());
   });
 });
 
@@ -358,11 +385,12 @@ describe("VoiceCard set_tts_speed / set_tts_local_only / set_motor_tts — accep
 
 describe("VoiceCard command errors surface honestly", () => {
   it("shows a 409 conflict alert", async () => {
-    server.use(commandConflictHandler());
+    server.use(twoVoicesHandler(), commandConflictHandler());
     renderCard();
-    const select = await screen.findByRole("combobox", { name: "Idioma" });
+    const select = await screen.findByRole("combobox", { name: VOICE_NAME });
+    await waitFor(() => expect(select).toHaveTextContent("Claude (es_MX)"));
     fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
+    fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
   });
 
@@ -389,7 +417,7 @@ describe("VoiceCard command errors surface honestly", () => {
 describe("VoiceCard heavy-TTS disclosure", () => {
   it("shows a note that reference-voice is experimental-gated and out of scope", async () => {
     renderCard();
-    await screen.findByRole("combobox", { name: "Idioma" });
+    await screen.findByRole("combobox", { name: VOICE_NAME });
     expect(screen.getByText(/EXPERIMENTAL_HEAVY_TTS_ENABLED/)).toBeInTheDocument();
   });
 });
@@ -467,7 +495,7 @@ describe("VoiceCard Piper & Edge-TTS status alerts", () => {
       )
     );
     renderCard();
-    await screen.findByRole("combobox", { name: "Idioma" });
+    await screen.findByRole("combobox", { name: VOICE_NAME });
     expect(
       screen.queryByText("Voz local (Piper) no disponible. Instala piper-tts o desactiva Solo TTS local.")
     ).not.toBeInTheDocument();
@@ -478,32 +506,19 @@ describe("VoiceCard Piper & Edge-TTS status alerts", () => {
 });
 
 describe("VoiceCard optimistic rollback on command failure, rejection, or timeout", () => {
-  it("rolls back applyVoice cache & select when POST /api/commands returns 409 even if background refetch fails", async () => {
-    let configReads = 0;
-    server.use(
-      http.get(`${API_BASE_URL}/api/tts/config`, () => {
-        configReads += 1;
-        if (configReads === 1) {
-          return HttpResponse.json({ ...defaultTtsConfig, piper_voice: "english" });
-        }
-        return HttpResponse.json({ detail: "unavailable" }, { status: 500 });
-      }),
-      commandConflictHandler()
-    );
+  it("keeps the previous voice and unlocks the select when POST /api/commands returns 409", async () => {
+    server.use(twoVoicesHandler(), commandConflictHandler());
 
-    const { queryClient } = renderCard();
-    const select = await screen.findByRole("combobox", { name: "Idioma" });
-    await waitFor(() => expect(select).toHaveTextContent("🇺🇸 English"));
+    renderCard();
+    const select = await screen.findByRole("combobox", { name: VOICE_NAME });
+    await waitFor(() => expect(select).toHaveTextContent("Claude (es_MX)"));
 
     fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
-    expect(select).toHaveTextContent("🌎 Neutral");
+    fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
-    expect(select).toHaveTextContent("🇺🇸 English");
+    expect(select).toHaveTextContent("Claude (es_MX)");
     expect(select).not.toBeDisabled();
-    expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.piper_voice).toBe("english");
-    await waitFor(() => expect(configReads).toBeGreaterThanOrEqual(2));
   });
 
   it("rolls back applySpeed cache & pressed button when POST /api/commands returns 422", async () => {
@@ -588,36 +603,6 @@ describe("VoiceCard optimistic rollback on command failure, rejection, or timeou
     expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.discard_speech_residue).toBe(false);
   });
 
-  it("rolls back applyVoice when POST /api/commands stalls and hits the bounded timeout", async () => {
-    vi.useFakeTimers();
-    server.use(
-      http.get(`${API_BASE_URL}/api/tts/config`, () =>
-        HttpResponse.json({ ...defaultTtsConfig, piper_voice: "english" })
-      ),
-      http.post(`${API_BASE_URL}/api/commands`, () => new Promise(() => {}))
-    );
-
-    const { queryClient } = renderCard();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10);
-    });
-
-    const select = screen.getByRole("combobox", { name: "Idioma" });
-    expect(select).toHaveTextContent("🇺🇸 English");
-
-    fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
-    expect(select).toHaveTextContent("🌎 Neutral");
-    expect(select).toBeDisabled();
-
-    await act(() => vi.advanceTimersByTimeAsync(15000));
-
-    expect(select).not.toBeDisabled();
-    expect(select).toHaveTextContent("🇺🇸 English");
-    expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.piper_voice).toBe("english");
-    expect(screen.getByRole("alert")).toBeInTheDocument();
-  });
-
   it("rolls back applyEngine immediately when a post-accept failure event arrives", async () => {
     let configReads = 0;
     server.use(
@@ -662,16 +647,13 @@ describe("VoiceCard optimistic rollback on command failure, rejection, or timeou
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
-  it("rolls back only the failed field without clobbering an accepted concurrent sibling setting", async () => {
+  it("keeps the previous voice on a rejected voice command without clobbering an accepted sibling setting", async () => {
     let currentSpeed = 1.15;
     server.use(
       frozenStatusHandler(1),
+      twoVoicesHandler(),
       http.get(`${API_BASE_URL}/api/tts/config`, () =>
-        HttpResponse.json({
-          ...defaultTtsConfig,
-          piper_voice: "english",
-          speed: currentSpeed
-        })
+        HttpResponse.json({ ...defaultTtsConfig, piper_voice_id: "es_MX-claude-high.onnx", speed: currentSpeed })
       ),
       http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
         const body = (await request.json()) as { command: string; payload?: { value?: unknown } };
@@ -684,19 +666,18 @@ describe("VoiceCard optimistic rollback on command failure, rejection, or timeou
     );
 
     const { queryClient } = renderCard();
-    const select = await screen.findByRole("combobox", { name: "Idioma" });
-    await waitFor(() => expect(select).toHaveTextContent("🇺🇸 English"));
+    const select = await screen.findByRole("combobox", { name: VOICE_NAME });
+    await waitFor(() => expect(select).toHaveTextContent("Claude (es_MX)"));
 
     fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "🌎 Neutral" }));
+    fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
     fireEvent.click(screen.getByRole("button", { name: "Lenta" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/conflict/));
     await waitFor(() => expect(screen.queryByText("aplicando…")).not.toBeInTheDocument());
 
-    expect(select).toHaveTextContent("🇺🇸 English");
+    expect(select).toHaveTextContent("Claude (es_MX)");
     expect(screen.getByRole("button", { name: "Lenta" })).toHaveAttribute("aria-pressed", "true");
-    expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.piper_voice).toBe("english");
     expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.speed).toBe(1.45);
   });
 });
@@ -705,6 +686,7 @@ describe("VoiceCard per-control spinner & applying status (S3)", () => {
   it("shows a spinner in the pending badge, comboboxes, segmented speed pill, and local-only status while applying", async () => {
     server.use(frozenStatusHandler(1));
     server.use(
+      twoVoicesHandler(),
       http.get(`${API_BASE_URL}/api/tts/config`, () =>
         HttpResponse.json({ ...defaultTtsConfig, heavy_available: true, local_only: true })
       ),
@@ -712,13 +694,14 @@ describe("VoiceCard per-control spinner & applying status (S3)", () => {
     );
     renderCard();
 
-    const voiceSelect = await screen.findByRole("combobox", { name: "Idioma" });
+    const voiceSelect = await screen.findByRole("combobox", { name: VOICE_NAME });
+    await waitFor(() => expect(voiceSelect).toHaveTextContent("Claude (es_MX)"));
     fireEvent.click(voiceSelect);
-    fireEvent.click(screen.getByRole("option", { name: "🇺🇸 English" }));
+    fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
 
     expect(voiceSelect).toHaveAttribute("aria-busy", "true");
     expect(voiceSelect.querySelector("svg.animate-spin")).not.toBeNull();
-    expect(screen.getByText("Guardando idioma…")).toBeInTheDocument();
+    expect(screen.getByText("Aplicando voz…")).toBeInTheDocument();
     const pendingBadge = screen.getByText("aplicando…").closest("span");
     expect(pendingBadge?.querySelector("svg.animate-spin")).not.toBeNull();
 
@@ -741,7 +724,8 @@ describe("VoiceCard per-control spinner & applying status (S3)", () => {
     const localStatus = screen.getByText("Guardando el modo de TTS local…").closest("p");
     expect(localStatus?.querySelector("svg.animate-spin")).not.toBeNull();
 
-    await waitFor(() => expect(voiceSelect).not.toBeDisabled());
+    // Accepted != applied: the frozen config never shows the new voice, so it stays locked.
+    expect(voiceSelect).toBeDisabled();
     await waitFor(() => expect(engineSelect).not.toBeDisabled());
   });
 

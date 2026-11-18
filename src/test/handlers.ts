@@ -85,6 +85,11 @@ type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["cont
   piper_unavailable_reason?: "package_missing" | "voice_file_missing" | null;
   edge_tts_offline?: boolean;
   discard_speech_residue?: boolean;
+  piper_voice_id?: string | null;
+  piper_speaker_id?: number | null;
+  piper_switch_failure_reason?: string | null;
+  edge_voice?: string | null;
+  edge_voice_failure_reason?: string | null;
 };
 // saved_memorias_total / pinned_total mirror src/api/client.ts's hand-added
 // MemoriaStatsResponse fields (FIX-A, snapshot lag). ponytail: keep in sync.
@@ -248,6 +253,7 @@ export const defaultReadiness: LlmReadinessResponse = {
 
 export const defaultTtsConfig: TtsConfigResponse = {
   piper_voice: "neutral",
+  piper_voice_id: "es_MX-claude-high.onnx",
   local_only: true,
   speed: 1.15,
   engine: "ligero",
@@ -951,6 +957,31 @@ export const handlers = [
     });
   }),
   http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json(defaultTtsConfig)),
+  // Voice catalogs + Piper folder (voice-catalog-selection T5). One bundled voice per locale.
+  http.get(`${API_BASE_URL}/api/tts/piper/voices`, () =>
+    HttpResponse.json([
+      {
+        id: "es_MX-claude-high.onnx",
+        label: "Claude (es_MX)",
+        lang: "es",
+        num_speakers: 1,
+        speakers: [],
+        sample_rate: 22050,
+        bundled: true,
+        status: "ok",
+        reason: null
+      }
+    ])
+  ),
+  http.get(`${API_BASE_URL}/api/tts/edge/voices`, () =>
+    HttpResponse.json({
+      voices: [{ id: "es-MX-DaliaNeural", label: "Dalia", locale: "es-MX", gender: "Female" }],
+      source: "live"
+    })
+  ),
+  http.get(`${API_BASE_URL}/api/tts/piper/folder`, () =>
+    HttpResponse.json({ path: "C:\\piper", source: "default", exists: true, voice_count: 1 })
+  ),
   http.get(`${API_BASE_URL}/api/memoria/stats`, () => HttpResponse.json(defaultMemoriaStats)),
   http.get(`${API_BASE_URL}/api/memoria/list`, () => HttpResponse.json(defaultMemoriaList)),
   http.get(`${API_BASE_URL}/api/memoria/row/:rowId`, ({ params }) => {

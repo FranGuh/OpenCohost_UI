@@ -129,6 +129,10 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   "motor.ctx_pressure_high": (d) =>
     d ? t("shell.events.motor.ctxPressureHigh.withDetail", { pct: d }) : t("shell.events.motor.ctxPressureHigh.plain"),
   "motor.piper_voice_locale_mismatch": () => t("shell.events.motor.piperVoiceLocaleMismatch"),
+  "motor.piper_voice_switch_applied": () => t("shell.events.motor.piperVoiceSwitchApplied"),
+  "motor.piper_voice_switch_failed": () => t("shell.events.motor.piperVoiceSwitchFailed"),
+  "motor.edge_voice_switch_applied": () => t("shell.events.motor.edgeVoiceSwitchApplied"),
+  "motor.edge_voice_switch_failed": () => t("shell.events.motor.edgeVoiceSwitchFailed"),
   // E1 (memoria_quality_20260717): fresh-memoria notice. Owner decision 5 —
   // shown as a chat-panel FEED line (motor.* is feed-only, never toasted), not
   // just a toast. Feed-visible on purpose (NOT in KNOWN_SILENT). `detail`
@@ -217,6 +221,8 @@ const EVENT_DEFAULT_TONES: Partial<Record<string, AppEventTone>> = {
   "motor.reasoning_budget_exhausted": "warn",
   "motor.turn_dropped": "warn",
   "motor.cloud_bad_key": "danger",
+  "motor.piper_voice_switch_failed": "warn",
+  "motor.edge_voice_switch_failed": "warn",
   "motor.cloud_probe_gave_up": "warn",
   "ptt.error": "danger",
   "ptt.dictation_lost": "warn"

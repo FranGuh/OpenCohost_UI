@@ -11,15 +11,7 @@ import { TTS_CONFIG_QUERY_KEY, useTtsConfigQuery, type TtsConfig } from "../../a
 import { getTtsConfig, type EngineCommand } from "../../api/client.js";
 import { useEngineCommand } from "../../api/engineCommand.js";
 import { useT, type TKey } from "../../i18n/t.js";
-
-// Piper voice registry mirrored from opencohost/config/settings.py::PIPER_VOICES
-// — no endpoint exposes this catalog (GET /api/tts/config returns only the
-// SELECTED piper_voice key), so the option list is hand-kept in sync here.
-// ponytail: keep in sync manually if PIPER_VOICES changes.
-const VOICE_OPTIONS = [
-  { id: "neutral", labelKey: "controles.voice.language.neutral" },
-  { id: "english", labelKey: "controles.voice.language.english" }
-] as const satisfies ReadonlyArray<{ id: string; labelKey: TKey }>;
+import { VoiceCatalogSection } from "./VoiceCatalogSection.js";
 
 // Piper speed presets mirrored from opencohost/ui/tts_speed_control.py::SPEED_PRESETS
 // (length_scale — higher is slower). ponytail: keep in sync manually.
@@ -67,7 +59,7 @@ const ENGINE_OPTIONS = [
   { id: "pesado", labelKey: "controles.voice.engine.heavy" }
 ] as const satisfies ReadonlyArray<{ id: string; labelKey: TKey }>;
 
-type OptimisticTtsField = "piper_voice" | "speed" | "engine" | "discard_speech_residue";
+type OptimisticTtsField = "speed" | "engine" | "discard_speech_residue";
 
 /**
  * Coordinates one optimistic TTS setting with TTS_CONFIG_QUERY_KEY rollback:
@@ -142,7 +134,6 @@ export function VoiceCard() {
   const t = useT();
   const queryClient = useQueryClient();
   const { data, isError: configError } = useTtsConfigQuery();
-  const voiceField = useOptimisticTtsField("piper_voice", "set_piper_voice", (v: string) => v);
   const localOnlyCommand = useEngineCommand<boolean>(undefined, { manualConvergence: true });
   const speedField = useOptimisticTtsField("speed", "set_tts_speed", (v: SpeedOption) => SPEED_SCALE[v]);
   const engineField = useOptimisticTtsField("engine", "set_motor_tts", (v: string) => v);
@@ -154,34 +145,31 @@ export function VoiceCard() {
   const [localOnlyOperation, setLocalOnlyOperation] = useState<
     { value: boolean; status: "applying" | "saved" | "error"; message?: string } | null
   >(null);
+  const [voicePending, setVoicePending] = useState(false);
   const localOnlyController = useRef<AbortController | null>(null);
   const localOnlyRunning = useRef(false);
 
   useEffect(() => () => localOnlyController.current?.abort(), []);
 
-  const voice = voiceField.optimistic ?? data?.piper_voice ?? VOICE_OPTIONS[0].id;
   const localOnly = localOnlyOperation?.status === "applying" ? localOnlyOperation.value : data?.local_only ?? true;
   const speed = speedField.optimistic ?? (data ? closestSpeedOption(data.speed) : "medium");
   const engine = engineField.optimistic ?? data?.engine ?? ENGINE_OPTIONS[0].id;
   const discardResidue = discardResidueField.optimistic ?? data?.discard_speech_residue ?? false;
   const pending =
-    voiceField.command.pending ||
+    voicePending ||
     (localOnlyOperation?.status === "applying" || localOnlyCommand.pending) ||
     speedField.command.pending ||
     engineField.command.pending ||
     discardResidueField.command.pending;
   const commandTimeout =
-    voiceField.command.isTimeout ||
     speedField.command.isTimeout ||
     engineField.command.isTimeout ||
     discardResidueField.command.isTimeout;
   const commandFailed =
-    voiceField.command.isFailed ||
     speedField.command.isFailed ||
     engineField.command.isFailed ||
     discardResidueField.command.isFailed;
   const errorMessage =
-    voiceField.command.error?.message ??
     speedField.command.error?.message ??
     engineField.command.error?.message ??
     discardResidueField.command.error?.message ??
@@ -331,27 +319,7 @@ export function VoiceCard() {
           </Alert>
         )}
 
-        <section aria-labelledby="voice-select-label" className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span id="voice-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              {t("controles.voice.languageSelect")}
-            </span>
-            {voiceField.command.pending && (
-              <span role="status" className="inline-flex items-center gap-1.5 text-xs text-info">
-                <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                {t("controles.voice.applying.language")}
-              </span>
-            )}
-          </div>
-          <Select
-            aria-label={t("controles.voice.languageSelect")}
-            value={voice}
-            disabled={voiceField.command.pending}
-            loading={voiceField.command.pending}
-            options={VOICE_OPTIONS.map((option) => ({ value: option.id, label: t(option.labelKey) }))}
-            onChange={voiceField.apply}
-          />
-        </section>
+        <VoiceCatalogSection config={data} onPendingChange={setVoicePending} />
 
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
           <span className="text-[13px] text-foreground">{t("controles.voice.localOnly")}</span>
