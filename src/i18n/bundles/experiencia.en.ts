@@ -52,6 +52,8 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
     "Type a message below, or hold the mic to talk to her.",
   "experiencia.conversationPanel.empty.title": "Start chatting with Kira",
   "experiencia.conversationPanel.autoFollow": "Follow speech",
+  "experiencia.conversationPanel.privateMode": "Private mode",
+  "experiencia.conversationPanel.privateMode.hint": "Pause saving memories and session history in this chat",
   "experiencia.conversationPanel.feed.eyebrow": "Conversation",
   "experiencia.conversationPanel.jump.action": "Jump to latest",
   "experiencia.conversationPanel.mic.state.connecting": "Connecting…",

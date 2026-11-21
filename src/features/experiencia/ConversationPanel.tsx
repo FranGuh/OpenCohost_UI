@@ -48,6 +48,7 @@ import { emitAppEvent } from "../../lib/appEvents.js";
 import { insertDictation, type ComposerSelection } from "./dictation.js";
 import { SPEECH_TEXT_MAX_LENGTH, useReadAloud, useSpeechState, type SpeechErrorKind, type SpeechSayMode } from "../../api/speech.js";
 import { useStatusQuery } from "../../api/status.js";
+import { useMemoriaCaptureMutation } from "../../api/memoria.js";
 import { usePersonalizationQuery } from "../../api/personalization.js";
 import { useLlmReadiness } from "../shared/useLlmReadiness.js";
 import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
@@ -952,6 +953,18 @@ export function ConversationPanel() {
       localStorage.setItem("oc-autofollow-reading", String(enabled));
     } catch {}
   }, []);
+
+  const [privateMode, setPrivateMode] = useState(false);
+  const captureMutation = useMemoriaCaptureMutation();
+  const handleTogglePrivateMode = useCallback(
+    (next: boolean) => {
+      setPrivateMode(next);
+      captureMutation.mutate(next, {
+        onError: () => setPrivateMode(!next)
+      });
+    },
+    [captureMutation]
+  );
 
   // Session-local transcript: operator turns (appended on successful send)
   // interleaved with accumulated Kira replies (appended as new turn_ids land
@@ -1947,18 +1960,36 @@ export function ConversationPanel() {
         >
           <div className="flex items-center justify-between px-3 py-1.5">
             <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t("experiencia.conversationPanel.feed.eyebrow")}</span>
-            <div className="inline-flex items-center gap-2">
-              <span
-                onClick={() => handleToggleAutoFollow(!autoFollow)}
-                className="cursor-pointer select-none text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {t("experiencia.conversationPanel.autoFollow")}
-              </span>
-              <Switch
-                checked={autoFollow}
-                onChange={handleToggleAutoFollow}
-                aria-label={t("experiencia.conversationPanel.autoFollow")}
-              />
+            <div className="inline-flex items-center gap-3">
+              <div className="inline-flex items-center gap-2" title={t("experiencia.conversationPanel.privateMode.hint")}>
+                <span
+                  onClick={() => handleTogglePrivateMode(!privateMode)}
+                  className={cn(
+                    "cursor-pointer select-none text-[11.5px] transition-colors hover:text-foreground",
+                    privateMode ? "font-semibold text-warn" : "font-medium text-muted-foreground"
+                  )}
+                >
+                  {t("experiencia.conversationPanel.privateMode")}
+                </span>
+                <Switch
+                  checked={privateMode}
+                  onChange={handleTogglePrivateMode}
+                  aria-label={t("experiencia.conversationPanel.privateMode")}
+                />
+              </div>
+              <div className="inline-flex items-center gap-2">
+                <span
+                  onClick={() => handleToggleAutoFollow(!autoFollow)}
+                  className="cursor-pointer select-none text-[11.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {t("experiencia.conversationPanel.autoFollow")}
+                </span>
+                <Switch
+                  checked={autoFollow}
+                  onChange={handleToggleAutoFollow}
+                  aria-label={t("experiencia.conversationPanel.autoFollow")}
+                />
+              </div>
             </div>
           </div>
 

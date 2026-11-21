@@ -2155,3 +2155,27 @@ describe("ConversationPanel composer - multiline textarea", () => {
     }
   });
 });
+
+describe("ConversationPanel private mode toggle", () => {
+  it("toggles POST /api/memoria/capture with paused=true and paused=false", async () => {
+    const capturePayloads: unknown[] = [];
+    server.use(
+      http.post(`${API_BASE_URL}/api/memoria/capture`, async ({ request }) => {
+        capturePayloads.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      })
+    );
+
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Modo privado" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(capturePayloads).toEqual([{ paused: true }]));
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(capturePayloads).toEqual([{ paused: true }, { paused: false }]));
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+});

@@ -555,7 +555,7 @@ describe("ProfileEditor edit (GET/PUT/DELETE /api/perfiles/:name)", () => {
 });
 
 describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () => {
-  it("ticking the purge checkbox fires DELETE then purges memoria by the hydrated profile id, closing only once both succeed", async () => {
+  it("purge checkbox defaults to true and fires DELETE then purges memoria by the hydrated profile id, closing only once both succeed", async () => {
     let deleteCalled = false;
     let purgeBody: unknown;
     server.use(
@@ -576,7 +576,10 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
     await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco."));
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" }));
+    expect(screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
@@ -596,7 +599,6 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
     await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco."));
 
     fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
 
@@ -609,6 +611,37 @@ describe("ProfileEditor delete + purge memoria (POST /api/memoria/purge)", () =>
     server.use(http.post(`${API_BASE_URL}/api/memoria/purge`, () => HttpResponse.json({ deleted: 1 })));
     fireEvent.click(screen.getByRole("button", { name: "Reintentar purga" }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("unticking the purge checkbox skips POST /api/memoria/purge and closes after DELETE", async () => {
+    let deleteCalled = false;
+    let purgeCalled = false;
+    server.use(
+      http.delete(`${API_BASE_URL}/api/perfiles/Akira`, () => {
+        deleteCalled = true;
+        return HttpResponse.json({ ok: true });
+      }),
+      http.post(`${API_BASE_URL}/api/memoria/purge`, () => {
+        purgeCalled = true;
+        return HttpResponse.json({ deleted: 0 });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+
+    await waitFor(() => expect(screen.getByLabelText("System prompt")).toHaveValue("Sos ingeniosa y filosa, con humor seco."));
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    const purgeToggle = screen.getByRole("button", { name: "Purgar memoria asociada a este perfil" });
+    expect(purgeToggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(purgeToggle);
+    expect(purgeToggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Sí, entiendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar perfil" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(deleteCalled).toBe(true);
+    expect(purgeCalled).toBe(false);
   });
 });
 

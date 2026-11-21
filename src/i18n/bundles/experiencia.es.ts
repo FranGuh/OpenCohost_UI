@@ -50,6 +50,8 @@ export const experienciaEs = {
     "Escribe un mensaje abajo, o mantén el micrófono para hablarle.",
   "experiencia.conversationPanel.empty.title": "Empieza a chatear con Kira",
   "experiencia.conversationPanel.autoFollow": "Seguir lectura",
+  "experiencia.conversationPanel.privateMode": "Modo privado",
+  "experiencia.conversationPanel.privateMode.hint": "Pausa el guardado de memorias y sesiones en esta charla",
   "experiencia.conversationPanel.feed.eyebrow": "Conversación",
   "experiencia.conversationPanel.jump.action": "Ver lo más reciente",
   "experiencia.conversationPanel.mic.state.connecting": "Conectando…",

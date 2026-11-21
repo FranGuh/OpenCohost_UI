@@ -76,7 +76,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
   const [maxTurns, setMaxTurns] = useState(3);
   const [nameTouched, setNameTouched] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [purgeMemory, setPurgeMemory] = useState(false);
+  const [purgeMemory, setPurgeMemory] = useState(true);
   const [resolvingLocale, setResolvingLocale] = useState(false);
   // Set only once the profile itself has already been deleted successfully
   // but the follow-up memoria purge failed — the profile no longer exists,
@@ -127,7 +127,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
     setMaxTurns(3);
     setNameTouched(false);
     setDeleting(false);
-    setPurgeMemory(false);
+    setPurgeMemory(true);
     setResolvingLocale(false);
     setPurgeFailedAfterDelete(false);
     createMutation.reset();
