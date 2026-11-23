@@ -29,8 +29,43 @@ impl Default for DesktopSnapshot {
     }
 }
 
+/// Whether showing the desktop companion requires the main window to be minimized.
+/// On Linux/Wayland, compositors do not reliably expose `is_minimized()` to GTK3/tao,
+/// so toggling Desktop Companion ON shows the companion immediately.
+pub const REQUIRE_MINIMIZED_TO_SHOW: bool = !cfg!(target_os = "linux");
+
+/// Pure visibility decision parameterized by whether minimization is required.
+pub fn should_show_with_policy(
+    enabled: bool,
+    minimized: bool,
+    ready: bool,
+    exiting: bool,
+    require_minimized: bool,
+) -> bool {
+    enabled && (!require_minimized || minimized) && ready && !exiting
+}
+
 pub fn should_show(enabled: bool, minimized: bool, ready: bool, exiting: bool) -> bool {
-    enabled && minimized && ready && !exiting
+    should_show_with_policy(enabled, minimized, ready, exiting, REQUIRE_MINIMIZED_TO_SHOW)
+}
+
+/// Whether the OS window itself should be visible.
+/// On Linux/WebKitGTK, a hidden webview can throttle JS before `desktop_ready` fires,
+/// so the OS window stays visible whenever enabled (including while loading or
+/// switching VRM models) and hides reliably as soon as disabled or exiting.
+pub fn should_show_os_window_with_policy(
+    enabled: bool,
+    minimized: bool,
+    ready: bool,
+    exiting: bool,
+    require_minimized: bool,
+    show_while_loading: bool,
+) -> bool {
+    if show_while_loading {
+        enabled && !exiting
+    } else {
+        should_show_with_policy(enabled, minimized, ready, exiting, require_minimized)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,8 +402,17 @@ fn reclamp_to_monitors(window: &WebviewWindow) {
 
 pub fn ensure_companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(existing) = app.get_webview_window("kira-desktop") {
+        // On Linux/WebKitGTK, a hidden webview can throttle JS execution and
+        // prevent `desktop_ready` from firing before the watchdog expires.
+        #[cfg(target_os = "linux")]
+        native::show_no_activate(&existing);
         return Ok(existing);
     }
+
+    // On Linux/WebKitGTK, `.visible(false)` can throttle webview JS execution
+    // and stall `desktop_ready`. Create it visible since this is only called
+    // when Desktop Companion is enabled.
+    let initial_visible = cfg!(target_os = "linux");
 
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -382,7 +426,7 @@ pub fn ensure_companion_window(app: &AppHandle) -> Result<WebviewWindow, String>
     .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
-    .visible(false)
+    .visible(initial_visible)
     .focused(false)
     .build()
     .map_err(|e| format!("failed to build desktop companion window: {e}"))?;
@@ -465,7 +509,7 @@ pub fn reconcile_visibility(
             .and_then(|w| w.is_minimized().ok())
             .unwrap_or(false);
 
-        let (changed, desired, current) = {
+        let (changed, desired, desired_os, current) = {
             let mut state = state_lock.lock().map_err(|e| e.to_string())?;
             let desired = should_show(
                 state.snapshot.enabled,
@@ -473,17 +517,25 @@ pub fn reconcile_visibility(
                 state.snapshot.ready,
                 state.exiting,
             );
+            let desired_os = should_show_os_window_with_policy(
+                state.snapshot.enabled,
+                is_minimized,
+                state.snapshot.ready,
+                state.exiting,
+                REQUIRE_MINIMIZED_TO_SHOW,
+                cfg!(target_os = "linux"),
+            );
             let changed = state.snapshot.visible != desired;
             if changed {
                 state.snapshot.visible = desired;
                 state.snapshot.revision += 1;
             }
-            (changed, desired, state.snapshot.clone())
+            (changed, desired, desired_os, state.snapshot.clone())
         };
         snap = current;
 
-        if changed || force_os {
-            apply_os_visibility(app, desired);
+        if changed || force_os || (cfg!(target_os = "linux") && !desired_os) {
+            apply_os_visibility(app, desired_os);
         }
 
         let latest_visible = state_lock
@@ -705,9 +757,9 @@ mod tests {
 
     #[test]
     fn desktop_companion_never_shows_after_restore() {
-        assert!(should_show(true, true, true, false));
-        assert!(!should_show(true, false, true, false));
-        assert!(!should_show(true, true, true, true));
+        assert!(should_show_with_policy(true, true, true, false, true));
+        assert!(!should_show_with_policy(true, false, true, false, true));
+        assert!(!should_show_with_policy(true, true, true, true, true));
     }
 
     #[test]
@@ -731,7 +783,35 @@ mod tests {
     #[test]
     fn desktop_companion_focus_loss_without_minimization_never_shows() {
         let minimized = false;
-        assert!(!should_show(true, minimized, true, false));
+        assert!(!should_show_with_policy(true, minimized, true, false, true));
+    }
+
+    #[test]
+    fn desktop_companion_shows_immediately_without_minimization_when_unconstrained() {
+        assert!(should_show_with_policy(true, false, true, false, false));
+        assert!(should_show_with_policy(true, true, true, false, false));
+        assert!(!should_show_with_policy(false, false, true, false, false));
+        assert!(!should_show_with_policy(true, false, false, false, false));
+        assert!(!should_show_with_policy(true, false, true, true, false));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_should_show_does_not_require_minimization() {
+        assert!(!REQUIRE_MINIMIZED_TO_SHOW);
+        assert!(should_show(true, false, true, false));
+        assert!(should_show(true, true, true, false));
+        assert!(!should_show(false, false, true, false));
+        assert!(!should_show(true, false, false, false));
+        assert!(!should_show(true, false, true, true));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn non_linux_should_show_requires_minimization() {
+        assert!(REQUIRE_MINIMIZED_TO_SHOW);
+        assert!(should_show(true, true, true, false));
+        assert!(!should_show(true, false, true, false));
     }
 
     fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
@@ -934,5 +1014,20 @@ mod tests {
             assert_eq!(state.snapshot.generation, 1);
             assert_eq!(state.snapshot.revision, 1);
         }
+    }
+
+    #[test]
+    fn linux_os_window_stays_visible_while_loading_and_hides_when_disabled() {
+        // Pre-ready or model-switch while enabled: stays visible so WebKitGTK does not throttle JS.
+        assert!(should_show_os_window_with_policy(true, false, false, false, false, true));
+        // Ready and enabled: visible.
+        assert!(should_show_os_window_with_policy(true, false, true, false, false, true));
+        // Toggled OFF before ready (or after timeout): must hide the OS window.
+        assert!(!should_show_os_window_with_policy(false, false, false, false, false, true));
+        // Exiting: must hide the OS window.
+        assert!(!should_show_os_window_with_policy(true, false, true, true, false, true));
+        // Windows policy (show_while_loading=false, require_minimized=true) stays strictly minimize+ready gated.
+        assert!(!should_show_os_window_with_policy(true, true, false, false, true, false));
+        assert!(should_show_os_window_with_policy(true, true, true, false, true, false));
     }
 }
