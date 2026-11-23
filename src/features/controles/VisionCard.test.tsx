@@ -570,6 +570,25 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
     expect(screen.queryByRole("checkbox", { name: "Use my chat provider key" })).not.toBeInTheDocument();
   });
 
+  it("enables the chat model for NVIDIA NIM with nvidia/nemotron-3.5-super-vl-120b-a12b", async () => {
+    server.use(cloud("nvidia/nemotron-3.5-super-vl-120b-a12b", "nvidia_nim"));
+    serve();
+    renderCard();
+    const radio = await screen.findByRole("radio", { name: CHAT });
+    await waitFor(() => expect(radio).toBeEnabled());
+  });
+
+  it("cloud model: lists NVIDIA NIM as a vision provider and preselects its vision model", async () => {
+    serve();
+    renderCard();
+    await userEvent.click(await screen.findByRole("radio", { name: CLOUD }));
+    await userEvent.click(screen.getByRole("combobox", { name: "Vision provider" }));
+    await userEvent.click(await screen.findByRole("option", { name: "NVIDIA NIM" }));
+    expect(await screen.findByRole("combobox", { name: "Cloud vision model" })).toHaveTextContent(
+      "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    );
+  });
+
   it("speaks neutral Spanish", async () => {
     useUiLocaleStore.setState({ locale: "es" });
     serve();
