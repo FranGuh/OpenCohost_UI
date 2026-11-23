@@ -112,7 +112,8 @@ export const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     default_model: "meta/llama-3.1-70b-instruct",
     models: [
       { id: "meta/llama-3.1-70b-instruct", vision: false },
-      { id: "deepseek-ai/deepseek-r1", vision: false }
+      { id: "deepseek-ai/deepseek-r1", vision: false },
+      { id: "nvidia/nemotron-3.5-super-vl-120b-a12b", vision: true }
     ]
   },
   gemini: {

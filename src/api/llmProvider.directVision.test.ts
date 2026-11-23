@@ -20,6 +20,8 @@ describe("directVisionAvailability", () => {
   it("follows the preset model's vision flag", () => {
     expect(directVisionAvailability(cfg("p", { preset: "gemini", model: "gemini-3.5-flash-lite" }), LLM_PROVIDER_PRESETS)).toBe("ok");
     expect(directVisionAvailability(cfg("p", { preset: "deepseek", model: "deepseek-v4-pro" }), LLM_PROVIDER_PRESETS)).toBe("no_vision");
+    expect(directVisionAvailability(cfg("p", { preset: "nvidia_nim", model: "nvidia/nemotron-3.5-super-vl-120b-a12b" }), LLM_PROVIDER_PRESETS)).toBe("ok");
+    expect(directVisionAvailability(cfg("p", { preset: "nvidia_nim", model: "meta/llama-3.1-70b-instruct" }), LLM_PROVIDER_PRESETS)).toBe("no_vision");
   });
 
   it("uses the profile's own model_vision flag for custom models", () => {

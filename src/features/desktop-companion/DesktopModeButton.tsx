@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Monitor, AlertCircle } from "lucide-react";
+import { getVrmModels } from "../../api/avatar.js";
 import { useAvatarPresentationStore } from "../../store/avatarPresentationStore.js";
 import {
   getDesktopState,
@@ -28,6 +29,7 @@ export function DesktopModeButton({ compact = false }: DesktopModeButtonProps = 
   const [error, setError] = useState<string | null>(null);
   const [isTauriEnv, setIsTauriEnv] = useState<boolean>(true);
   const selectedModel = useAvatarPresentationStore((s) => s.selectedModel);
+  const setSelectedModel = useAvatarPresentationStore((s) => s.setSelectedModel);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -69,12 +71,25 @@ export function DesktopModeButton({ compact = false }: DesktopModeButtonProps = 
   const handleToggle = async () => {
     setError(null);
     if (!snapshot?.enabled) {
-      if (!selectedModel) {
+      let modelToUse = selectedModel;
+      if (!modelToUse) {
+        try {
+          const models = await getVrmModels();
+          const fallback = models.find((m) => m.bundled) ?? models[0];
+          if (fallback?.filename) {
+            modelToUse = fallback.filename;
+            setSelectedModel(modelToUse);
+          }
+        } catch {
+          // Handled below by showing the no-model error.
+        }
+      }
+      if (!modelToUse) {
         setError(t("experiencia.desktop.toggle.noModel"));
         return;
       }
       try {
-        const next = await setDesktopMode(true, selectedModel);
+        const next = await setDesktopMode(true, modelToUse);
         setSnapshot(next);
       } catch (err) {
         setError(String(err));

@@ -182,8 +182,10 @@ export function SetupFlow({
   const [offer, setOffer] = useState<SetupCheckpoint | null>(() => (!resume && checkpoint ? checkpoint : null));
   const [notice, setNotice] = useState<StepNotice | null>(() => initialNotice(resume, section, checkpointReset));
 
-  // The saved language applies at once, so the resume question is already in it.
+  // The saved language applies at once in the first-run modal so the resume question is already in it.
+  // In the inline `/setup` panel, keep the active UI locale instead of clobbering it with an older checkpoint.
   useEffect(() => {
+    if (variant !== "modal") return;
     const language = offer ? savedCheckpointLanguage(offer) : null;
     if (language && language !== locale) setLocale(language);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
@@ -315,7 +317,7 @@ export function SetupFlow({
   function continueFromCheckpoint() {
     if (!offer || !liveReady) return;
     const restored = restoreCheckpoint(offer, liveFacts());
-    if (restored.language && restored.language !== locale) setLocale(restored.language);
+    if (variant === "modal" && restored.language && restored.language !== locale) setLocale(restored.language);
     if (restored.hearKira !== null) setMuted(!restored.hearKira);
     dispatch({ type: "restore", state: restored.state });
     setNotice(restored.reason ? { key: restored.reason, step: restored.state.step } : null);

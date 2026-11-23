@@ -617,8 +617,8 @@ pub fn first_run_status() -> FirstRunStatus {
     }
     #[cfg(not(windows))]
     {
-        status(
-            FirstRunPhase::Unconfigured,
+        crate::first_run::status::status(
+            crate::first_run::status::FirstRunPhase::Unconfigured,
             None,
             None,
             "Installed runtime is supported on Windows",
