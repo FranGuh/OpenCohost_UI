@@ -66,7 +66,9 @@ impl ProcessLiveness for SystemProcessLiveness {
         }
         #[cfg(unix)]
         {
-            return PathBuf::from("/proc").join(pid.to_string()).exists();
+            return std::path::PathBuf::from("/proc")
+                .join(pid.to_string())
+                .exists();
         }
         #[cfg(not(any(windows, unix)))]
         {
