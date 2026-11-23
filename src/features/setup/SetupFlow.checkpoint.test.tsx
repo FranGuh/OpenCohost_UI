@@ -242,6 +242,20 @@ describe("SetupFlow — resume from a checkpoint (S10)", () => {
     await screen.findByRole("heading", { name: "Which voice do you prefer?" });
   });
 
+  it("keeps the active UI locale in panel mode (/setup) when an unfinished checkpoint has an older language", async () => {
+    useFixtures(cpuReadiness(["qwen3:1.7b"]));
+    captureCheckpoint();
+    useUiLocaleStore.getState().setLocale("en");
+    renderFlow({ variant: "panel", checkpoint: cp("voice", { ...LOCAL, language: "es" }) });
+    await screen.findByRole("heading", { name: "Pick up where you left off?" });
+    expect(useUiLocaleStore.getState().locale).toBe("en");
+    const resume = await screen.findByRole("button", { name: "Continue where you left off (Voice)" });
+    await waitFor(() => expect(resume).toBeEnabled());
+    fireEvent.click(resume);
+    await screen.findByRole("heading", { name: "Which voice do you prefer?" });
+    expect(useUiLocaleStore.getState().locale).toBe("en");
+  });
+
   it("start over clears the checkpoint and opens the first screen", async () => {
     useFixtures(cpuReadiness(["qwen3:1.7b"]));
     const writes = captureCheckpoint();
