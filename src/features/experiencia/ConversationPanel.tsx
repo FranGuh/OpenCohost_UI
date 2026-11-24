@@ -48,7 +48,7 @@ import { emitAppEvent } from "../../lib/appEvents.js";
 import { insertDictation, type ComposerSelection } from "./dictation.js";
 import { SPEECH_TEXT_MAX_LENGTH, useReadAloud, useSpeechState, type SpeechErrorKind, type SpeechSayMode } from "../../api/speech.js";
 import { useStatusQuery } from "../../api/status.js";
-import { useMemoriaCaptureMutation } from "../../api/memoria.js";
+import { useMemoriaCaptureMutation, useMemoriaCaptureQuery } from "../../api/memoria.js";
 import { usePersonalizationQuery } from "../../api/personalization.js";
 import { useLlmReadiness } from "../shared/useLlmReadiness.js";
 import { LlmReadinessCard } from "../shared/LlmReadinessCard.js";
@@ -954,16 +954,26 @@ export function ConversationPanel() {
     } catch {}
   }, []);
 
-  const [privateMode, setPrivateMode] = useState(false);
+  // Backend truth seeds the switch; `privateOptimistic` only bridges the
+  // in-flight toggle and is dropped once the mutation settles (the success
+  // path refetches the live state first).
+  const captureQuery = useMemoriaCaptureQuery();
+  const [privateOptimistic, setPrivateOptimistic] = useState<boolean | null>(null);
+  const [privateError, setPrivateError] = useState(false);
+  const privateMode = privateOptimistic ?? captureQuery.data?.private ?? false;
+  const privateAvailable = captureQuery.data?.available ?? true;
   const captureMutation = useMemoriaCaptureMutation();
   const handleTogglePrivateMode = useCallback(
     (next: boolean) => {
-      setPrivateMode(next);
+      if (!privateAvailable) return;
+      setPrivateError(false);
+      setPrivateOptimistic(next);
       captureMutation.mutate(next, {
-        onError: () => setPrivateMode(!next)
+        onError: () => setPrivateError(true),
+        onSettled: () => setPrivateOptimistic(null)
       });
     },
-    [captureMutation]
+    [captureMutation, privateAvailable]
   );
 
   // Session-local transcript: operator turns (appended on successful send)
@@ -1961,7 +1971,7 @@ export function ConversationPanel() {
           <div className="flex items-center justify-between px-3 py-1.5">
             <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t("experiencia.conversationPanel.feed.eyebrow")}</span>
             <div className="inline-flex items-center gap-3">
-              <div className="inline-flex items-center gap-2" title={t("experiencia.conversationPanel.privateMode.hint")}>
+              <div className="inline-flex items-center gap-2" title={t(privateAvailable ? "experiencia.conversationPanel.privateMode.hint" : "experiencia.conversationPanel.privateMode.unavailable")}>
                 <span
                   onClick={() => handleTogglePrivateMode(!privateMode)}
                   className={cn(
@@ -1971,8 +1981,14 @@ export function ConversationPanel() {
                 >
                   {t("experiencia.conversationPanel.privateMode")}
                 </span>
+                {privateError && (
+                  <span role="alert" className="text-[11px] font-semibold text-warn">
+                    {t("experiencia.conversationPanel.privateMode.error")}
+                  </span>
+                )}
                 <Switch
                   checked={privateMode}
+                  disabled={!privateAvailable}
                   onChange={handleTogglePrivateMode}
                   aria-label={t("experiencia.conversationPanel.privateMode")}
                 />

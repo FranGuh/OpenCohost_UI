@@ -267,6 +267,31 @@ export async function postMemoriaCapture(body: MemoriaCaptureRequest): Promise<M
   return (await res.json()) as MemoriaMutationResponse;
 }
 
+/** GET /api/memoria/capture — live capture-privacy switch state. Hand-typed
+ * from MemoriaCaptureStateResponse (flags only, never chat text). `available`
+ * is false when the memorias feature is gated off. */
+export interface MemoriaCaptureStateResponse {
+  private: boolean;
+  available: boolean;
+}
+
+export const MEMORIA_CAPTURE_QUERY_KEY = ["memoria-capture"] as const;
+
+export async function getMemoriaCapture(): Promise<MemoriaCaptureStateResponse> {
+  const res = await authFetch(`${getApiBaseUrl()}/api/memoria/capture`);
+  if (!res.ok) {
+    throw new ApiError(`GET /api/memoria/capture failed with ${res.status}`, res.status);
+  }
+  return (await res.json()) as MemoriaCaptureStateResponse;
+}
+
+export function useMemoriaCaptureQuery() {
+  return useQuery({
+    queryKey: MEMORIA_CAPTURE_QUERY_KEY,
+    queryFn: getMemoriaCapture
+  });
+}
+
 /** GET /api/memoria/notice — F1 disclosure-banner dismissed state. Fails
  * open to `dismissed:false` server-side, so any non-2xx here is an honest
  * transport/server error, not a banner-state fallback. */
@@ -496,11 +521,18 @@ export function useMemoriaUpdateMutation(profileId: string) {
   });
 }
 
-/** Capture pause/resume is a session-scoped motor toggle — no persisted
- * row/count changes, so no query invalidation. */
+/** Capture pause/resume is a session-scoped motor toggle. A 200 `{ok:false}`
+ * (memorias gated off) is a failure, not a success; on success the live
+ * state is refetched so the switch shows backend truth. */
 export function useMemoriaCaptureMutation() {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (paused: boolean) => postMemoriaCapture({ paused })
+    mutationFn: async (paused: boolean) => {
+      const res = await postMemoriaCapture({ paused });
+      if (!res.ok) throw new ApiError("POST /api/memoria/capture was not applied", 200);
+      return res;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: MEMORIA_CAPTURE_QUERY_KEY })
   });
 }
 

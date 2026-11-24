@@ -85,6 +85,7 @@ type TtsConfigResponse = paths["/api/tts/config"]["get"]["responses"][200]["cont
   piper_unavailable_reason?: "package_missing" | "voice_file_missing" | null;
   edge_tts_offline?: boolean;
   discard_speech_residue?: boolean;
+  interrupt_on_direct?: boolean;
   piper_voice_id?: string | null;
   piper_speaker_id?: number | null;
   piper_switch_failure_reason?: string | null;
@@ -260,7 +261,8 @@ export const defaultTtsConfig: TtsConfigResponse = {
   heavy_available: false,
   piper_available: true,
   edge_tts_offline: false,
-  discard_speech_residue: false
+  discard_speech_residue: false,
+  interrupt_on_direct: false
 };
 
 export const defaultLastReply: LastReplyResponse = {
@@ -997,6 +999,7 @@ export const handlers = [
   http.post(`${API_BASE_URL}/api/memoria/delete`, () => HttpResponse.json({ ok: true })),
   http.post(`${API_BASE_URL}/api/memoria/update`, () => HttpResponse.json({ ok: true })),
   http.post(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ ok: true })),
+  http.get(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ private: false, available: true })),
   http.get(`${API_BASE_URL}/api/memoria/notice`, () => HttpResponse.json(defaultMemoriaNotice)),
   http.post(`${API_BASE_URL}/api/memoria/notice`, async ({ request }) => {
     const body = (await request.json()) as { dismissed: boolean };

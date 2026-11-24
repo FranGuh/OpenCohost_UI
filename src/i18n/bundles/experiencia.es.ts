@@ -51,6 +51,8 @@ export const experienciaEs = {
   "experiencia.conversationPanel.empty.title": "Empieza a chatear con Kira",
   "experiencia.conversationPanel.autoFollow": "Seguir lectura",
   "experiencia.conversationPanel.privateMode": "Modo privado",
+  "experiencia.conversationPanel.privateMode.error": "No se pudo cambiar el modo privado.",
+  "experiencia.conversationPanel.privateMode.unavailable": "Las memorias están desactivadas, así que el modo privado no tiene efecto",
   "experiencia.conversationPanel.privateMode.hint": "Pausa el guardado de memorias y sesiones en esta charla",
   "experiencia.conversationPanel.feed.eyebrow": "Conversación",
   "experiencia.conversationPanel.jump.action": "Ver lo más reciente",

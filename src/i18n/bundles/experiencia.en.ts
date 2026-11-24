@@ -53,6 +53,8 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.conversationPanel.empty.title": "Start chatting with Kira",
   "experiencia.conversationPanel.autoFollow": "Follow speech",
   "experiencia.conversationPanel.privateMode": "Private mode",
+  "experiencia.conversationPanel.privateMode.error": "Couldn't change private mode.",
+  "experiencia.conversationPanel.privateMode.unavailable": "Memories are turned off, so private mode has no effect",
   "experiencia.conversationPanel.privateMode.hint": "Pause saving memories and session history in this chat",
   "experiencia.conversationPanel.feed.eyebrow": "Conversation",
   "experiencia.conversationPanel.jump.action": "Jump to latest",

@@ -2159,9 +2159,15 @@ describe("ConversationPanel composer - multiline textarea", () => {
 describe("ConversationPanel private mode toggle", () => {
   it("toggles POST /api/memoria/capture with paused=true and paused=false", async () => {
     const capturePayloads: unknown[] = [];
+    let backendPrivate = false;
     server.use(
+      http.get(`${API_BASE_URL}/api/memoria/capture`, () =>
+        HttpResponse.json({ private: backendPrivate, available: true })
+      ),
       http.post(`${API_BASE_URL}/api/memoria/capture`, async ({ request }) => {
-        capturePayloads.push(await request.json());
+        const body = (await request.json()) as { paused: boolean };
+        capturePayloads.push(body);
+        backendPrivate = body.paused;
         return HttpResponse.json({ ok: true });
       })
     );
@@ -2177,5 +2183,38 @@ describe("ConversationPanel private mode toggle", () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(capturePayloads).toEqual([{ paused: true }, { paused: false }]));
     expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+});
+
+describe("ConversationPanel private mode read-back", () => {
+  it("seeds the switch from the backend state on mount", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ private: true, available: true }))
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Modo privado" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("rolls back and alerts when the backend answers ok:false", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ private: false, available: true })),
+      http.post(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ ok: false }))
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Modo privado" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+    expect(await screen.findByText("No se pudo cambiar el modo privado.")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("disables the switch when capture is unavailable", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/memoria/capture`, () => HttpResponse.json({ private: false, available: false }))
+    );
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Modo privado" });
+    await waitFor(() => expect(toggle).toBeDisabled());
   });
 });
