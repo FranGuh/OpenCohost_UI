@@ -726,3 +726,136 @@ describe("StatusRail vision folded into the model chip", () => {
     expect(await screen.findByText("Kira aún no tiene cerebro · escribe /setup")).toBeInTheDocument();
   });
 });
+
+describe("StatusRail — cloud model adaptation (T5)", () => {
+  it("local model keeps Ollama residency rows, context rows, and Ollama subtitle", async () => {
+    renderRail();
+    const model = await screen.findByText(defaultStatus.current_model as string);
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: defaultStatus.current_model as string });
+
+    expect(dialog).toHaveTextContent("Modelo activo en Ollama.");
+    expect(dialog).toHaveTextContent("Estado");
+    expect(dialog).toHaveTextContent("Perfil");
+    expect(dialog).toHaveTextContent("Modelo (estimado por Ollama)");
+    expect(dialog).toHaveTextContent("Modelo residente (est.)");
+    expect(dialog).toHaveTextContent("Modelo en VRAM (est.)");
+    expect(dialog).toHaveTextContent("Spill a RAM (est.)");
+    expect(dialog).toHaveTextContent("CPU/GPU");
+    expect(dialog).toHaveTextContent("Contexto (KV)");
+    expect(dialog).toHaveTextContent("Contexto usado");
+    expect(dialog).toHaveTextContent("Pares evictados");
+  });
+
+  it("cloud model hides unavailable Ollama and context rows, names the provider, and keeps Estado, Perfil, and Visión", async () => {
+    serveVision(true, { state: "ready" });
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          current_model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+          provider: "nvidia_nim",
+          transport: "cloud",
+          ctx_telemetry: null,
+          health: {
+            ...defaultStatus.health,
+            model_resident_mb_est: null,
+            model_vram_mb_est: null,
+            model_ram_spill_mb_est: null,
+            model_processor_split: null
+          }
+        })
+      )
+    );
+    renderRail();
+
+    const model = await screen.findByRole("button", { name: /nvidia\/nemotron-3\.5-super-vl-120b-a12b/ });
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: "nvidia/nemotron-3.5-super-vl-120b-a12b" });
+
+    expect(dialog).toHaveTextContent("Modelo en la nube · NVIDIA NIM");
+    expect(dialog).not.toHaveTextContent("Modelo activo en Ollama.");
+    expect(dialog).toHaveTextContent("Estado");
+    expect(dialog).toHaveTextContent("Perfil");
+    expect(dialog).toHaveTextContent("Visión");
+    expect(dialog).toHaveTextContent("Visión lista");
+
+    expect(dialog).not.toHaveTextContent("Modelo (estimado por Ollama)");
+    expect(dialog).not.toHaveTextContent("Modelo residente (est.)");
+    expect(dialog).not.toHaveTextContent("Modelo en VRAM (est.)");
+    expect(dialog).not.toHaveTextContent("Spill a RAM (est.)");
+    expect(dialog).not.toHaveTextContent("CPU/GPU");
+    expect(dialog).not.toHaveTextContent("Contexto (KV)");
+    expect(dialog).not.toHaveTextContent("Contexto usado");
+    expect(dialog).not.toHaveTextContent("Pares evictados");
+  });
+
+  it("cloud model with real context telemetry keeps the Contexto (KV) section and rows while hiding Ollama rows", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/status`, () =>
+        HttpResponse.json({
+          ...defaultStatus,
+          current_model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+          provider: "nvidia_nim",
+          transport: "cloud",
+          ctx_telemetry: { ratio: 0.45, effective_ctx: 8192, native_ctx: 131072, evicted_pairs: 2, source: "cloud" },
+          health: {
+            ...defaultStatus.health,
+            model_resident_mb_est: null,
+            model_vram_mb_est: null,
+            model_ram_spill_mb_est: null,
+            model_processor_split: null
+          }
+        })
+      )
+    );
+    renderRail();
+
+    const model = await screen.findByRole("button", { name: /nvidia\/nemotron-3\.5-super-vl-120b-a12b/ });
+    await userEvent.click(model);
+    const dialog = screen.getByRole("dialog", { name: "nvidia/nemotron-3.5-super-vl-120b-a12b" });
+
+    expect(dialog).toHaveTextContent("Modelo en la nube · NVIDIA NIM");
+    expect(dialog).not.toHaveTextContent("Modelo (estimado por Ollama)");
+    expect(dialog).not.toHaveTextContent("Modelo residente (est.)");
+    expect(dialog).toHaveTextContent("Contexto (KV)");
+    expect(dialog).toHaveTextContent("Contexto usado");
+    expect(dialog).toHaveTextContent("45 % de 8192");
+    expect(dialog).toHaveTextContent("Pares evictados");
+    expect(dialog).toHaveTextContent("2");
+  });
+
+  it("cloud model renders English cloud subtitle when UI locale is en", async () => {
+    const { useUiLocaleStore } = await import("../../i18n/locale.js");
+    useUiLocaleStore.setState({ locale: "en" });
+    try {
+      server.use(
+        http.get(`${API_BASE_URL}/api/status`, () =>
+          HttpResponse.json({
+            ...defaultStatus,
+            current_model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+            provider: "nvidia_nim",
+            transport: "cloud",
+            ctx_telemetry: null,
+            health: {
+              ...defaultStatus.health,
+              model_resident_mb_est: null,
+              model_vram_mb_est: null,
+              model_ram_spill_mb_est: null,
+              model_processor_split: null
+            }
+          })
+        )
+      );
+      renderRail();
+
+      const model = await screen.findByRole("button", { name: /nvidia\/nemotron-3\.5-super-vl-120b-a12b/ });
+      await userEvent.click(model);
+      const dialog = screen.getByRole("dialog", { name: "nvidia/nemotron-3.5-super-vl-120b-a12b" });
+      expect(dialog).toHaveTextContent("Cloud model · NVIDIA NIM");
+      expect(dialog).not.toHaveTextContent("Active model in Ollama.");
+    } finally {
+      useUiLocaleStore.setState({ locale: "es" });
+    }
+  });
+});

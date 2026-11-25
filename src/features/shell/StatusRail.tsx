@@ -24,7 +24,7 @@ import { useVisionPhaseStore } from "../../store/visionStore.js";
 import { useVisionQuery, visionReadiness, visionReasonKey } from "../../api/vision.js";
 import type { VisionState } from "../../api/vision.js";
 import type { StatusResponse } from "../../api/client.js";
-import { useTriggerCloudProbe } from "../../api/llmProvider.js";
+import { useLlmProvider, useLlmProviderPresets, useTriggerCloudProbe } from "../../api/llmProvider.js";
 import type { BadgeTone } from "../../ui/Badge.js";
 import { Alert } from "../../ui/Alert.js";
 import { Button } from "../../ui/Button.js";
@@ -552,6 +552,8 @@ export function StatusRail() {
   const vision = useVisionFold();
 
   const { data: ttsConfig } = useTtsConfigQuery();
+  const { data: llmProvider } = useLlmProvider();
+  const llmPresets = useLlmProviderPresets();
 
   if (isLoading || (!data && !isError)) {
     return (
@@ -627,7 +629,24 @@ export function StatusRail() {
       ]
     : [];
 
+  const isCloud = data?.transport === "cloud";
+  const rawProvider = data?.provider ?? "";
+  const profilePreset = rawProvider ? llmProvider?.profiles[rawProvider]?.preset : undefined;
+  const cloudProviderLabel =
+    (profilePreset && llmPresets[profilePreset]?.label) ||
+    (rawProvider && llmPresets[rawProvider]?.label) ||
+    rawProvider;
+
   const kira = showAll ? computeKira(data) : null;
+  const hasOllamaData =
+    showAll &&
+    (data.health.model_resident_mb_est != null ||
+      data.health.model_vram_mb_est != null ||
+      data.health.model_ram_spill_mb_est != null ||
+      data.health.model_processor_split != null);
+  const showOllamaRows = !isCloud || hasOllamaData;
+  const showContextRows = !isCloud || (showAll && data.ctx_telemetry != null);
+
   const modelDetail: DetailRow[] = showAll && kira
     ? [
         {
@@ -643,71 +662,79 @@ export function StatusRail() {
           mono: true,
           icon: User
         },
-        {
-          // Ollama residency ESTIMATES from ollama.ps() (F9): size/size_vram
-          // is Ollama's own accounting of the model, never process RSS —
-          // labelled "(est.)" in every row below, distinct from the
-          // history/digest/memoria concepts in MemoryCard (F11).
-          sectionLabel: t("shell.statusRail.detail.modelSection.eyebrow"),
-          label: t("shell.statusRail.detail.modelResident"),
-          value:
-            data.health.model_resident_mb_est != null
-              ? `${Math.round(data.health.model_resident_mb_est)} MB`
-              : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral",
-          icon: Box
-        },
-        {
-          label: t("shell.statusRail.detail.modelVram"),
-          value:
-            data.health.model_vram_mb_est != null
-              ? `${Math.round(data.health.model_vram_mb_est)} MB`
-              : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral",
-          icon: Cpu
-        },
-        {
-          label: t("shell.statusRail.detail.ramSpill"),
-          value:
-            data.health.model_ram_spill_mb_est != null
-              ? `${Math.round(data.health.model_ram_spill_mb_est)} MB`
-              : t("shell.statusRail.detail.unavailable"),
-          tone:
-            data.health.model_ram_spill_mb_est != null && data.health.model_ram_spill_mb_est > SPILL_WARN_THRESHOLD_MB
-              ? "warn"
-              : "neutral",
-          icon: Layers
-        },
-        {
-          label: "CPU/GPU",
-          value: data.health.model_processor_split ?? t("shell.statusRail.detail.unavailable"),
-          tone: "neutral",
-          mono: true,
-          icon: Gauge
-        },
-        {
-          // Unit 2.5 (runtime_findings_batch_20260731 F10/2.3): the KV/context
-          // concept — deliberately its own section, distinct from "Modelo
-          // (estimado por Ollama)" above (F11's four-memory-concepts split).
-          // None before the first generation of the process.
-          sectionLabel: t("shell.statusRail.detail.contextSection.eyebrow"),
-          label: t("shell.statusRail.detail.contextUsed"),
-          value:
-            data.ctx_telemetry != null
-              ? t("shell.statusRail.detail.contextUsed.value", {
-                  pct: Math.round(data.ctx_telemetry.ratio * 100),
-                  ctx: data.ctx_telemetry.effective_ctx
-                })
-              : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral",
-          icon: Database
-        },
-        {
-          label: t("shell.statusRail.detail.evictedPairs"),
-          value: data.ctx_telemetry != null ? String(data.ctx_telemetry.evicted_pairs) : t("shell.statusRail.detail.unavailable"),
-          tone: "neutral",
-          icon: RefreshCw
-        },
+        ...(showOllamaRows
+          ? [
+              {
+                // Ollama residency ESTIMATES from ollama.ps() (F9): size/size_vram
+                // is Ollama's own accounting of the model, never process RSS —
+                // labelled "(est.)" in every row below, distinct from the
+                // history/digest/memoria concepts in MemoryCard (F11).
+                sectionLabel: t("shell.statusRail.detail.modelSection.eyebrow"),
+                label: t("shell.statusRail.detail.modelResident"),
+                value:
+                  data.health.model_resident_mb_est != null
+                    ? `${Math.round(data.health.model_resident_mb_est)} MB`
+                    : t("shell.statusRail.detail.unavailable"),
+                tone: "neutral" as BadgeTone,
+                icon: Box
+              },
+              {
+                label: t("shell.statusRail.detail.modelVram"),
+                value:
+                  data.health.model_vram_mb_est != null
+                    ? `${Math.round(data.health.model_vram_mb_est)} MB`
+                    : t("shell.statusRail.detail.unavailable"),
+                tone: "neutral" as BadgeTone,
+                icon: Cpu
+              },
+              {
+                label: t("shell.statusRail.detail.ramSpill"),
+                value:
+                  data.health.model_ram_spill_mb_est != null
+                    ? `${Math.round(data.health.model_ram_spill_mb_est)} MB`
+                    : t("shell.statusRail.detail.unavailable"),
+                tone: (data.health.model_ram_spill_mb_est != null &&
+                data.health.model_ram_spill_mb_est > SPILL_WARN_THRESHOLD_MB
+                  ? "warn"
+                  : "neutral") as BadgeTone,
+                icon: Layers
+              },
+              {
+                label: "CPU/GPU",
+                value: data.health.model_processor_split ?? t("shell.statusRail.detail.unavailable"),
+                tone: "neutral" as BadgeTone,
+                mono: true,
+                icon: Gauge
+              }
+            ]
+          : []),
+        ...(showContextRows
+          ? [
+              {
+                // Unit 2.5 (runtime_findings_batch_20260731 F10/2.3): the KV/context
+                // concept — deliberately its own section, distinct from "Modelo
+                // (estimado por Ollama)" above (F11's four-memory-concepts split).
+                // None before the first generation of the process.
+                sectionLabel: t("shell.statusRail.detail.contextSection.eyebrow"),
+                label: t("shell.statusRail.detail.contextUsed"),
+                value:
+                  data.ctx_telemetry != null
+                    ? t("shell.statusRail.detail.contextUsed.value", {
+                        pct: Math.round(data.ctx_telemetry.ratio * 100),
+                        ctx: data.ctx_telemetry.effective_ctx
+                      })
+                    : t("shell.statusRail.detail.unavailable"),
+                tone: "neutral" as BadgeTone,
+                icon: Database
+              },
+              {
+                label: t("shell.statusRail.detail.evictedPairs"),
+                value: data.ctx_telemetry != null ? String(data.ctx_telemetry.evicted_pairs) : t("shell.statusRail.detail.unavailable"),
+                tone: "neutral" as BadgeTone,
+                icon: RefreshCw
+              }
+            ]
+          : []),
         ...(vision
           ? [
               {
@@ -725,6 +752,10 @@ export function StatusRail() {
     : [];
 
   const modelName = data?.current_model ?? t("shell.statusRail.model.none");
+  const modelWhy =
+    isCloud && cloudProviderLabel
+      ? t("shell.statusRail.model.why.cloud", { provider: cloudProviderLabel })
+      : t("shell.statusRail.model.why");
   const visionFailed = vision?.state === "failed";
 
   return (
@@ -763,7 +794,7 @@ export function StatusRail() {
             taxonomy={visionFailed ? "attention" : "neutral"}
             label={<span className="max-w-[190px] truncate">{modelName}</span>}
             labelText={modelName}
-            why={visionFailed && vision ? `${t("shell.statusRail.model.why")} ${vision.why}` : t("shell.statusRail.model.why")}
+            why={visionFailed && vision ? `${modelWhy} ${vision.why}` : modelWhy}
             todo={visionFailed && vision?.todo ? `${t("shell.statusRail.model.todo")} ${vision.todo}` : t("shell.statusRail.model.todo")}
             detail={modelDetail}
             adornment={vision ? <VisionEye state={vision.state} /> : undefined}

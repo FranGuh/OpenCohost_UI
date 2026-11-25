@@ -366,7 +366,7 @@ export function VisionCard() {
               <p className="text-[11px] leading-relaxed text-muted-foreground">{t("controles.vision.privacy")}</p>
             </div>
 
-            {status && (
+            {status && (localSource || !status.capture_available) && (
               <div className="rounded-xl border border-white/[0.06] bg-surface-2/35 p-3">
                 <ul
                   aria-label={t("controles.vision.status.label")}
@@ -409,20 +409,12 @@ export function VisionCard() {
                       </span>
                     </li>
                   )}
-                  <li className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "inline-block h-2 w-2 rounded-full",
-                        status.capture_available ? "bg-emerald-500" : "bg-danger"
-                      )}
-                      aria-hidden="true"
-                    />
-                    <span>
-                      {status.capture_available
-                        ? t("controles.vision.status.captureOk")
-                        : t("controles.vision.status.captureMissing")}
-                    </span>
-                  </li>
+                  {!status.capture_available && (
+                    <li className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full bg-danger" aria-hidden="true" />
+                      <span>{t("controles.vision.status.captureMissing")}</span>
+                    </li>
+                  )}
                 </ul>
               </div>
             )}

@@ -223,6 +223,7 @@ export const shellEs = {
   "shell.statusRail.model.vision.row": "Visión",
   "shell.statusRail.model.visionModel.row": "Modelo de visión",
   "shell.statusRail.model.why": "Modelo activo en Ollama.",
+  "shell.statusRail.model.why.cloud": "Modelo en la nube · {provider}",
   "shell.statusRail.motor.actionNeeded.label": "Motor: necesita acción",
   "shell.statusRail.motor.actionNeeded.todo": "Revisa el detalle abajo; si sigue en rojo, reinicia el motor.",
   "shell.statusRail.motor.actionNeeded.why": "La salud del sistema está en rojo ({dims}).",

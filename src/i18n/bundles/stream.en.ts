@@ -13,10 +13,6 @@ export const streamEn: Record<keyof typeof streamEs, string> = {
   "stream.acciones.cooldown.preset.bajo": "Low (30 s)",
   "stream.acciones.cooldown.preset.medio": "Medium (60 s)",
   "stream.acciones.cooldown.select.aria": "Cooldown between reactions",
-  "stream.acciones.emision.badge": "pending",
-  "stream.acciones.emision.body":
-    "OAuth connection, stream metadata and moderation exist in the CTK but are pending a product decision from the owner — nothing here is interactive yet.",
-  "stream.acciones.emision.title": "Broadcast (OAuth/metadata/moderation)",
   "stream.acciones.emision.disclaimer": "Important disclaimers regarding AI-generated responses, platform policies, and data privacy.",
   "stream.acciones.inputContract.aria": "Input Contract",
   "stream.acciones.inputContract.eyebrow": "Input contract",

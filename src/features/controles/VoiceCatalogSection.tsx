@@ -30,6 +30,12 @@ const PIPER_FAILURE_REASONS: readonly string[] = [
 const EDGE_FAILURE_REASONS: readonly string[] = ["invalid_edge_voice", "edge_voice_unknown", "config_write_failed"];
 
 const LABEL_CLASS = "inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim";
+const VOICE_EMOJI_RE = /[\u{1F1E0}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu;
+
+function cleanVoiceLabel(label: string, fallback: string): string {
+  const cleaned = label.replace(VOICE_EMOJI_RE, "").replace(/\s{2,}/g, " ").trim();
+  return cleaned || fallback;
+}
 
 function failureKey(prefix: "piper" | "edge", reason: string | null | undefined): TKey {
   const known = prefix === "piper" ? PIPER_FAILURE_REASONS : EDGE_FAILURE_REASONS;
@@ -117,14 +123,17 @@ function FailureAlert({ message }: { message: string }) {
 }
 
 function piperOptions(voices: PiperVoice[], currentId: string | undefined, t: ReturnType<typeof useT>): SelectOption[] {
-  const options: SelectOption[] = voices.map((voice) => ({
-    value: voice.id,
-    label:
-      voice.status === "incomplete" && voice.reason
-        ? `${voice.label} (${t(`controles.voice.piper.reason.${voice.reason}` as TKey)})`
-        : voice.label,
-    disabled: voice.status === "incomplete"
-  }));
+  const options: SelectOption[] = voices.map((voice) => {
+    const displayLabel = cleanVoiceLabel(voice.label, voice.id);
+    return {
+      value: voice.id,
+      label:
+        voice.status === "incomplete" && voice.reason
+          ? `${displayLabel} (${t(`controles.voice.piper.reason.${voice.reason}` as TKey)})`
+          : displayLabel,
+      disabled: voice.status === "incomplete"
+    };
+  });
   // The active voice may sit outside the filtered list (another folder or locale):
   // keep it visible instead of rendering a blank select.
   if (currentId && !options.some((o) => o.value === currentId)) {
@@ -165,7 +174,10 @@ export function VoiceCatalogSection({
 
   if (!piperMode) {
     const current = edge.target ?? config?.edge_voice ?? "";
-    const options: SelectOption[] = (edgeQuery.data?.voices ?? []).map((v) => ({ value: v.id, label: v.label }));
+    const options: SelectOption[] = (edgeQuery.data?.voices ?? []).map((v) => ({
+      value: v.id,
+      label: cleanVoiceLabel(v.label, v.id)
+    }));
     if (current && !options.some((o) => o.value === current)) options.unshift({ value: current, label: current });
     return (
       <section aria-labelledby="edge-voice-label" className="space-y-2">

@@ -372,4 +372,33 @@ describe("VoiceCard Edge catalog", () => {
     expect(edge).toHaveTextContent("Dalia");
     expect(await screen.findByText("Esa voz de Edge-TTS no existe.")).toBeInTheDocument();
   });
+
+  it("strips emojis from Piper and English voice display labels while keeping voice ids", async () => {
+    let dispatched: unknown;
+    server.use(
+      frozenStatusHandler(1),
+      piperVoices([
+        { ...OK_VOICE, id: "es_MX-claude-high.onnx", label: "🌎 Neutral", lang: "es" },
+        { ...OK_VOICE, id: "en_US-kristin-medium.onnx", label: "🇺🇸 English", lang: "en" }
+      ]),
+      http.get(`${API_BASE_URL}/api/tts/config`, () =>
+        HttpResponse.json(piperConfig({ piper_voice: "es_MX-claude-high.onnx", piper_voice_id: "es_MX-claude-high.onnx" }))
+      ),
+      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
+        dispatched = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "c-emoji", status: "queued", state_version: 1 });
+      })
+    );
+    renderCard();
+    const select = await screen.findByRole("combobox", { name: "Voz (Piper)" });
+    await waitFor(() => expect(select).toHaveTextContent("Neutral"));
+    expect(select.textContent).not.toContain("🌎");
+    fireEvent.click(select);
+    const englishOption = screen.getByRole("option", { name: "English" });
+    expect(englishOption.textContent).not.toContain("🇺🇸");
+    fireEvent.click(englishOption);
+    await waitFor(() =>
+      expect(dispatched).toEqual({ command: "set_piper_voice", payload: { value: "en_US-kristin-medium.onnx" } })
+    );
+  });
 });

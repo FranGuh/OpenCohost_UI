@@ -631,15 +631,9 @@ describe("StreamPanel", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Conectar" })).not.toBeDisabled());
   });
 
-  it("shows a single non-interactive deferred note for the RF4 Emisión area (OAuth/metadata/moderación)", async () => {
+  it("does not render the retired RF4 Emisión (OAuth/CTK) placeholder card", () => {
     renderPanel();
-    const heading = screen.getByRole("heading", { name: /Emisión/ });
-    expect(heading).toBeInTheDocument();
-    const card = heading.closest("div")?.parentElement as HTMLElement;
-    // The Collapsible body is the last child of the Card. We scope the query to it
-    // so we don't accidentally count the CollapsibleHeader (which has role=button).
-    const body = card.lastElementChild as HTMLElement;
-    expect(within(body).queryAllByRole("button")).toHaveLength(0);
-    expect(within(body).queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: /Emisión/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/CTK/i)).not.toBeInTheDocument();
   });
 });

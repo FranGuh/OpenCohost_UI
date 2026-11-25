@@ -603,40 +603,13 @@ function AccionesCard() {
   );
 }
 
-// ─── Emisión (deferred) ───────────────────────────────────────────────────
-
-/** RF4 (OAuth connect, stream metadata, moderation) is flagged off in the
- * CTK (STREAM_ADMIN_ENABLED=False) pending an owner product decision — this
- * is a single honest deferred note, nothing interactive. */
-function DeferredStreamAdminNote() {
-  const t = useT();
-  const [isOpen, toggle] = useCollapsible(false, "stream-emision");
-
-  return (
-    <Card className="flex flex-col p-4">
-      <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
-        <h2 className="text-sm font-bold text-foreground w-full justify-between">{t("stream.acciones.emision.title")}</h2>
-        <Badge tone="neutral">{t("stream.acciones.emision.badge")}</Badge>
-      </CollapsibleHeader>
-
-      <CollapsibleBody isOpen={isOpen}>
-        <p role="status" className="text-xs leading-relaxed text-muted-foreground">
-          {t("stream.acciones.emision.body")}
-        </p>
-      </CollapsibleBody>
-    </Card>
-  );
-}
-
 // ─── Public export ────────────────────────────────────────────────────────
 
 /**
- * Stream panel — RF3 "Chat en vivo" only. CTK parity:
- * opencohost/ui/stream_admin_ui.py's 'acciones' subtab. Chat en vivo and
- * Acciones — including the Input Contract switch — are wired to the real
+ * Stream panel — RF3 "Chat en vivo" only. Chat en vivo and Acciones —
+ * including the Input Contract switch — are wired to the real
  * GET/POST/PUT /api/stream/chat-live* endpoints (see the wiring note at the
- * top of this file). Only the RF4 note stays deliberately non-wired — see
- * DeferredStreamAdminNote.
+ * top of this file).
  *
  * RF3 (tauri_stream_chat_20260812): live chat READING now works — the feed
  * is mirrored read-only into the Stream tab of ConversationPanel (see
@@ -679,7 +652,6 @@ export function StreamPanel() {
       
       <ChatLiveCard />
       <AccionesCard />
-      <DeferredStreamAdminNote />
     </>
   );
 }

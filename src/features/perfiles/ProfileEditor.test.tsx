@@ -732,6 +732,48 @@ describe("ProfileEditor warmth selector", () => {
     expect(captured).toEqual({ prompt: "Eres ingeniosa.", warmth: "free" });
   });
 
+  it("fresh app run hydrates saved warmth=sentimental and max_turns=10 from GET and does not revert them on save", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/api/perfiles/Akira`, () =>
+        HttpResponse.json({
+          id: "profile-id-akira",
+          name: "Akira",
+          prompt: "Eres ingeniosa.",
+          use_system: true,
+          warmth: "sentimental",
+          max_turns: 10,
+          max_turns_cap: 10
+        })
+      ),
+      http.put(`${API_BASE_URL}/api/perfiles/Akira`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          id: "profile-id-akira",
+          name: "Akira",
+          prompt: "Eres ingeniosa.",
+          use_system: true,
+          warmth: "sentimental",
+          max_turns: 10,
+          max_turns_cap: 10
+        });
+      })
+    );
+    const onClose = vi.fn();
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose });
+
+    await waitFor(() => {
+      expect(slider()).toHaveValue("4");
+      expect(slider()).toHaveAttribute("aria-valuetext", "Sentimental");
+      expect(screen.getByTestId("warmth-current")).toHaveTextContent("Sentimental");
+      expect(screen.getByRole("spinbutton", { name: "Turnos de memoria reciente (1-10)" })).toHaveValue(10);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(capturedBody).toEqual({ prompt: "Eres ingeniosa." });
+  });
+
   it("saving the ACTIVE profile re-applies it through the switch API", async () => {
     let switched: unknown;
     server.use(

@@ -17,6 +17,7 @@ import {
   type VisionSource,
   type VisionUpdate
 } from "../../api/vision.js";
+import { useStatusQuery } from "../../api/status.js";
 import {
   directVisionAvailability,
   useLlmProvider,
@@ -98,6 +99,7 @@ export function VisionSourceSection({ data, onSave, onSelectModel, pending }: Pr
   const t = useT();
   const queryClient = useQueryClient();
   const providerQuery = useLlmProvider();
+  const statusQuery = useStatusQuery();
   const provider = providerQuery.data;
   const presets = useLlmProviderPresets();
   const testMutation = useTestLlmProvider();
@@ -210,11 +212,29 @@ export function VisionSourceSection({ data, onSave, onSelectModel, pending }: Pr
     );
   }
 
+  const chatModelSubtitle = (() => {
+    if (providerQuery.isError) return null;
+    if (!provider) return { text: t("controles.vision.chat.checking"), checking: true };
+    if (activeProfile) {
+      const providerLabel = (activeProfile.preset && presets[activeProfile.preset]?.label) || provider.active_provider;
+      return { text: `${providerLabel} · ${activeProfile.model}`, checking: false };
+    }
+    const ollamaModel = statusQuery.data?.current_model;
+    return {
+      text: ollamaModel
+        ? t("controles.vision.source.chatModel.localLive", { model: ollamaModel })
+        : t("controles.vision.source.chatModel.localNoModel"),
+      checking: false
+    };
+  })();
+
   const options: {
     value: VisionSource;
     label: string;
     badge: string;
     badgeToneClass: string;
+    subtitle?: string | null;
+    subtitleChecking?: boolean;
     hint: string;
     disabled: boolean;
   }[] = [
@@ -231,6 +251,8 @@ export function VisionSourceSection({ data, onSave, onSelectModel, pending }: Pr
       label: t("controles.vision.source.chatModel"),
       badge: t("controles.vision.source.chatModel.badge"),
       badgeToneClass: "border-sky-500/25 bg-sky-500/10 text-sky-300",
+      subtitle: chatModelSubtitle?.text ?? null,
+      subtitleChecking: chatModelSubtitle?.checking ?? false,
       hint: t("controles.vision.source.chatModel.hint"),
       disabled: disabled || chat.kind === "checking"
     },
@@ -308,6 +330,14 @@ export function VisionSourceSection({ data, onSave, onSelectModel, pending }: Pr
                     {option.badge}
                   </span>
                 </span>
+                {option.subtitle && (
+                  <span
+                    role={option.subtitleChecking ? "status" : undefined}
+                    className="mono text-[11px] leading-snug text-muted-foreground"
+                  >
+                    {option.subtitle}
+                  </span>
+                )}
                 <span className="text-[11.5px] leading-relaxed text-muted-foreground">{option.hint}</span>
               </span>
             </label>
@@ -353,7 +383,7 @@ export function VisionSourceSection({ data, onSave, onSelectModel, pending }: Pr
 
       {source === "chat_model" && (
         <div className="flex flex-col gap-2.5 rounded-lg border border-white/[0.06] bg-background/40 p-3">
-          {chat.kind === "checking" && (
+          {chat.kind === "checking" && !chatModelSubtitle?.checking && (
             <p role="status" className="text-[11px] leading-snug text-dim">
               {t("controles.vision.chat.checking")}
             </p>

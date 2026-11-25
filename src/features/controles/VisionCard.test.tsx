@@ -403,7 +403,7 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
   afterEach(() => useUiLocaleStore.setState({ locale: "es" }));
 
   const LOCAL = /On this PC \(needs a GPU\)/;
-  const CHAT = /The chat model/;
+  const CHAT = /Your model selected in the Models tab/;
   const CLOUD = /Another cloud model/;
   const cloud = (model: string, preset = "gemini", extra: Record<string, unknown> = {}) =>
     llmProviderGetHandler({
@@ -611,7 +611,7 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
     serve();
     renderCard();
     expect(await screen.findByRole("radio", { name: /En esta PC \(necesita GPU\)/ })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Tu modelo de Modelos/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Tu modelo seleccionado en la pestaña de Modelos/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Otro modelo en la nube/ })).toBeInTheDocument();
   });
 });
@@ -921,7 +921,7 @@ describe("VisionCard redesign (vision-settings-redesign B3)", () => {
       server.use(gemProvider());
       serve({ vision_source: "local", chat_model_eligible: true, chat_model_reason: null });
       renderCard();
-      expect(await screen.findByRole("radio", { name: /Your model from Models/ })).toBeInTheDocument();
+      expect(await screen.findByRole("radio", { name: /Your model selected in the Models tab/ })).toBeInTheDocument();
       expect(screen.queryByRole("radio", { name: /The chat model/ })).not.toBeInTheDocument();
       expect(await screen.findByText("Google Gemini · gemini-3.5-flash-lite")).toBeInTheDocument();
     });
@@ -1026,11 +1026,11 @@ describe("VisionCard redesign (vision-settings-redesign B3)", () => {
       )
     );
     renderCard();
-    const radio = await screen.findByRole("radio", { name: /The chat model/ });
+    const radio = await screen.findByRole("radio", { name: /Your model selected in the Models tab/ });
     await waitFor(() => expect(radio).toBeEnabled());
     await userEvent.click(radio);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("The chat model does not see images");
+    expect(alert).toHaveTextContent("Your model from Models does not see images");
     expect(alert).not.toHaveTextContent("chat_model_not_vision_capable");
   });
 

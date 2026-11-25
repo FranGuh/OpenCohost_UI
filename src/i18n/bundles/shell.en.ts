@@ -225,6 +225,7 @@ export const shellEn: Record<keyof typeof shellEs, string> = {
   "shell.statusRail.model.vision.row": "Vision",
   "shell.statusRail.model.visionModel.row": "Vision model",
   "shell.statusRail.model.why": "Active model in Ollama.",
+  "shell.statusRail.model.why.cloud": "Cloud model · {provider}",
   "shell.statusRail.motor.actionNeeded.label": "Engine: action needed",
   "shell.statusRail.motor.actionNeeded.todo": "Check the detail below; if it stays red, restart the engine.",
   "shell.statusRail.motor.actionNeeded.why": "System health is red ({dims}).",
