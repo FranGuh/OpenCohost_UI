@@ -29,12 +29,17 @@ interface Post {
   images?: Array<{ data: string }>;
 }
 
-function serve(opts: { maxImages?: number | null; turns?: Array<{ status: number; detail?: string; extra?: object }> } = {}) {
+/** Set once the panel has fetched GET /api/vision (paste needs vision data). */
+let visionServed = false;
+
+function serve(opts:{ maxImages?: number | null; turns?: Array<{ status: number; detail?: string; extra?: object }> } = {}) {
   const posts: Post[] = [];
   const turns = opts.turns ?? [{ status: 200 }];
+  visionServed = false;
   server.use(
-    http.get(`${API_BASE_URL}/api/vision`, () =>
-      HttpResponse.json({
+    http.get(`${API_BASE_URL}/api/vision`, () => {
+      visionServed = true;
+      return HttpResponse.json({
         enabled: true,
         look_on_ptt: false,
         capture_delay_s: 0,
@@ -44,8 +49,8 @@ function serve(opts: { maxImages?: number | null; turns?: Array<{ status: number
         describe_timeout_s: 8,
         ...(opts.maxImages === null ? {} : { max_images: opts.maxImages ?? 3 }),
         status: { daemon_state: "running", model_installed: true, capture_available: true, armed: false, looking: false, state: "ready" }
-      })
-    ),
+      });
+    }),
     http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
       posts.push((await request.json()) as Post);
       const step = turns[Math.min(posts.length - 1, turns.length - 1)]!;
@@ -65,7 +70,9 @@ function paste(target: HTMLElement, files: File[]) {
 
 async function composer() {
   const box = await screen.findByRole("combobox", { name: "Message for Kira" });
-  await waitFor(() => expect(screen.queryByRole("status", { name: /^Vision:/ })).not.toBeNull());
+  // The composer no longer shows a vision readout; wait for the vision fetch and
+  // let the query settle before pasting (paste needs vision data).
+  await waitFor(() => expect(visionServed).toBe(true));
   await new Promise((resolve) => setTimeout(resolve, 60));
   return box;
 }

@@ -5,13 +5,10 @@ import { useStartModelDownload } from "../../api/modelDownloads.js";
 import {
   VISION_MODELS_QUERY_KEY,
   VISION_QUERY_KEY,
-  visionReadiness,
-  visionReasonKey,
   useVisionModelsQuery,
   type VisionResponse
 } from "../../api/vision.js";
 import { useT } from "../../i18n/t.js";
-import { cn } from "../../lib/cn.js";
 import { Button } from "../../ui/Button.js";
 import { Select, type SelectOption } from "../../ui/Select.js";
 import { VisionBenchmarkInfo, benchmarkGlyph } from "./VisionBenchmark.js";
@@ -19,6 +16,7 @@ import { HfModelPicker } from "../models/downloads/HfModelPicker.js";
 import { ModelDownloadsPanel } from "../models/downloads/ModelDownloadsPanel.js";
 import { requestErrorMessage } from "../models/downloads/downloadCopy.js";
 import { catalogDesc, isVisionDownloadJob } from "./visionCatalog.js";
+import { Disclosure } from "./Disclosure.js";
 
 const INVALIDATE_ON_DOWNLOAD: readonly QueryKey[] = [VISION_QUERY_KEY, VISION_MODELS_QUERY_KEY];
 
@@ -55,27 +53,11 @@ export function VisionModelPicker({ data, onSelect }: VisionModelPickerProps) {
   // Only vision pulls belong here; chat-model downloads stay in the LLM surfaces.
   const jobFilter = useCallback((job: ModelDownloadJob) => isVisionDownloadJob(job, models), [models]);
 
-  const readiness = data?.enabled ? visionReadiness(data) : null;
-  const reason = data?.status.last_error;
-  const isLocalSource = (data?.vision_source ?? (data?.cloud_direct_allowed ? "chat_model" : "local")) === "local";
-
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-2.5 rounded-xl border border-white/[0.06] bg-surface-2/35 p-3 transition-opacity duration-fast ease-io",
-        !isLocalSource && "opacity-75"
-      )}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span id="vision-model-label" className="text-xs font-semibold text-foreground">
-          {t("controles.vision.model.label")}
-        </span>
-        {!isLocalSource && (
-          <span className="rounded-full border border-white/[0.06] bg-background/50 px-2 py-0.5 text-[10px] text-dim">
-            {t("controles.vision.model.localOnlyNote")}
-          </span>
-        )}
-      </div>
+    <div className="flex flex-col gap-2.5">
+      <span id="vision-model-label" className="text-xs font-semibold text-foreground">
+        {t("controles.vision.model.label")}
+      </span>
       <Select
         aria-label={t("controles.vision.model.label")}
         className="mono"
@@ -93,13 +75,8 @@ export function VisionModelPicker({ data, onSelect }: VisionModelPickerProps) {
       {models && !models.ollama_reachable && (
         <p className="text-[11px] leading-tight text-dim">{t("controles.vision.model.unreachable")}</p>
       )}
-      {readiness && (
-        <p className="text-[11px] leading-tight text-muted-foreground">
-          {readiness === "failed" && reason
-            ? t("controles.vision.model.stateReason", { state: readiness, reason: t(visionReasonKey(reason)) })
-            : t("controles.vision.model.state", { state: readiness })}
-        </p>
-      )}
+      <Disclosure label={t("controles.provider.editor.advanced.summary")}>
+        <div className="flex flex-col gap-2.5">
       {suggested.length > 0 && (
         <ul aria-label={t("controles.vision.model.suggested")} className="flex flex-col gap-2">
           {suggested.map((m) => (
@@ -146,6 +123,8 @@ export function VisionModelPicker({ data, onSelect }: VisionModelPickerProps) {
         {t("controles.vision.model.other")}
       </button>
       {showOther && <HfModelPicker />}
+        </div>
+      </Disclosure>
     </div>
   );
 }

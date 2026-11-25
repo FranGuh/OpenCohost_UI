@@ -42,6 +42,8 @@ describe("emitAppEvent", () => {
       [{ source: "motor", action: "turn_dropped" }, "warn"],
       [{ source: "motor", action: "cloud_bad_key" }, "danger"],
       [{ source: "motor", action: "cloud_probe_gave_up" }, "warn"],
+      [{ source: "motor", action: "cloud_image_rejected" }, "warn"],
+      [{ source: "motor", action: "cloud_quota_exhausted" }, "warn"],
       [{ source: "ptt", action: "error" }, "danger"]
     ];
 
@@ -51,6 +53,14 @@ describe("emitAppEvent", () => {
     emitAppEvent({ source: "motor", action: "cloud_llm_error", tone: "info" });
     const events = useEventStore.getState().events;
     expect(events[events.length - 1]?.tone).toBe("info");
+  });
+
+  it("maps cloud_image_rejected and cloud_quota_exhausted to actionable labels (by event type only)", () => {
+    emitAppEvent({ source: "motor", action: "cloud_image_rejected" }, undefined, { toast: false });
+    emitAppEvent({ source: "motor", action: "cloud_quota_exhausted" }, undefined, { toast: false });
+    const labels = useEventStore.getState().events.map((event) => event.label);
+    expect(labels[0]).toContain("Este modelo ve imágenes");
+    expect(labels[1]).toMatch(/cuota|saldo/i);
   });
 
   it("with a whitelisted key: appends exactly one store event with the template label and calls the toast sink once with (label, tone)", () => {

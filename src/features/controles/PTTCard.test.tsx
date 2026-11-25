@@ -71,6 +71,75 @@ describe("PTTCard: idle defaults", () => {
   });
 });
 
+describe("PTTCard: grace window control (ptt-live-dictation-20261125)", () => {
+  it("shows the saved grace mode and hides the seconds input unless custom", async () => {
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByRole("combobox", { name: "Ventana de gracia" })).toHaveTextContent("Automática");
+    expect(screen.queryByLabelText("Segundos de gracia")).not.toBeInTheDocument();
+  });
+
+  it("saves a new grace mode through PUT /api/ptt/config with grace_mode only", async () => {
+    let capturedBody: unknown = null;
+    server.use(
+      http.put(`${API_BASE_URL}/api/ptt/config`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ stt_ws_uri: "ws://127.0.0.1:9090", grace_mode: "fast" });
+      })
+    );
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.click(screen.getByRole("combobox", { name: "Ventana de gracia" }));
+    fireEvent.click(screen.getByRole("option", { name: "Rápida (STT rápido)" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(capturedBody).toEqual({ grace_mode: "fast" });
+  });
+
+  it("custom mode shows a 0.3-3.0 seconds input that saves grace_s on commit", async () => {
+    let capturedBody: unknown = null;
+    server.use(
+      pttStateHandler({ ...defaultPttState, grace_mode: "custom", grace_s: 1.2 }),
+      http.put(`${API_BASE_URL}/api/ptt/config`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ stt_ws_uri: "ws://127.0.0.1:9090", grace_mode: "custom", grace_s: 2 });
+      })
+    );
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const input = screen.getByLabelText("Segundos de gracia") as HTMLInputElement;
+    expect(input).toHaveAttribute("type", "number");
+    expect(input).toHaveAttribute("min", "0.3");
+    expect(input).toHaveAttribute("max", "3");
+    expect(input).toHaveAttribute("step", "0.1");
+    expect(input.value).toBe("1.2");
+    fireEvent.change(input, { target: { value: "2" } });
+    fireEvent.blur(input);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(capturedBody).toEqual({ grace_s: 2 });
+  });
+
+  it("surfaces the server's 422 detail for an invalid grace value", async () => {
+    server.use(
+      pttStateHandler({ ...defaultPttState, grace_mode: "custom", grace_s: 1.2 }),
+      pttConfigValidationErrorHandler("grace_s must be between 0.3 and 3.0")
+    );
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const input = screen.getByLabelText("Segundos de gracia");
+    fireEvent.change(input, { target: { value: "9" } });
+    fireEvent.blur(input);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText("grace_s must be between 0.3 and 3.0")).toBeInTheDocument();
+  });
+
+  it("renders the grace control in English", async () => {
+    act(() => useUiLocaleStore.setState({ locale: "en" }));
+    renderCard();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByRole("combobox", { name: "Grace window" })).toHaveTextContent("Automatic");
+  });
+});
+
 describe("PTTCard: dictation mode (ptt-dictation-20261111)", () => {
   it("shows the saved mode and offers the three choices", async () => {
     server.use(pttStateHandler({ ...defaultPttState, dictation_mode: "foreground" }));

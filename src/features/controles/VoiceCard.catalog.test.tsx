@@ -185,7 +185,8 @@ describe("VoiceCard Piper catalog", () => {
     // Accepted != applied: config still shows the old voice, so everything stays locked.
     await waitFor(() => expect(voice).toBeDisabled());
     expect(screen.getByRole("button", { name: "Cambiar carpeta" })).toBeDisabled();
-    expect(screen.getByText("Aplicando voz…")).toBeInTheDocument();
+    expect(screen.queryByText("Aplicando voz…")).toBeNull();
+    expect(screen.getAllByText(/aplicando/i)).toHaveLength(1);
 
     configVoice = MULTI_VOICE.id;
     await waitFor(() => expect(voice).not.toBeDisabled(), { timeout: 4000 });

@@ -68,6 +68,12 @@ function providerErrorMessage(
         ? t("controles.provider.error.missingApiKey.deleteKey")
         : t("controles.provider.error.missingApiKey.activate");
     }
+    if (detail === "insecure_base_url") {
+      return t("controles.provider.error.insecureBaseUrl");
+    }
+    if (detail === "key_reentry_required") {
+      return t("controles.provider.error.keyReentryRequired");
+    }
     if (detail === "profile_id required") {
       return t("controles.provider.error.missingProfileId");
     }
@@ -205,7 +211,7 @@ export function ProviderCard() {
 
   if (getError) {
     return (
-      <Card className="flex flex-col p-4">
+      <Card id="provider-card" tabIndex={-1} className="flex flex-col p-4 focus-visible:outline-none">
         <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
           <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
         </div>
@@ -218,7 +224,7 @@ export function ProviderCard() {
 
   if (!data) {
     return (
-      <Card className="flex flex-col p-4">
+      <Card id="provider-card" tabIndex={-1} className="flex flex-col p-4 focus-visible:outline-none">
         <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
           <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
         </div>
@@ -361,6 +367,17 @@ export function ProviderCard() {
     label: recommendedFirst.includes(id) ? t("controles.provider.editor.modelPick.recommended", { id }) : id
   }));
   const selectedSeesImages = Boolean(presetInfo?.models.find((m) => m.id === selectedModel)?.vision);
+  // The key is sent to whatever host the base URL names: flag a host that is not the preset's.
+  const hostOf = (u: string): string | null => {
+    try {
+      return new URL(u.trim()).host.toLowerCase();
+    } catch {
+      return null;
+    }
+  };
+  const customHost = hostOf(baseUrl);
+  const presetHost = presetInfo ? hostOf(presetInfo.base_url) : null;
+  const showHostWarning = Boolean(presetInfo) && customHost !== null && customHost !== presetHost;
   const canTest = Boolean(baseUrl || presetInfo) && (Boolean(apiKey) || currentApiKeySet) && !testMutation.isPending;
 
   function runTest() {
@@ -401,7 +418,7 @@ export function ProviderCard() {
   const suggestedId = customIdInvalid ? suggestProfileId(customIdTrimmed) : "";
 
   return (
-    <Card className="flex flex-col p-4">
+    <Card id="provider-card" tabIndex={-1} className="flex flex-col p-4 focus-visible:outline-none">
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">{t("controles.provider.card.title")}</h2>
         {anyPending && (
@@ -665,6 +682,23 @@ export function ProviderCard() {
                   </div>
                 )}
 
+                <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[13px] text-foreground">{t("controles.provider.editor.modelVision.label")}</span>
+                    <span className="text-[11px] leading-tight text-dim">
+                      {t("controles.provider.editor.modelVision.hint")}
+                    </span>
+                  </div>
+                  <Switch
+                    checked={modelVision}
+                    onChange={(next) => {
+                      resetProfileError();
+                      setModelVision(next);
+                    }}
+                    aria-label={t("controles.provider.editor.modelVision.label")}
+                  />
+                </div>
+
                 <details className="flex flex-col gap-3">
                   <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
                     {t("controles.provider.editor.advanced.summary")}
@@ -687,6 +721,11 @@ export function ProviderCard() {
                         placeholder={t("controles.provider.editor.baseUrl.placeholder")}
                         className={inputClass}
                       />
+                      {showHostWarning && (
+                        <span className="text-[11px] leading-tight text-warn">
+                          {t("controles.provider.editor.baseUrl.hostWarning")}
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label htmlFor="provider-model" className="text-[13px] text-foreground">
@@ -703,23 +742,6 @@ export function ProviderCard() {
                         placeholder={t("controles.provider.editor.model.placeholder")}
                         className={inputClass}
                       />
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      <label htmlFor="provider-model-vision" className="flex items-center gap-2 text-[13px] text-foreground">
-                        <input
-                          id="provider-model-vision"
-                          type="checkbox"
-                          checked={modelVision}
-                          onChange={(e) => {
-                            resetProfileError();
-                            setModelVision(e.target.checked);
-                          }}
-                        />
-                        {t("controles.provider.editor.modelVision.label")}
-                      </label>
-                      <span className="pl-6 text-[11px] leading-tight text-dim">
-                        {t("controles.provider.editor.modelVision.hint")}
-                      </span>
                     </div>
                   </div>
                 </details>

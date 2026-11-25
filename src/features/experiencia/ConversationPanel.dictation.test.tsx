@@ -12,7 +12,14 @@ import { ConversationPanel } from "./ConversationPanel.js";
 // ptt-dictation-20261111: the LiveAudio echo hook is unit-tested in
 // src/api/liveTranscript.test.ts; here it is mocked down to its contract so
 // the panel's composer insertion is driven directly.
-type Dictation = { onDictated: (text: string) => void; onDictationLost: () => void };
+type Dictation = {
+  onDictated: (text: string) => void;
+  onDictationLost: () => void;
+  onLiveStart?: () => void;
+  onLive?: (text: string) => void;
+  onLiveCancel?: () => void;
+  onDictationTimeout?: () => void;
+};
 let transcriptCb: ((text: string, stamp: number) => void) | null = null;
 let pendingCb: ((text: string | null) => void) | null = null;
 let dictation: Dictation | null = null;
@@ -134,3 +141,116 @@ describe("ConversationPanel — PTT dictation into the composer", () => {
     expect(composer().value).toBe("");
   });
 });
+
+// ptt-live-dictation-20261125: a hold the backend locked to dictate writes the
+// words into the composer live (the hook drives these handlers).
+describe("ConversationPanel — live dictation into the composer", () => {
+  const input = () => document.getElementById("composer-input") as HTMLTextAreaElement;
+  const focusAt = (el: HTMLTextAreaElement, start: number, end = start) => {
+    act(() => {
+      el.focus();
+      el.setSelectionRange(start, end);
+    });
+    fireEvent.select(el);
+  };
+  const live = (text: string) => act(() => dictation?.onLive?.(text));
+  const start = () => act(() => dictation?.onLiveStart?.());
+
+  it("inserts at the caret and updates the same span progressively without duplicates", () => {
+    renderPanel();
+    fireEvent.change(input(), { target: { value: "holamundo" } });
+    focusAt(input(), 4);
+    start();
+    live("querido");
+    expect(input().value).toBe("hola querido mundo");
+    live("querido amigo");
+    expect(input().value).toBe("hola querido amigo mundo");
+    act(() => dictation?.onDictated("querido amigo mío"));
+    expect(input().value).toBe("hola querido amigo mío mundo");
+    expect(input().selectionStart).toBe("hola querido amigo mío".length);
+    expect(input().selectionEnd).toBe("hola querido amigo mío".length);
+  });
+
+  it("replaces the selection captured when the hold began", () => {
+    renderPanel();
+    fireEvent.change(input(), { target: { value: "hola MUNDO cruel" } });
+    focusAt(input(), 5, 10);
+    act(() => input().blur());
+    start();
+    live("gente");
+    expect(input().value).toBe("hola gente cruel");
+    live("gente linda");
+    expect(input().value).toBe("hola gente linda cruel");
+  });
+
+  it("appends at the end, with one separating space, when the input was never focused", () => {
+    renderPanel();
+    fireEvent.change(input(), { target: { value: "ya escrito" } });
+    start();
+    live("hola kira");
+    expect(input().value).toBe("ya escrito hola kira");
+  });
+
+  it("shows the input as dictating (read-only) and unlocks after the final outcome", () => {
+    renderPanel();
+    start();
+    expect(input()).toHaveAttribute("readonly");
+    expect(screen.getByPlaceholderText("Dictando…")).toBeInTheDocument();
+    live("hola kira");
+    act(() => dictation?.onDictated("hola kira"));
+    expect(input()).not.toHaveAttribute("readonly");
+    expect(input().value).toBe("hola kira");
+  });
+
+  it("disables the Send button while dictating and re-enables it afterwards", () => {
+    renderPanel();
+    fireEvent.change(input(), { target: { value: "base" } });
+    const send = () => screen.getByRole("button", { name: "Enviar" });
+    expect(send()).not.toBeDisabled();
+    start();
+    live("hola kira");
+    expect(send()).toBeDisabled();
+    act(() => dictation?.onDictated("hola kira"));
+    expect(send()).not.toBeDisabled();
+  });
+
+  it("renders no pending voice bubble during a dictation hold", () => {
+    renderPanel();
+    start();
+    live("hola kira");
+    expect(screen.queryByText("Anónimo · voz")).not.toBeInTheDocument();
+  });
+
+  it("restores the original input when the hold ends up sent instead of dictated", () => {
+    renderPanel();
+    fireEvent.change(input(), { target: { value: "base" } });
+    start();
+    live("hola kira");
+    expect(input().value).toBe("base hola kira");
+    act(() => dictation?.onLiveCancel?.());
+    expect(input().value).toBe("base");
+    expect(input()).not.toHaveAttribute("readonly");
+  });
+
+  it("send holds keep the pending bubble and leave the composer alone", () => {
+    renderPanel();
+    fireEvent.change(input(), { target: { value: "base" } });
+    act(() => pendingCb?.("hola kira"));
+    expect(screen.getByText("hola kira")).toBeInTheDocument();
+    expect(screen.getByText("Anónimo · voz")).toBeInTheDocument();
+    expect(input().value).toBe("base");
+  });
+
+  it("on outcome timeout keeps the live text, unlocks and shows an incomplete-dictation notice", () => {
+    renderPanel();
+    start();
+    live("hola kira");
+    act(() => dictation?.onDictationTimeout?.());
+    expect(input().value).toBe("hola kira");
+    expect(input()).not.toHaveAttribute("readonly");
+    expect(
+      screen.getByText("El dictado puede estar incompleto: no llegó la confirmación. El texto se conservó en el cuadro de mensaje; revísalo.")
+    ).toBeInTheDocument();
+  });
+});
+

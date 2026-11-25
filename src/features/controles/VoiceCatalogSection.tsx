@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { AudioLines, Users } from "lucide-react";
 import { Button } from "../../ui/Button.js";
 import { Select, type SelectOption } from "../../ui/Select.js";
 import { getI18nState } from "../../api/i18n.js";
@@ -29,7 +29,7 @@ const PIPER_FAILURE_REASONS: readonly string[] = [
 ];
 const EDGE_FAILURE_REASONS: readonly string[] = ["invalid_edge_voice", "edge_voice_unknown", "config_write_failed"];
 
-const LABEL_CLASS = "text-[11px] font-semibold uppercase tracking-[0.09em] text-dim";
+const LABEL_CLASS = "inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim";
 
 function failureKey(prefix: "piper" | "edge", reason: string | null | undefined): TKey {
   const known = prefix === "piper" ? PIPER_FAILURE_REASONS : EDGE_FAILURE_REASONS;
@@ -92,15 +92,6 @@ function useVoiceSwitch<V>(
     target: pending ? target : null,
     apply
   };
-}
-
-function Applying({ label }: { label: string }) {
-  return (
-    <span role="status" className="inline-flex items-center gap-1.5 text-xs text-info">
-      <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-      {label}
-    </span>
-  );
 }
 
 function ListError({ onRetry }: { onRetry: () => void }) {
@@ -180,15 +171,15 @@ export function VoiceCatalogSection({
       <section aria-labelledby="edge-voice-label" className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <span id="edge-voice-label" className={LABEL_CLASS}>
+            <AudioLines size={14} className="text-muted-foreground" aria-hidden="true" />
             {t("controles.voice.edge.voiceSelect")}
           </span>
-          {locked && <Applying label={t("controles.voice.applying.voice")} />}
         </div>
         <Select
           aria-label={t("controles.voice.edge.voiceSelect")}
           value={current}
           disabled={locked || edgeQuery.isPending || edgeQuery.isError}
-          loading={locked || edgeQuery.isPending}
+          loading={edgeQuery.isPending}
           options={options}
           onChange={edge.apply}
         />
@@ -218,18 +209,19 @@ export function VoiceCatalogSection({
 
   return (
     <section aria-labelledby="piper-voice-label" className="space-y-2.5">
+      <PiperFolderRow disabled={locked} />
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <span id="piper-voice-label" className={LABEL_CLASS}>
+            <AudioLines size={14} className="text-muted-foreground" aria-hidden="true" />
             {t("controles.voice.piper.voiceSelect")}
           </span>
-          {locked && <Applying label={t("controles.voice.applying.voice")} />}
         </div>
         <Select
           aria-label={t("controles.voice.piper.voiceSelect")}
           value={currentId ?? ""}
           disabled={locked || piperQuery.isPending || piperQuery.isError}
-          loading={locked || piperQuery.isPending}
+          loading={piperQuery.isPending}
           options={piperOptions(voices, currentId, t)}
           onChange={pickVoice}
         />
@@ -240,18 +232,19 @@ export function VoiceCatalogSection({
       </div>
       {speakers.length > 0 && (
         <div className="space-y-2">
-          <span className={LABEL_CLASS}>{t("controles.voice.piper.speakerSelect")}</span>
+          <span className={LABEL_CLASS}>
+            <Users size={14} className="text-muted-foreground" aria-hidden="true" />
+            {t("controles.voice.piper.speakerSelect")}
+          </span>
           <Select
             aria-label={t("controles.voice.piper.speakerSelect")}
             value={currentSpeaker}
             disabled={locked}
-            loading={locked}
             options={speakers.map((s) => ({ value: String(s.id), label: s.name }))}
             onChange={(id) => piper.apply({ value: currentId as string, speaker_id: Number(id) })}
           />
         </div>
       )}
-      <PiperFolderRow disabled={locked} />
     </section>
   );
 }

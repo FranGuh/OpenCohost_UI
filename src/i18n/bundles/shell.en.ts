@@ -84,6 +84,8 @@ export const shellEn: Record<keyof typeof shellEs, string> = {
   "shell.backendGate.copy.failed": "Could not copy",
   "shell.backendGate.copy.hint": "The details may include folder names from this computer; review them before pasting.",
   "shell.events.motor.cloudBadKey": "Engine: check the cloud API key",
+  "shell.events.motor.cloudImageRejected": "Engine: the cloud model rejected the image. Untick “This model sees images” in the provider settings.",
+  "shell.events.motor.cloudQuotaExhausted": "Engine: the cloud provider has no quota or balance left. Check your plan with the provider.",
   "shell.events.motor.cloudFallbackEngaged": "Engine: cloud down, using local Ollama",
   "shell.events.motor.cloudLlmError": "Cloud provider failed — staying on cloud; check the provider or switch to Local",
   "shell.events.motor.cloudProbeGaveUp": "Engine: cloud retry gave up — try manually",

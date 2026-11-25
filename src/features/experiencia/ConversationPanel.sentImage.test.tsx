@@ -28,11 +28,16 @@ interface Script {
   turns: Array<{ status: number; detail?: string; gate?: Promise<void> }>;
 }
 
+/** Set once the panel has fetched GET /api/vision (paste needs vision data). */
+let visionServed = false;
+
 function serve(script: Script) {
   const posts: Array<{ text?: string; image?: { data: string } }> = [];
+  visionServed = false;
   server.use(
-    http.get(`${API_BASE_URL}/api/vision`, () =>
-      HttpResponse.json({
+    http.get(`${API_BASE_URL}/api/vision`, () => {
+      visionServed = true;
+      return HttpResponse.json({
         enabled: script.phase !== "off",
         look_on_ptt: false,
         capture_delay_s: 0,
@@ -49,8 +54,8 @@ function serve(script: Script) {
           state: script.phase,
           last_error: script.lastError ?? null
         }
-      })
-    ),
+      });
+    }),
     http.post(`${API_BASE_URL}/api/chat/turn`, async ({ request }) => {
       posts.push((await request.json()) as never);
       const step = script.turns[Math.min(posts.length - 1, script.turns.length - 1)]!;
@@ -73,7 +78,10 @@ function pasteFile(target: HTMLElement) {
 
 async function composerWithImage(text = "") {
   const box = await screen.findByRole("combobox", { name: "Message for Kira" });
-  await waitFor(() => expect(screen.queryByRole("status", { name: /^Vision:/ })).not.toBeNull());
+  // The composer no longer shows a vision readout; wait for the vision fetch and
+  // let the query settle before pasting (paste needs vision data).
+  await waitFor(() => expect(visionServed).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 50));
   pasteFile(box);
   await screen.findByRole("button", { name: "Remove image" });
   if (text) await userEvent.type(box, text);
@@ -99,24 +107,19 @@ describe("ConversationPanel image in the conversation", () => {
   });
 
   describe("readiness indicator", () => {
-    it.each([
-      ["starting", "Vision: starting"],
-      ["warming", "Vision: starting"],
-      ["ready", "Vision: ready"],
-      ["failed", "Vision: error"]
-    ] as const)("shows %s as %s", async (phase, label) => {
-      serve({ phase, lastError: phase === "failed" ? "port_in_use" : null, turns: [{ status: 200 }] });
-      renderPanel();
-      expect(await screen.findByRole("status", { name: label })).toBeInTheDocument();
-    });
-
-    it("shows nothing new when vision is off", async () => {
-      serve({ phase: "off", turns: [{ status: 200 }] });
-      renderPanel();
-      await screen.findByRole("combobox", { name: "Message for Kira" });
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      expect(screen.queryByRole("status", { name: /^Vision:/ })).toBeNull();
-    });
+    // Owner decision 2026-11-25: no "Vision: …" readout above the composer in
+    // any phase; vision state lives in the Controls tab.
+    it.each(["off", "starting", "warming", "ready", "failed"] as const)(
+      "shows no vision readout above the composer when %s",
+      async (phase) => {
+        serve({ phase, lastError: phase === "failed" ? "port_in_use" : null, turns: [{ status: 200 }] });
+        renderPanel();
+        await screen.findByRole("combobox", { name: "Message for Kira" });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(screen.queryByRole("status", { name: /^Vision:/ })).toBeNull();
+        expect(screen.queryByText(/^Vision:/)).toBeNull();
+      }
+    );
   });
 
   it("lets an image be attached and sent while vision is starting, with a waiting line on the message", async () => {

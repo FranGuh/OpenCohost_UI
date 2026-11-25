@@ -216,8 +216,8 @@ describe("ProviderCard active-provider selector is a selector-only switch", () =
   });
 });
 
-describe("ProviderCard sees-images checkbox (cloud-providers-vision P2)", () => {
-  it("is an unchecked checkbox in Advanced and is not sent when untouched", async () => {
+describe("ProviderCard sees-images switch (cloud-providers-vision P2, B4)", () => {
+  it("is an off switch outside Avanzado and is not sent when untouched", async () => {
     let capturedBody: any;
     server.use(
       http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
@@ -227,8 +227,13 @@ describe("ProviderCard sees-images checkbox (cloud-providers-vision P2)", () => 
     );
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
-    const box = screen.getByRole("checkbox", { name: "Este modelo ve imágenes" });
-    expect(box).not.toBeChecked();
+    const box = screen.getByRole("switch", { name: "Este modelo ve imágenes" });
+    expect(box).toHaveAttribute("aria-checked", "false");
+    const advanced = Array.from(document.querySelectorAll("details")).find(
+      (d) => d.querySelector(":scope > summary")?.textContent === "Avanzado"
+    );
+    expect(advanced).toBeDefined();
+    expect(advanced?.contains(box)).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(capturedBody?.profile_id).toBe("openai"));
     expect(capturedBody).not.toHaveProperty("model_vision");
@@ -244,7 +249,7 @@ describe("ProviderCard sees-images checkbox (cloud-providers-vision P2)", () => 
     );
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Este modelo ve imágenes" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Este modelo ve imágenes" }));
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(capturedBody?.model_vision).toBe(true));
   });
@@ -264,8 +269,8 @@ describe("ProviderCard sees-images checkbox (cloud-providers-vision P2)", () => 
     );
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
-    const box = screen.getByRole("checkbox", { name: "Este modelo ve imágenes" });
-    expect(box).toBeChecked();
+    const box = screen.getByRole("switch", { name: "Este modelo ve imágenes" });
+    expect(box).toHaveAttribute("aria-checked", "true");
     fireEvent.click(box);
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(capturedBody?.model_vision).toBe(false));
@@ -413,6 +418,50 @@ describe("ProviderCard per-profile editor", () => {
         "No se pudo guardar la API key en el almacén seguro. Prueba de nuevo."
       )
     );
+  });
+});
+
+describe("ProviderCard egress hardening copy (api_key_egress_hardening_20261125)", () => {
+  it("shows the https-required copy for a 422 insecure_base_url", async () => {
+    server.use(llmProviderValidationHandler("insecure_base_url"));
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "La URL base debe usar https:// (http:// solo se permite para tu propio equipo o red local)."
+      )
+    );
+  });
+
+  it("asks to paste the key again for a 422 key_reentry_required", async () => {
+    server.use(llmProviderValidationHandler("key_reentry_required"));
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Cambiaste el host de la URL base: vuelve a pegar la API key de este proveedor."
+      )
+    );
+  });
+
+  it("warns only when the base URL host differs from the preset's host", async () => {
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI/ }));
+    const warning = "El host de la URL base no es el del preset; la API key se enviará a ese host.";
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/URL base/), { target: { value: "https://proxy.example.com/v1" } });
+    expect(screen.getByText(warning)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/URL base/), { target: { value: "https://api.openai.com/v2" } });
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
   });
 });
 

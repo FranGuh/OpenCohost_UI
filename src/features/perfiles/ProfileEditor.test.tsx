@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React, { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/server.js";
@@ -866,5 +866,32 @@ describe("ProfileEditor owner address selector (owner_gender)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(bodies[0]).toEqual({ prompt: "Eres ingeniosa." });
+  });
+});
+
+describe("ProfileEditor layout (no invented group titles, footer delete)", () => {
+  it("renders no invented group headings", () => {
+    useUiLocaleStore.setState({ locale: "en" });
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose: () => {} });
+    for (const title of ["Identity", "Personality", "Conversation", "Advanced", "Danger zone"]) {
+      expect(screen.queryByRole("heading", { name: title })).not.toBeInTheDocument();
+    }
+  });
+
+  it("edit mode puts Delete in the footer row with Save, before Cancel", () => {
+    useUiLocaleStore.setState({ locale: "en" });
+    renderEditor({ open: true, mode: "edit", initialName: "Akira", onClose: () => {} });
+    const save = screen.getByRole("button", { name: "Save" });
+    const footer = save.closest("div") as HTMLElement;
+    const del = within(footer).getByRole("button", { name: "Delete" });
+    const cancel = within(footer).getByRole("button", { name: "Cancel" });
+    expect(del.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
+  });
+
+  it("create mode renders no Delete button", () => {
+    useUiLocaleStore.setState({ locale: "en" });
+    renderEditor({ open: true, mode: "create", onClose: () => {} });
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 });

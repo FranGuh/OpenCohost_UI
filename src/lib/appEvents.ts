@@ -156,6 +156,9 @@ const EVENT_LABELS: Record<string, (detail?: string) => string> = {
   // never retried engine-side, latched to one emission per failure event.
   // `detail` is always null server-side.
   "motor.cloud_bad_key": () => t("shell.events.motor.cloudBadKey"),
+  // vision-settings-redesign B1/B2 — mapped by event type only (no payload).
+  "motor.cloud_image_rejected": () => t("shell.events.motor.cloudImageRejected"),
+  "motor.cloud_quota_exhausted": () => t("shell.events.motor.cloudQuotaExhausted"),
   // Unit 2.2 (runtime_findings_batch_20260731) — automatic cloud-return
   // narration. Neutral, generic labels (never per-class text) — the reason
   // CLASS is a separate poll field (GET /api/status → fallback_reason), not
@@ -221,6 +224,8 @@ const EVENT_DEFAULT_TONES: Partial<Record<string, AppEventTone>> = {
   "motor.reasoning_budget_exhausted": "warn",
   "motor.turn_dropped": "warn",
   "motor.cloud_bad_key": "danger",
+  "motor.cloud_image_rejected": "warn",
+  "motor.cloud_quota_exhausted": "warn",
   "motor.piper_voice_switch_failed": "warn",
   "motor.edge_voice_switch_failed": "warn",
   "motor.cloud_probe_gave_up": "warn",

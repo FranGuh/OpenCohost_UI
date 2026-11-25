@@ -46,6 +46,9 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.conversationPanel.composer.send.action": "Send",
   "experiencia.conversationPanel.composer.voiceSent": "Voice turn sent",
   "experiencia.conversationPanel.composer.dictated": "Dictated into the message box. Review it and press Send.",
+  "experiencia.conversationPanel.composer.dictating": "Dictating…",
+  "experiencia.conversationPanel.composer.dictationIncomplete":
+    "The dictation may be incomplete: the confirmation never arrived. The text was kept in the message box; review it.",
   "experiencia.conversationPanel.composer.dictationLost":
     "The dictation did not reach this window, so there is no text to insert. Nothing was sent to Kira. Try again.",
   "experiencia.conversationPanel.empty.hint":
@@ -306,9 +309,6 @@ export const experienciaEn: Record<keyof typeof experienciaEs, string> = {
   "experiencia.vision.reason.daemon_not_ready": "vision is not ready yet",
   "experiencia.vision.reason.model_warming": "the vision model is still warming up",
   "experiencia.vision.reason.model_missing": "the vision model is not installed",
-  "experiencia.vision.indicator.starting": "Vision: starting",
-  "experiencia.vision.indicator.ready": "Vision: ready",
-  "experiencia.vision.indicator.error": "Vision: error",
   "experiencia.vision.reason.warm_failed": "the vision model could not load",
   "experiencia.vision.reason.port_in_use": "the vision port is in use",
   "experiencia.vision.reason.ollama_not_found": "Ollama was not found",

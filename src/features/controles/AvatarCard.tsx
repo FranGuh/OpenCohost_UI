@@ -16,6 +16,7 @@ import { useAvatarImageVersion } from "../../store/avatarImageVersion.js";
 import { useT, type TKey } from "../../i18n/t.js";
 import { middleTruncate } from "../../lib/middleTruncate.js";
 import { VrmFolderRow } from "./VrmFolderRow.js";
+import { VrmModelPicker } from "./VrmModelPicker.js";
 
 const MODE_OPTIONS = [
   { value: "image_states", labelKey: "controles.avatar.mode.imageStates" },
@@ -282,15 +283,13 @@ export function AvatarCard() {
                 </span>
                 <VrmFolderRow />
                 {vrmModels && vrmModels.length > 0 ? (
-                  <Select
-                    aria-label={t("controles.avatar.vrm.modelSelect")}
+                  <VrmModelPicker
+                    models={vrmModels}
                     value={selectedModel || vrmModels[0].filename}
                     disabled={busy || loadingModels}
                     onChange={setSelectedModel}
-                    options={vrmModels.map((m) => ({
-                      value: m.filename,
-                      label: `${m.filename} (${m.size_mb} MB)${m.bundled ? ` · ${t("controles.avatar.vrm.bundled")}` : ""}`
-                    }))}
+                    ariaLabel={t("controles.avatar.vrm.modelSelect")}
+                    bundledLabel={t("controles.avatar.vrm.bundled")}
                   />
                 ) : (
                   <p role="status" className="text-xs leading-relaxed text-muted-foreground">

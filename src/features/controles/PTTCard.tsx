@@ -5,7 +5,7 @@ import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
 import { Select } from "../../ui/Select.js";
 import { Switch } from "../../ui/Switch.js";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Keyboard, Mic, Radio } from "lucide-react";
 import { openExternalUrl } from "../../lib/openUrl.js";
 
 export const LIVEAUDIO_DOWNLOAD_URL = "https://liveaudio.opencohost.com/?utm_source=opencohost";
@@ -15,7 +15,8 @@ import {
   useTestPttConnectionMutation,
   useUpdatePttConfigMutation,
   usePttStateQuery,
-  type PttDictationMode
+  type PttDictationMode,
+  type PttGraceMode
 } from "../../api/ptt.js";
 import { errorCopy, stateCopy } from "../experiencia/pttCopy.js";
 import { useLastReply } from "../../api/chat.js";
@@ -63,6 +64,13 @@ const DICTATION_MODES: ReadonlyArray<{ value: PttDictationMode; label: TKey }> =
   { value: "always", label: "controles.ptt.dictation.option.always" }
 ];
 
+/** Grace window presets (ptt-live-dictation-20261125), in display order. */
+const GRACE_MODES: ReadonlyArray<{ value: PttGraceMode; label: TKey }> = [
+  { value: "auto", label: "controles.ptt.grace.option.auto" },
+  { value: "fast", label: "controles.ptt.grace.option.fast" },
+  { value: "custom", label: "controles.ptt.grace.option.custom" }
+];
+
 export function PTTCard() {
   const t = useT();
   const { state, error, start, stop } = usePttHold();
@@ -79,6 +87,18 @@ export function PTTCard() {
   // Holds the key, not the resolved message — see the render site below.
   const [schemeError, setSchemeError] = useState<TKey | null>(null);
   const activeWsUrl = pttState.data?.stt_ws_url ?? null;
+  const graceMode: PttGraceMode = pttState.data?.grace_mode ?? "auto";
+  const savedGraceS = pttState.data?.grace_s;
+  const [graceInput, setGraceInput] = useState("");
+  useEffect(() => {
+    if (savedGraceS != null) setGraceInput(String(savedGraceS));
+  }, [savedGraceS]);
+
+  function commitGrace() {
+    const value = Number(graceInput);
+    if (graceInput.trim() === "" || Number.isNaN(value) || value === savedGraceS) return;
+    updateWsConfig.mutate({ grace_s: value });
+  }
 
   useEffect(() => {
     if (activeWsUrl != null) setWsUrl(activeWsUrl);
@@ -247,7 +267,8 @@ export function PTTCard() {
         )}
 
         <section aria-labelledby="ptt-dictation-label" className="space-y-2">
-          <span id="ptt-dictation-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+          <span id="ptt-dictation-label" className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            <Mic size={14} className="text-muted-foreground" aria-hidden="true" />
             {t("controles.ptt.dictation.eyebrow")}
           </span>
           <Select
@@ -272,10 +293,46 @@ export function PTTCard() {
             />
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.ptt.companionDictation.hint")}</p>
+          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+            <span className="text-[13px] text-foreground">{t("controles.ptt.grace.label")}</span>
+            <Select
+              aria-label={t("controles.ptt.grace.label")}
+              value={graceMode}
+              disabled={updateWsConfig.isPending}
+              options={GRACE_MODES.map((mode) => ({ value: mode.value, label: t(mode.label) }))}
+              onChange={(mode) => updateWsConfig.mutate({ grace_mode: mode as PttGraceMode })}
+            />
+          </div>
+          {graceMode === "custom" && (
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <label htmlFor="ptt-grace-s" className="text-[13px] text-foreground">
+                {t("controles.ptt.grace.seconds.label")}
+              </label>
+              <input
+                id="ptt-grace-s"
+                type="number"
+                min={0.3}
+                max={3}
+                step={0.1}
+                value={graceInput}
+                onChange={(e) => {
+                  if (updateWsConfig.isError) updateWsConfig.reset();
+                  setGraceInput(e.target.value);
+                }}
+                onBlur={commitGrace}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitGrace();
+                }}
+                className={cn(inputClass, "w-24")}
+              />
+            </div>
+          )}
+          <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.ptt.grace.hint")}</p>
         </section>
 
         <section aria-labelledby="ptt-hotkey-label" className="space-y-2">
-          <span id="ptt-hotkey-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+          <span id="ptt-hotkey-label" className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            <Keyboard size={14} className="text-muted-foreground" aria-hidden="true" />
             {t("controles.ptt.hotkey.eyebrow")}
           </span>
           <div className="grid grid-cols-[1fr_auto] items-center gap-3">
@@ -299,7 +356,8 @@ export function PTTCard() {
         </section>
 
         <section aria-labelledby="ptt-liveaudio-label" className="space-y-3 border-t border-border-soft pt-3.5">
-          <span id="ptt-liveaudio-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+          <span id="ptt-liveaudio-label" className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            <Radio size={14} className="text-muted-foreground" aria-hidden="true" />
             LiveAudio (STT)
           </span>
 

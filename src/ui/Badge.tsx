@@ -27,9 +27,11 @@ export interface BadgeProps {
   className?: string;
   /** Technical/numeric content (model name, id) — renders in mono/tabular. */
   mono?: boolean;
+  /** Leading status dot (default on). Cards that show a spinner instead turn it off. */
+  dot?: boolean;
 }
 
-export function Badge({ tone = "neutral", children, className, mono = false }: BadgeProps) {
+export function Badge({ tone = "neutral", children, className, mono = false, dot = true }: BadgeProps) {
   return (
     <span
       data-tone={tone}
@@ -40,7 +42,7 @@ export function Badge({ tone = "neutral", children, className, mono = false }: B
         className
       )}
     >
-      <span aria-hidden="true" className={cn("h-[10px] w-[5px] rounded-full", dotClasses[tone])} />
+      {dot && <span aria-hidden="true" className={cn("h-[10px] w-[5px] rounded-full", dotClasses[tone])} />}
       {children}
     </span>
   );

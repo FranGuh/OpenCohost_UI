@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Gauge, Loader2, MessageSquareWarning, ShieldCheck, Trash2 } from "lucide-react";
 import { Card } from "../../ui/Card.js";
 import { Alert } from "../../ui/Alert.js";
 import { Badge } from "../../ui/Badge.js";
 import { Segmented } from "../../ui/Segmented.js";
-import { Select } from "../../ui/Select.js";
 import { Switch } from "../../ui/Switch.js";
 import { TTS_CONFIG_QUERY_KEY, useTtsConfigQuery, type TtsConfig } from "../../api/tts.js";
 import { getTtsConfig, type EngineCommand } from "../../api/client.js";
@@ -51,15 +50,7 @@ export function closestSpeedOption(scale: number): SpeedOption {
   , "fast" as SpeedOption);
 }
 
-// Motor TTS values mirrored from opencohost/ui/app_shell.py's switch
-// (onvalue="ligero", offvalue="pesado") — "pesado" (heavy) is gated by
-// heavy_available (EXPERIMENTAL_HEAVY_TTS_ENABLED).
-const ENGINE_OPTIONS = [
-  { id: "ligero", labelKey: "controles.voice.engine.light" },
-  { id: "pesado", labelKey: "controles.voice.engine.heavy" }
-] as const satisfies ReadonlyArray<{ id: string; labelKey: TKey }>;
-
-type OptimisticTtsField = "speed" | "engine" | "discard_speech_residue";
+type OptimisticTtsField = "speed" | "discard_speech_residue" | "interrupt_on_direct";
 
 /**
  * Coordinates one optimistic TTS setting with TTS_CONFIG_QUERY_KEY rollback:
@@ -124,7 +115,7 @@ function useOptimisticTtsField<K extends OptimisticTtsField, TUi = TtsConfig[K]>
 /**
  * Voz de Kira card — idioma, modo local, velocidad, motor TTS, all wired to
  * the real backend (GET /api/tts/config; POST /api/commands set_piper_voice /
- * set_tts_local_only / set_tts_speed / set_motor_tts via useEngineCommand).
+ * set_tts_local_only / set_tts_speed via useEngineCommand).
  * Each control owns its own useEngineCommand instance so exactly one
  * disables while it applies. Displayed value = optimistic local pick while
  * pending, falling back to server truth once the command converges — same
@@ -136,10 +127,14 @@ export function VoiceCard() {
   const { data, isError: configError } = useTtsConfigQuery();
   const localOnlyCommand = useEngineCommand<boolean>(undefined, { manualConvergence: true });
   const speedField = useOptimisticTtsField("speed", "set_tts_speed", (v: SpeedOption) => SPEED_SCALE[v]);
-  const engineField = useOptimisticTtsField("engine", "set_motor_tts", (v: string) => v);
   const discardResidueField = useOptimisticTtsField(
     "discard_speech_residue",
     "set_discard_speech_residue",
+    (v: boolean) => v
+  );
+  const interruptOnDirectField = useOptimisticTtsField(
+    "interrupt_on_direct",
+    "set_interrupt_on_direct",
     (v: boolean) => v
   );
   const [localOnlyOperation, setLocalOnlyOperation] = useState<
@@ -153,26 +148,26 @@ export function VoiceCard() {
 
   const localOnly = localOnlyOperation?.status === "applying" ? localOnlyOperation.value : data?.local_only ?? true;
   const speed = speedField.optimistic ?? (data ? closestSpeedOption(data.speed) : "medium");
-  const engine = engineField.optimistic ?? data?.engine ?? ENGINE_OPTIONS[0].id;
   const discardResidue = discardResidueField.optimistic ?? data?.discard_speech_residue ?? false;
+  const interruptOnDirect = interruptOnDirectField.optimistic ?? data?.interrupt_on_direct ?? false;
   const pending =
     voicePending ||
     (localOnlyOperation?.status === "applying" || localOnlyCommand.pending) ||
     speedField.command.pending ||
-    engineField.command.pending ||
-    discardResidueField.command.pending;
+    discardResidueField.command.pending ||
+    interruptOnDirectField.command.pending;
   const commandTimeout =
     speedField.command.isTimeout ||
-    engineField.command.isTimeout ||
-    discardResidueField.command.isTimeout;
+    discardResidueField.command.isTimeout ||
+    interruptOnDirectField.command.isTimeout;
   const commandFailed =
     speedField.command.isFailed ||
-    engineField.command.isFailed ||
-    discardResidueField.command.isFailed;
+    discardResidueField.command.isFailed ||
+    interruptOnDirectField.command.isFailed;
   const errorMessage =
     speedField.command.error?.message ??
-    engineField.command.error?.message ??
     discardResidueField.command.error?.message ??
+    interruptOnDirectField.command.error?.message ??
     (commandTimeout ? t("controles.voice.localOnly.error.timeout") : undefined) ??
     (commandFailed ? t("controles.voice.error.applyFailed") : undefined);
 
@@ -272,10 +267,12 @@ export function VoiceCard() {
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">{t("controles.voice.card.title")}</h2>
         {pending && (
-          <Badge tone="info">
-            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            {t("controles.voice.card.pending")}
-          </Badge>
+          <span role="status">
+            <Badge tone="info" dot={false}>
+              <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              {t("controles.voice.card.pending")}
+            </Badge>
+          </span>
         )}
       </div>
 
@@ -286,7 +283,7 @@ export function VoiceCard() {
           </p>
         )}
 
-        {localOnlyOperation && (
+        {localOnlyOperation && localOnlyOperation.status !== "applying" && (
           <p
             role={localOnlyOperation.status === "error" ? "alert" : "status"}
             aria-live={localOnlyOperation.status === "error" ? "assertive" : "polite"}
@@ -296,12 +293,7 @@ export function VoiceCard() {
                 : "inline-flex items-center gap-1.5 text-xs leading-relaxed text-muted-foreground"
             }
           >
-            {localOnlyOperation.status === "applying" && (
-              <Loader2 size={12} className="shrink-0 animate-spin text-info motion-reduce:animate-none" aria-hidden="true" />
-            )}
-            {localOnlyOperation.status === "applying"
-              ? t("controles.voice.localOnly.applying")
-              : localOnlyOperation.message}
+            {localOnlyOperation.message}
           </p>
         )}
 
@@ -319,10 +311,17 @@ export function VoiceCard() {
           </Alert>
         )}
 
-        <VoiceCatalogSection config={data} onPendingChange={setVoicePending} />
 
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-          <span className="text-[13px] text-foreground">{t("controles.voice.localOnly")}</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-foreground">
+              <ShieldCheck size={14} className="text-muted-foreground" aria-hidden="true" />
+              {t("controles.voice.localOnly")}
+            </span>
+            <span className="text-[11px] leading-tight text-dim">
+              {localOnly ? t("controles.voice.mode.local") : t("controles.voice.mode.cloud")}
+            </span>
+          </div>
           <Switch
             checked={localOnly}
             disabled={localOnlyOperation?.status === "applying" || localOnlyCommand.pending}
@@ -333,14 +332,11 @@ export function VoiceCard() {
 
         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[13px] text-foreground">{t("controles.voice.discardResidue")}</span>
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-foreground">
+              <Trash2 size={14} className="text-muted-foreground" aria-hidden="true" />
+              {t("controles.voice.discardResidue")}
+            </span>
             <span className="text-[11px] leading-tight text-dim">{t("controles.voice.discardResidue.hint")}</span>
-            {discardResidueField.command.pending && (
-              <span role="status" className="inline-flex items-center gap-1.5 text-xs text-info">
-                <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                {t("controles.voice.applying.discardResidue")}
-              </span>
-            )}
           </div>
           <Switch
             checked={discardResidue}
@@ -350,9 +346,28 @@ export function VoiceCard() {
           />
         </div>
 
+        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-foreground">
+              <MessageSquareWarning size={14} className="text-muted-foreground" aria-hidden="true" />
+              {t("controles.voice.interruptOnDirect")}
+            </span>
+            <span className="text-[11px] leading-tight text-dim">{t("controles.voice.interruptOnDirect.hint")}</span>
+          </div>
+          <Switch
+            checked={interruptOnDirect}
+            disabled={interruptOnDirectField.command.pending}
+            onChange={(checked) => interruptOnDirectField.apply(checked)}
+            aria-label={t("controles.voice.interruptOnDirect")}
+          />
+        </div>
+
+        <VoiceCatalogSection config={data} onPendingChange={setVoicePending} />
+
         <section aria-labelledby="speed-label" className="space-y-1.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span id="speed-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+            <span id="speed-label" className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+              <Gauge size={14} className="text-muted-foreground" aria-hidden="true" />
               {t("controles.voice.speed.eyebrow")}
             </span>
             <Segmented
@@ -360,48 +375,12 @@ export function VoiceCard() {
               value={speed}
               className="flex items-center gap-1.5 align-center justify-end"
               disabled={speedField.command.pending}
-              pending={speedField.command.pending}
               onChange={(value) => speedField.apply(value)}
               ariaLabel={t("controles.voice.speed.aria")}
             />
           </div>
-          {speedField.command.pending && (
-            <p role="status" className="inline-flex items-center gap-1.5 text-xs text-info">
-              <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              <span>{t("controles.voice.applying.speed")}</span>
-            </p>
-          )}
         </section>
 
-        <section aria-labelledby="engine-select-label" className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span id="engine-select-label" className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
-              {t("controles.voice.engineSelect")}
-            </span>
-            {engineField.command.pending && (
-              <span role="status" className="inline-flex items-center gap-1.5 text-xs text-info">
-                <Loader2 size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                {t("controles.voice.applying.engine")}
-              </span>
-            )}
-          </div>
-          <Select
-            aria-label={t("controles.voice.engineSelect")}
-            value={engine}
-            disabled={engineField.command.pending}
-            loading={engineField.command.pending}
-            options={ENGINE_OPTIONS.map((option) => ({
-              value: option.id,
-              label: t(option.labelKey),
-              disabled: option.id === "pesado" && !data?.heavy_available
-            }))}
-            onChange={engineField.apply}
-          />
-        </section>
-
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {localOnly ? t("controles.voice.mode.local") : t("controles.voice.mode.cloud")}
-        </p>
         <p className="text-xs leading-relaxed text-dim">
           {t("controles.voice.referenceVoice.hint.prefix")}{" "}
           <span className="mono">EXPERIMENTAL_HEAVY_TTS_ENABLED</span>

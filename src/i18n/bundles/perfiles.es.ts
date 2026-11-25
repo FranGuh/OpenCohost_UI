@@ -6,8 +6,6 @@ export const perfilesEs = {
   "perfiles.editor.delete.confirm.advance.action": "Eliminar perfil",
   "perfiles.editor.delete.confirm.message": "Esta acción borra el perfil «{name}» y no se puede deshacer.",
   "perfiles.editor.delete.error": "No se pudo eliminar el perfil.",
-  "perfiles.editor.delete.eyebrow": "Eliminar perfil",
-  "perfiles.editor.delete.hint": "Elimina este perfil de forma permanente.",
   "perfiles.editor.delete.purgeFailed.notice": "Se eliminó «{name}», pero no se pudo purgar su memoria asociada.",
   "perfiles.editor.delete.purgeToggle.label": "Purgar memoria asociada a este perfil",
   "perfiles.editor.delete.retryPurge.action": "Reintentar purga",

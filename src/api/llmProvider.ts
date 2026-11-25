@@ -397,7 +397,13 @@ export type LlmProviderChatErrorCode =
   | "timeout"
   | "cloud_error";
 
-export type LlmProviderTestErrorCode = "invalid_key" | "unreachable" | "rate_limited" | "unexpected";
+export type LlmProviderTestErrorCode =
+  | "invalid_key"
+  | "unreachable"
+  | "rate_limited"
+  | "unexpected"
+  | "key_reentry_required"
+  | "insecure_base_url";
 
 /** Mirrors opencohost/api/models.py::LlmProviderTestResponse. Never carries a key. */
 export interface LlmProviderTestResponse {

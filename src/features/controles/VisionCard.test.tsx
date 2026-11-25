@@ -1,17 +1,17 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUiLocaleStore } from "../../i18n/locale.js";
 import { server } from "../../test/server.js";
-import { API_BASE_URL, defaultLlmProvider, llmProviderGetHandler } from "../../test/handlers.js";
+import { API_BASE_URL, defaultLlmProvider, defaultStatus, llmProviderGetErrorHandler, llmProviderGetHandler } from "../../test/handlers.js";
 import type { VisionModelsResponse, VisionResponse } from "../../api/vision.js";
 import { VisionCard } from "./VisionCard.js";
 
 const BASE: VisionResponse = {
-  enabled: false,
+  enabled: true,
   look_on_ptt: false,
   capture_delay_s: 1,
   rule_gate_enabled: false,
@@ -51,6 +51,10 @@ const MODELS: VisionModelsResponse = {
   suggested: [{ tag: "gemma3:4b", display: "Gemma 3 4B", size_gb: 3.3, desc: "Small and quick" }],
   ollama_reachable: true
 };
+
+async function openAdvanced() {
+  await userEvent.click(await screen.findByRole("button", { name: "Advanced" }));
+}
 
 function serveModels(models: Partial<VisionModelsResponse> = {}) {
   server.use(http.get(`${API_BASE_URL}/api/vision/models`, () => HttpResponse.json({ ...MODELS, ...models })));
@@ -93,6 +97,7 @@ describe("VisionCard model picker", () => {
       })
     );
     renderCard();
+    await openAdvanced();
     expect(await screen.findByText(/Small and quick/)).toBeInTheDocument();
     expect(screen.getByText(/3\.3 GB/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Download Gemma 3 4B" }));
@@ -175,6 +180,7 @@ describe("VisionCard model benchmarks", () => {
     serve();
     serveModels({ benchmarks: BENCH } as Partial<VisionModelsResponse>);
     renderCard();
+    await openAdvanced();
     const row = await screen.findByTestId("vision-bench-gemma3:4b");
     expect(row).toHaveTextContent("Light");
     expect(row).toHaveTextContent("Spanish: no");
@@ -233,7 +239,7 @@ describe("VisionCard", () => {
   });
 
   it("enabling vision sends a partial PUT", async () => {
-    const state = serve();
+    const state = serve({ enabled: false });
     renderCard();
     await waitFor(() => expect(screen.getByRole("switch", { name: "Enable vision" })).toBeEnabled());
     await userEvent.click(screen.getByRole("switch", { name: "Enable vision" }));
@@ -252,7 +258,7 @@ describe("VisionCard", () => {
   });
 
   it("rolls back and shows an inline error when the save fails", async () => {
-    serve({}, { putStatus: 503 });
+    serve({ enabled: false }, { putStatus: 503 });
     renderCard();
     await waitFor(() => expect(screen.getByRole("switch", { name: "Enable vision" })).toBeEnabled());
     await userEvent.click(screen.getByRole("switch", { name: "Enable vision" }));
@@ -339,7 +345,7 @@ describe("VisionCard", () => {
     renderCard();
     expect(await screen.findByText("Vision engine: running")).toBeInTheDocument();
     expect(screen.getByText("Model installed")).toBeInTheDocument();
-    expect(screen.getByText("Screen capture available")).toBeInTheDocument();
+    expect(screen.queryByText("Screen capture available")).not.toBeInTheDocument();
   });
 
   it("shows a load error when the query fails", async () => {
@@ -359,6 +365,7 @@ describe("VisionCard", () => {
   it("explains how to ask for a normal, text and clip look, without any test button", async () => {
     serve();
     renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: "How to ask for a look" }));
     const howTo = await screen.findByRole("region", { name: "How to ask for a look" });
     const items = within(howTo).getAllByRole("listitem");
     expect(items).toHaveLength(3);
@@ -380,6 +387,7 @@ describe("VisionCard", () => {
     useUiLocaleStore.setState({ locale: "es" });
     serve();
     renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: "Cómo pedir una mirada" }));
     const howTo = await screen.findByRole("region", { name: "Cómo pedir una mirada" });
     expect(howTo).toHaveTextContent("mira esto");
     expect(howTo).toHaveTextContent("lee esto");
@@ -414,21 +422,26 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
     expect(screen.getByRole("radio", { name: CLOUD })).not.toBeChecked();
   });
 
-  it("disables the chat model with a reason while the local provider is active", async () => {
-    serve();
+  it("choosing the chat model while the local provider is active shows the reason and saves nothing", async () => {
+    const state = serve();
     renderCard();
     const radio = await screen.findByRole("radio", { name: CHAT });
-    await waitFor(() => expect(radio).toBeDisabled());
-    expect(screen.getByText("Needs a cloud provider as the active provider.")).toBeInTheDocument();
+    await waitFor(() => expect(radio).toBeEnabled());
+    expect(screen.queryByText("Needs a cloud provider as the active provider.")).not.toBeInTheDocument();
+    await userEvent.click(radio);
+    expect(await screen.findByText("Needs a cloud provider as the active provider.")).toBeInTheDocument();
+    expect(state.puts).toEqual([]);
   });
 
-  it("disables the chat model when the cloud model does not see images", async () => {
+  it("choosing the chat model when the cloud model does not see images explains it and saves nothing", async () => {
     server.use(cloud("deepseek-v4-pro", "deepseek"));
-    serve();
+    const state = serve();
     renderCard();
     const radio = await screen.findByRole("radio", { name: CHAT });
+    await waitFor(() => expect(radio).toBeEnabled());
+    await userEvent.click(radio);
     expect(await screen.findByText(/does not see images/)).toBeInTheDocument();
-    expect(radio).toBeDisabled();
+    expect(state.puts).toEqual([]);
   });
 
   it("enables the chat model for a vision model and saves vision_source", async () => {
@@ -443,10 +456,12 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
 
   it("honors the custom profile own sees-images flag", async () => {
     server.use(cloud("my-vl", "", { model_vision: true }));
-    serve();
+    const state = serve();
     renderCard();
     const radio = await screen.findByRole("radio", { name: CHAT });
     await waitFor(() => expect(radio).toBeEnabled());
+    await userEvent.click(radio);
+    await waitFor(() => expect(state.puts).toEqual([{ vision_source: "chat_model" }]));
   });
 
   it("reads the P2 opt-in of an older backend as the chat model", async () => {
@@ -545,8 +560,8 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
       vision_cloud_model: "gemini-3.5-flash-lite"
     });
     renderCard();
-    const checkbox = await screen.findByRole("checkbox", { name: "Use my chat provider key" });
-    await waitFor(() => expect(checkbox).toBeChecked());
+    const checkbox = await screen.findByRole("switch", { name: "Use my chat provider key" });
+    await waitFor(() => expect(checkbox).toHaveAttribute("aria-checked", "true"));
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
     const save = screen.getByRole("button", { name: "Save cloud vision" });
     await waitFor(() => expect(save).toBeEnabled());
@@ -567,15 +582,17 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
     serve({ vision_source: "cloud_model", vision_cloud_preset: "gemini", vision_cloud_model: "gemini-3.5-flash-lite" });
     renderCard();
     await screen.findByLabelText("API key");
-    expect(screen.queryByRole("checkbox", { name: "Use my chat provider key" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Use my chat provider key" })).not.toBeInTheDocument();
   });
 
   it("enables the chat model for NVIDIA NIM with nvidia/nemotron-3.5-super-vl-120b-a12b", async () => {
     server.use(cloud("nvidia/nemotron-3.5-super-vl-120b-a12b", "nvidia_nim"));
-    serve();
+    const state = serve();
     renderCard();
     const radio = await screen.findByRole("radio", { name: CHAT });
     await waitFor(() => expect(radio).toBeEnabled());
+    await userEvent.click(radio);
+    await waitFor(() => expect(state.puts).toEqual([{ vision_source: "chat_model" }]));
   });
 
   it("cloud model: lists NVIDIA NIM as a vision provider and preselects its vision model", async () => {
@@ -594,7 +611,7 @@ describe("VisionCard vision source selector (cloud-providers-vision P3)", () => 
     serve();
     renderCard();
     expect(await screen.findByRole("radio", { name: /En esta PC \(necesita GPU\)/ })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /El modelo del chat/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Tu modelo de Modelos/ })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Otro modelo en la nube/ })).toBeInTheDocument();
   });
 });
@@ -649,7 +666,7 @@ describe("VisionCard segmented layout and custom radio styling", () => {
 
   it("surfaces VisionValidationError field details instead of swallowing behind generic save error", async () => {
     server.use(
-      http.get(`${API_BASE_URL}/api/vision`, () => HttpResponse.json({ ...BASE })),
+      http.get(`${API_BASE_URL}/api/vision`, () => HttpResponse.json({ ...BASE, enabled: false })),
       http.put(`${API_BASE_URL}/api/vision`, () =>
         HttpResponse.json(
           {
@@ -686,15 +703,376 @@ describe("VisionCard segmented layout and custom radio styling", () => {
       vision_cloud_use_chat_key: true
     });
     renderCard();
-    const checkbox = await screen.findByRole("checkbox", { name: "Use my chat provider key" });
-    await waitFor(() => expect(checkbox).toBeChecked());
+    const checkbox = await screen.findByRole("switch", { name: "Use my chat provider key" });
+    await waitFor(() => expect(checkbox).toHaveAttribute("aria-checked", "true"));
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("combobox", { name: "Vision provider" }));
     await userEvent.click(await screen.findByRole("option", { name: "DeepSeek" }));
 
-    const nextCheckbox = await screen.findByRole("checkbox", { name: "Use my chat provider key" });
-    expect(nextCheckbox).not.toBeChecked();
+    const nextCheckbox = await screen.findByRole("switch", { name: "Use my chat provider key" });
+    expect(nextCheckbox).toHaveAttribute("aria-checked", "false");
     expect(screen.getByLabelText("API key")).toBeInTheDocument();
+  });
+});
+
+
+function gemProvider(model = "gemini-3.5-flash-lite", preset = "gemini", extra: Record<string, unknown> = {}) {
+  return llmProviderGetHandler({
+    ...defaultLlmProvider,
+    active_provider: "gem",
+    profiles: { gem: { base_url: "https://x/v1", model, preset, api_key_set: true, ...extra } }
+  });
+}
+
+describe("VisionCard redesign (vision-settings-redesign B3)", () => {
+  beforeEach(() => useUiLocaleStore.setState({ locale: "en" }));
+  afterEach(() => useUiLocaleStore.setState({ locale: "es" }));
+
+  it("OFF: shows only the enable switch and one line, hiding everything else", async () => {
+    serve({ enabled: false, vision_source: "cloud_model" });
+    renderCard();
+    expect(await screen.findByText("Kira is not looking at your screen and the VRAM is free.")).toBeInTheDocument();
+    const sw = screen.getByRole("switch", { name: "Enable vision" });
+    expect(sw).toHaveAttribute("aria-checked", "false");
+    expect(screen.getAllByRole("switch")).toHaveLength(1);
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Screenshots stay in memory/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Frames per look")).not.toBeInTheDocument();
+  });
+
+  it("OFF: re-enabling sends only {enabled:true} and restores the previous engine", async () => {
+    const state = serve({
+      enabled: false,
+      vision_source: "cloud_model",
+      vision_cloud_preset: "gemini",
+      vision_cloud_model: "gemini-3.5-flash-lite"
+    });
+    renderCard();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Enable vision" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("switch", { name: "Enable vision" }));
+    await waitFor(() => expect(state.puts).toEqual([{ enabled: true }]));
+    expect(await screen.findByRole("radio", { name: /Another cloud model/ })).toBeChecked();
+    expect(screen.queryByText("Kira is not looking at your screen and the VRAM is free.")).not.toBeInTheDocument();
+  });
+
+  it("ON: the look guide is collapsed by default and expands on demand", async () => {
+    serve();
+    renderCard();
+    const toggle = await screen.findByRole("button", { name: "How to ask for a look" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "How to ask for a look" })).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("region", { name: "How to ask for a look" })).toBeInTheDocument();
+  });
+
+  it("renders only the pane of the selected engine", async () => {
+    serve();
+    renderCard();
+    expect(await screen.findByRole("combobox", { name: "Vision model" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Vision provider" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: /Another cloud model/ }));
+    expect(await screen.findByRole("combobox", { name: "Vision provider" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Vision model" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Advanced" })).not.toBeInTheDocument();
+  });
+
+  it("local: downloads and Other model stay under a collapsed Advanced", async () => {
+    serve();
+    serveModels();
+    renderCard();
+    const adv = await screen.findByRole("button", { name: "Advanced" });
+    expect(adv).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("list", { name: "Suggested models" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Other model" })).not.toBeInTheDocument();
+    await userEvent.click(adv);
+    expect(await screen.findByRole("list", { name: "Suggested models" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Other model" })).toBeInTheDocument();
+  });
+
+  it("shows ONE status indicator: no header badge, status list only", async () => {
+    serve({ status: { ...BASE.status, daemon_state: "running" } });
+    renderCard();
+    await screen.findByText("Vision engine: running");
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Model status:/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("list", { name: "Vision status" })).toHaveLength(1);
+  });
+
+  it("cloud engines hide the local engine rows of the status list", async () => {
+    serve({ vision_source: "cloud_model" });
+    renderCard();
+    await screen.findByRole("combobox", { name: "Vision provider" });
+    expect(screen.queryByText(/Vision engine:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Screen capture available")).not.toBeInTheDocument();
+  });
+
+  describe("chat model pane", () => {
+    it("summarizes the configured provider read-only, with a link to the provider card", async () => {
+      server.use(gemProvider());
+      serve({ vision_source: "chat_model", chat_model_eligible: true, chat_model_reason: null });
+      renderCard();
+      expect(await screen.findByText("Google Gemini")).toBeInTheDocument();
+      expect(screen.getByText("gemini-3.5-flash-lite")).toBeInTheDocument();
+      expect(screen.getByText("Sees images")).toBeInTheDocument();
+      expect(screen.getByText("key saved")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Change in provider settings" })).toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Vision model" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Vision provider" })).not.toBeInTheDocument();
+    });
+
+    it("the link scrolls to and focuses the provider card", async () => {
+      server.use(gemProvider());
+      serve({ vision_source: "chat_model", chat_model_eligible: true, chat_model_reason: null });
+      const target = document.createElement("div");
+      target.id = "provider-card";
+      target.tabIndex = -1;
+      const scroll = vi.fn();
+      target.scrollIntoView = scroll;
+      document.body.appendChild(target);
+      try {
+        renderCard();
+        await userEvent.click(await screen.findByRole("button", { name: "Change in provider settings" }));
+        expect(scroll).toHaveBeenCalled();
+        expect(target).toHaveFocus();
+      } finally {
+        target.remove();
+      }
+    });
+
+    it("not vision capable: one reason line and an inline sees-images switch that saves model_vision", async () => {
+      const bodies: unknown[] = [];
+      let visionGets = 0;
+      server.use(
+        gemProvider("my-model", ""),
+        http.put(`${API_BASE_URL}/api/llm/provider`, async ({ request }) => {
+          bodies.push(await request.json());
+          return HttpResponse.json(defaultLlmProvider);
+        })
+      );
+      const state = serve({
+        vision_source: "chat_model",
+        chat_model_eligible: false,
+        chat_model_reason: "chat_model_not_vision_capable"
+      });
+      server.use(
+        http.get(`${API_BASE_URL}/api/vision`, () => {
+          visionGets += 1;
+          return HttpResponse.json(state.current);
+        })
+      );
+      renderCard();
+      expect(await screen.findByText(/Your model from Models does not see images/)).toBeInTheDocument();
+      const sw = await screen.findByRole("switch", { name: "This model sees images" });
+      expect(sw).toHaveAttribute("aria-checked", "false");
+      const before = visionGets;
+      await userEvent.click(sw);
+      await waitFor(() => expect(bodies).toEqual([{ profile_id: "gem", model_vision: true }]));
+      await waitFor(() => expect(visionGets).toBeGreaterThan(before));
+    });
+
+    it("requires a cloud provider: one reason line, no inline switch", async () => {
+      serve({
+        vision_source: "chat_model",
+        chat_model_eligible: false,
+        chat_model_reason: "chat_model_requires_cloud_provider"
+      });
+      renderCard();
+      expect(await screen.findByText("Needs a cloud provider as the active provider.")).toBeInTheDocument();
+      expect(screen.queryByRole("switch", { name: "This model sees images" })).not.toBeInTheDocument();
+    });
+
+    it("shows a checking state while the provider loads, not the cloud-provider warning", async () => {
+      server.use(
+        http.get(`${API_BASE_URL}/api/llm/provider`, async () => {
+          await delay(150);
+          return HttpResponse.json(defaultLlmProvider);
+        })
+      );
+      serve({ vision_source: "chat_model" });
+      renderCard();
+      expect(await screen.findByText("Checking your chat provider…")).toBeInTheDocument();
+      expect(screen.queryByText("Needs a cloud provider as the active provider.")).not.toBeInTheDocument();
+      expect(await screen.findByText("Needs a cloud provider as the active provider.")).toBeInTheDocument();
+      expect(screen.queryByText("Checking your chat provider…")).not.toBeInTheDocument();
+    });
+
+    it("shows a distinct line when the provider cannot be read", async () => {
+      server.use(llmProviderGetErrorHandler());
+      serve({ vision_source: "chat_model" });
+      renderCard();
+      expect(await screen.findByText("Could not read your chat provider.")).toBeInTheDocument();
+      expect(screen.queryByText("Needs a cloud provider as the active provider.")).not.toBeInTheDocument();
+    });
+
+    it("keeps the cloud-provider warning out of the option hints", async () => {
+      serve();
+      renderCard();
+      await screen.findByRole("radio", { name: /Another cloud model/ });
+      expect(screen.queryByText("Needs a cloud provider as the active provider.")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("model-from-Models option (live subtitle)", () => {
+    it("is titled 'Your model from Models' and names the provider and model selected in Models", async () => {
+      server.use(gemProvider());
+      serve({ vision_source: "local", chat_model_eligible: true, chat_model_reason: null });
+      renderCard();
+      expect(await screen.findByRole("radio", { name: /Your model from Models/ })).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: /The chat model/ })).not.toBeInTheDocument();
+      expect(await screen.findByText("Google Gemini · gemini-3.5-flash-lite")).toBeInTheDocument();
+    });
+
+    it("local provider: shows the Ollama model and that it cannot see images", async () => {
+      server.use(
+        http.get(`${API_BASE_URL}/api/status`, () =>
+          HttpResponse.json({ ...defaultStatus, current_model: "gemma4:e4b" })
+        )
+      );
+      serve({ vision_source: "local" });
+      renderCard();
+      expect(await screen.findByText("Ollama · gemma4:e4b · cannot see images")).toBeInTheDocument();
+    });
+
+    it("while the provider loads shows the checking line", async () => {
+      server.use(
+        http.get(`${API_BASE_URL}/api/llm/provider`, async () => {
+          await delay(150);
+          return HttpResponse.json(defaultLlmProvider);
+        })
+      );
+      serve({ vision_source: "local" });
+      renderCard();
+      expect(await screen.findByText("Checking your chat provider…")).toBeInTheDocument();
+    });
+  });
+
+  describe("suggestion line", () => {
+    it("local + eligible chat model: suggests it, the button switches (no auto-switch)", async () => {
+      const state = serve({ vision_source: "local", chat_model_eligible: true, chat_model_reason: null });
+      renderCard();
+      expect(await screen.findByText(/Your model from Models can see images/)).toBeInTheDocument();
+      expect(state.puts).toEqual([]);
+      await userEvent.click(screen.getByRole("button", { name: "Use my model from Models" }));
+      await waitFor(() => expect(state.puts).toEqual([{ vision_source: "chat_model" }]));
+    });
+
+    it("is not shown when the chat model is not eligible or the source is not local", async () => {
+      serve({
+        vision_source: "local",
+        chat_model_eligible: false,
+        chat_model_reason: "chat_model_requires_cloud_provider"
+      });
+      const first = renderCard();
+      await screen.findByRole("combobox", { name: "Vision model" });
+      expect(screen.queryByText(/Your model from Models can see images/)).not.toBeInTheDocument();
+      first.unmount();
+      serve({ vision_source: "cloud_model", chat_model_eligible: true, chat_model_reason: null });
+      renderCard();
+      await screen.findByRole("combobox", { name: "Vision provider" });
+      expect(screen.queryByText(/Your model from Models can see images/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("VRAM advisory", () => {
+    it("insufficient: shows the numbers and suggests another cloud model", async () => {
+      serve({ vram_warning: "insufficient", vram_needed_gib: 7.5, vram_free_gib: 3.2, vram_total_gib: 12 });
+      renderCard();
+      const note = await screen.findByText(/Not enough free VRAM/);
+      expect(note).toHaveTextContent("7.5");
+      expect(note).toHaveTextContent("3.2");
+      expect(note).toHaveTextContent("Another cloud model");
+    });
+
+    it("unknown: shows a subtle note", async () => {
+      serve({ vram_warning: "unknown", vram_needed_gib: 7.5, vram_free_gib: null, vram_total_gib: null });
+      renderCard();
+      expect(await screen.findByText(/could not measure the free VRAM/i)).toBeInTheDocument();
+    });
+
+    it("no warning when the backend reports none or the source is not local", async () => {
+      serve({ vram_warning: null });
+      const first = renderCard();
+      await screen.findByRole("combobox", { name: "Vision model" });
+      expect(screen.queryByText(/VRAM/i)).not.toBeInTheDocument();
+      first.unmount();
+      serve({
+        vision_source: "cloud_model",
+        vram_warning: "insufficient",
+        vram_needed_gib: 7.5,
+        vram_free_gib: 3.2,
+        vram_total_gib: 12
+      });
+      renderCard();
+      await screen.findByRole("combobox", { name: "Vision provider" });
+      expect(screen.queryByText(/Not enough free VRAM/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("maps a 422 chat-model rejection to a readable reason", async () => {
+    server.use(
+      gemProvider(),
+      http.get(`${API_BASE_URL}/api/vision`, () =>
+        HttpResponse.json({ ...BASE, chat_model_eligible: true, chat_model_reason: null })
+      ),
+      http.put(`${API_BASE_URL}/api/vision`, () =>
+        HttpResponse.json(
+          { detail: "invalid_vision_settings", errors: [{ field: "vision_source", code: "chat_model_not_vision_capable" }] },
+          { status: 422 }
+        )
+      )
+    );
+    renderCard();
+    const radio = await screen.findByRole("radio", { name: /The chat model/ });
+    await waitFor(() => expect(radio).toBeEnabled());
+    await userEvent.click(radio);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The chat model does not see images");
+    expect(alert).not.toHaveTextContent("chat_model_not_vision_capable");
+  });
+
+  it("cloud model: preselects the active provider, its vision model and the chat key", async () => {
+    server.use(gemProvider());
+    const state = serve({ vision_source: "cloud_model" });
+    renderCard();
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Vision provider" })).toHaveTextContent("Google Gemini")
+    );
+    expect(screen.getByRole("combobox", { name: "Cloud vision model" })).toHaveTextContent("gemini-3.5-flash-lite");
+    const key = screen.getByRole("switch", { name: "Use my chat provider key" });
+    expect(key).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/are sent to the provider you choose/)).toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Save cloud vision" });
+    await waitFor(() => expect(save).toBeEnabled());
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(state.puts).toEqual([
+        {
+          vision_source: "cloud_model",
+          vision_cloud_preset: "gemini",
+          vision_cloud_model: "gemini-3.5-flash-lite",
+          vision_cloud_use_chat_key: true
+        }
+      ])
+    );
+  });
+
+  it("cloud model: a saved preset wins over the active provider", async () => {
+    server.use(gemProvider());
+    serve({ vision_source: "cloud_model", vision_cloud_preset: "deepseek", vision_cloud_model: "deepseek-flash" });
+    renderCard();
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Vision provider" })).toHaveTextContent("DeepSeek")
+    );
+  });
+
+  it("speaks Spanish in the OFF state", async () => {
+    useUiLocaleStore.setState({ locale: "es" });
+    serve({ enabled: false });
+    renderCard();
+    expect(await screen.findByText("Kira no mira tu pantalla y la VRAM queda libre.")).toBeInTheDocument();
   });
 });

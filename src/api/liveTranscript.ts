@@ -31,6 +31,9 @@ import { useEventStore } from "../store/eventStore.js";
  * lives here instead of widening its interface. */
 interface PttStateWithWsUrl extends PttStateResponse {
   stt_ws_url?: string | null;
+  /** True only while the current hold (or its grace flush) is locked to
+   * dictate; decided by the backend at hold start (ptt-live-dictation). */
+  dictation?: boolean;
 }
 
 const POLL_MS = 1000;
@@ -140,6 +143,17 @@ function outcomeSince(baseline: number): Verdict | null {
 export interface DictationHandlers {
   onDictated: (text: string) => void;
   onDictationLost: () => void;
+  /** Live dictation (ptt-live-dictation-20261125): a hold the backend locked
+   * to dictate began. The words stream through `onLive` instead of the
+   * pending bubble. */
+  onLiveStart?: () => void;
+  /** The whole live text so far (replaces the previous live span). */
+  onLive?: (text: string) => void;
+  /** The hold did not end as a dictation (sent, empty, superseded): remove
+   * the live span and restore the composer. */
+  onLiveCancel?: () => void;
+  /** No outcome arrived in time: keep the live text, tell the owner. */
+  onDictationTimeout?: () => void;
 }
 
 /**
@@ -182,14 +196,30 @@ export function useLiveTranscript(
   // Rows older than this mount are backfill from before this window existed.
   const mountedAtRef = useRef(Date.now());
   // A finished hold's text waiting for the backend verdict (see commit rules).
-  const awaitingRef = useRef<{ text: string; baseline: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const awaitingRef = useRef<{
+    text: string;
+    baseline: number;
+    live: boolean;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
-  const settle = (verdict: "commit" | "drop" | "dictate") => {
+  const settle = (verdict: "commit" | "drop" | "dictate" | "timeout") => {
     const waiting = awaitingRef.current;
     if (!waiting) return;
     clearTimeout(waiting.timer);
     awaitingRef.current = null;
     pendingCbRef.current?.(null);
+    if (waiting.live) {
+      // The words went into the composer live: only a dictated verdict (or a
+      // timeout, which keeps them) leaves them there.
+      if (verdict === "timeout") {
+        dictationRef.current?.onDictationTimeout?.();
+        return;
+      }
+      if (verdict !== "dictate") dictationRef.current?.onLiveCancel?.();
+    } else if (verdict === "timeout") {
+      return; // send hold: unconfirmed text is dropped, as before
+    }
     if (verdict === "commit" && waiting.text) {
       const newest = newestPttTs();
       callbackRef.current(waiting.text, newest > waiting.baseline ? newest : 0);
@@ -232,6 +262,8 @@ export function useLiveTranscript(
   // Newest `ptt.*` reading already polled when THIS hold's attempt opened.
   // Anything newer than this at echo time arrived during the hold.
   const pttBaselineRef = useRef(0);
+  // This hold was locked to dictate when it began (state.dictation).
+  const liveHoldRef = useRef(false);
 
   const poll = useQuery({
     // Shared with usePttServerSignal (the avatar's listening signal), which
@@ -259,12 +291,19 @@ export function useLiveTranscript(
       bufferRef.current = "";
       settle("drop"); // a newer hold supersedes an unconfirmed older one
       pttBaselineRef.current = newestPttTs(); // rising edge: this hold's baseline
+      const handlers = dictationRef.current;
+      liveHoldRef.current = data?.dictation === true && !!handlers?.onLive;
+      if (liveHoldRef.current) handlers?.onLiveStart?.();
       if (!wsUrl) return; // older backend / no URL — degrade silently, no echo
       try {
         const connectedAtSec = Date.now() / 1000;
         const ws = new WebSocket(wsUrl);
         ws.onmessage = (event: MessageEvent) => {
           bufferRef.current = appendSegment(bufferRef.current, event.data, connectedAtSec);
+          if (liveHoldRef.current) {
+            dictationRef.current?.onLive?.(bufferRef.current.trim());
+            return;
+          }
           // Live text is only PENDING: it has not reached Kira until the backend says so.
           pendingCbRef.current?.(finalizeTranscript(bufferRef.current) || null);
         };
@@ -278,6 +317,8 @@ export function useLiveTranscript(
     } else if (!active && attemptedRef.current) {
       const text = finalizeTranscript(bufferRef.current);
       const baseline = pttBaselineRef.current;
+      const live = liveHoldRef.current;
+      liveHoldRef.current = false;
       bufferRef.current = "";
       attemptedRef.current = false;
       wsRef.current?.close();
@@ -287,15 +328,25 @@ export function useLiveTranscript(
         if (dictationRef.current) {
           // Nothing to show or commit, but a `dictated` verdict for this hold
           // means the words are lost: wait for the verdict so it can be told.
-          awaitingRef.current = { text: "", baseline, timer: setTimeout(() => settle("drop"), OUTCOME_TIMEOUT_MS) };
+          awaitingRef.current = {
+            text: "",
+            baseline,
+            live,
+            timer: setTimeout(() => settle(live ? "timeout" : "drop"), OUTCOME_TIMEOUT_MS)
+          };
           checkOutcome();
         }
       } else {
         // Do NOT echo yet: the final transcript may never reach Kira (the
         // backend drops under-two-word holds, flush dispatch can fail). Keep it
         // pending until `ptt.flushed`; `ptt.empty` or the timeout discards it.
-        awaitingRef.current = { text, baseline, timer: setTimeout(() => settle("drop"), OUTCOME_TIMEOUT_MS) };
-        pendingCbRef.current?.(text);
+        awaitingRef.current = {
+          text,
+          baseline,
+          live,
+          timer: setTimeout(() => settle(live ? "timeout" : "drop"), OUTCOME_TIMEOUT_MS)
+        };
+        if (!live) pendingCbRef.current?.(text);
         checkOutcome();
       }
     }

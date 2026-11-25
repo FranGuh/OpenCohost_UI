@@ -44,6 +44,9 @@ export const experienciaEs = {
   "experiencia.conversationPanel.composer.send.action": "Enviar",
   "experiencia.conversationPanel.composer.voiceSent": "Turno de voz enviado",
   "experiencia.conversationPanel.composer.dictated": "Dictado en el cuadro de mensaje. Revísalo y pulsa Enviar.",
+  "experiencia.conversationPanel.composer.dictating": "Dictando…",
+  "experiencia.conversationPanel.composer.dictationIncomplete":
+    "El dictado puede estar incompleto: no llegó la confirmación. El texto se conservó en el cuadro de mensaje; revísalo.",
   "experiencia.conversationPanel.composer.dictationLost":
     "El dictado no llegó a esta ventana, así que no hay texto para insertar. No se envió nada a Kira. Intenta de nuevo.",
   "experiencia.conversationPanel.empty.hint":
@@ -307,9 +310,6 @@ export const experienciaEs = {
   "experiencia.vision.reason.daemon_not_ready": "la visión aún no está lista",
   "experiencia.vision.reason.model_warming": "el modelo de visión aún se está preparando",
   "experiencia.vision.reason.model_missing": "el modelo de visión no está instalado",
-  "experiencia.vision.indicator.starting": "Visión: iniciando",
-  "experiencia.vision.indicator.ready": "Visión: lista",
-  "experiencia.vision.indicator.error": "Visión: error",
   "experiencia.vision.reason.warm_failed": "el modelo de visión no pudo cargarse",
   "experiencia.vision.reason.port_in_use": "el puerto de visión está en uso",
   "experiencia.vision.reason.ollama_not_found": "no se encontró Ollama",

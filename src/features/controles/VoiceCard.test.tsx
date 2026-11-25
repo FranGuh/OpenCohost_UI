@@ -68,7 +68,7 @@ function twoVoicesHandler() {
 }
 
 describe("VoiceCard populates from GET /api/tts/config", () => {
-  it("shows the live Piper catalog voice, local-only, closest speed preset, and engine", async () => {
+  it("shows the live Piper catalog voice, local-only, closest speed preset", async () => {
     renderCard();
     await waitFor(() =>
       expect(screen.getByRole("combobox", { name: VOICE_NAME })).toHaveTextContent("Claude (es_MX)")
@@ -76,7 +76,6 @@ describe("VoiceCard populates from GET /api/tts/config", () => {
     expect(screen.getByRole("switch", { name: "Solo TTS local (Piper)" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Descartar residuos al interrumpir" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByRole("button", { name: "Media" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("combobox", { name: "Motor TTS" })).toHaveTextContent("Ligero (Edge-TTS)");
   });
 
   it("surfaces a GET error honestly instead of a stale/hardcoded config", async () => {
@@ -87,13 +86,6 @@ describe("VoiceCard populates from GET /api/tts/config", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 
-  it("disables the Pesado engine option when heavy_available is false", async () => {
-    renderCard();
-    const motor = await screen.findByRole("combobox", { name: "Motor TTS" });
-    await waitFor(() => expect(motor).toHaveTextContent("Ligero (Edge-TTS)"));
-    fireEvent.click(motor);
-    expect(screen.getByRole("option", { name: "Pesado (Heavy)" })).toHaveAttribute("aria-disabled", "true");
-  });
 });
 
 describe("VoiceCard set_piper_voice — accepted -> poll -> applied", () => {
@@ -107,12 +99,11 @@ describe("VoiceCard set_piper_voice — accepted -> poll -> applied", () => {
     fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
 
     await waitFor(() => expect(select).toBeDisabled());
-    expect(screen.getByText("Aplicando voz…")).toBeInTheDocument();
+    expect(screen.getAllByText(/aplicando/i)).toHaveLength(1);
 
     // independence: the other controls stay enabled
     expect(screen.getByRole("switch", { name: "Solo TTS local (Piper)" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Media" })).not.toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Motor TTS" })).not.toBeDisabled();
   });
 });
 
@@ -157,12 +148,12 @@ describe("VoiceCard set_tts_speed / set_tts_local_only / set_motor_tts — accep
     const toggle = await screen.findByRole("switch", { name: "Solo TTS local (Piper)" });
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Guardando el modo de TTS local…")).toBeInTheDocument();
+    expect(screen.getByText("aplicando…")).toBeInTheDocument();
 
     // Neither an old cached value nor an early stale GET is a success signal.
     await waitFor(() => expect(configReads).toBeGreaterThanOrEqual(4), { timeout: 2_000 });
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Guardando el modo de TTS local…")).toBeInTheDocument();
+    expect(screen.getByText("aplicando…")).toBeInTheDocument();
 
     expect(
       await screen.findByText("Ajuste guardado. Se aplicará en la próxima frase; esto no confirma que Piper esté listo.")
@@ -331,36 +322,6 @@ describe("VoiceCard set_tts_speed / set_tts_local_only / set_motor_tts — accep
     expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
   }, 20000);
 
-  it("dispatches set_motor_tts on engine change", async () => {
-    // state_version pinned — never advances independently of a subsequent
-    // POST, matching the real single-dispatcher counter; convergence here
-    // must come from the optimistic timer, not a state_version comparison.
-    server.use(frozenStatusHandler(1));
-    // heavy_available:true so the Pesado engine option is selectable (the
-    // custom ui/Select refuses clicks on a disabled option, unlike a native
-    // <select> where fireEvent.change bypassed the disabled attribute).
-    server.use(
-      http.get(`${API_BASE_URL}/api/tts/config`, () => HttpResponse.json({ ...defaultTtsConfig, heavy_available: true }))
-    );
-    let capturedBody: unknown;
-    server.use(
-      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
-        capturedBody = await request.json();
-        return HttpResponse.json({ accepted: true, command_id: "cmd-engine", status: "queued", state_version: 1 });
-      })
-    );
-    renderCard();
-
-    const select = await screen.findByRole("combobox", { name: "Motor TTS" });
-    await waitFor(() => expect(select).toHaveTextContent("Ligero (Edge-TTS)"));
-    fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "Pesado (Heavy)" }));
-
-    expect(select).toHaveTextContent("Pesado (Heavy)");
-    await waitFor(() => expect(capturedBody).toEqual({ command: "set_motor_tts", payload: { value: "pesado" } }));
-    await waitFor(() => expect(select).not.toBeDisabled());
-  });
-
   it("toggles set_discard_speech_residue and dispatches command", async () => {
     server.use(frozenStatusHandler(1));
     let capturedBody: unknown;
@@ -378,6 +339,27 @@ describe("VoiceCard set_tts_speed / set_tts_local_only / set_motor_tts — accep
     expect(toggle).toHaveAttribute("aria-checked", "true");
     await waitFor(() =>
       expect(capturedBody).toEqual({ command: "set_discard_speech_residue", payload: { value: true } })
+    );
+    await waitFor(() => expect(screen.queryByText("aplicando…")).not.toBeInTheDocument());
+  });
+
+  it("toggles set_interrupt_on_direct, defaulting off, and dispatches the command", async () => {
+    server.use(frozenStatusHandler(1));
+    let capturedBody: unknown;
+    server.use(
+      http.post(`${API_BASE_URL}/api/commands`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ accepted: true, command_id: "cmd-interrupt", status: "queued", state_version: 1 });
+      })
+    );
+    renderCard();
+
+    const toggle = await screen.findByRole("switch", { name: "Interrumpir cuando llega un mensaje directo" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    await waitFor(() =>
+      expect(capturedBody).toEqual({ command: "set_interrupt_on_direct", payload: { value: true } })
     );
     await waitFor(() => expect(screen.queryByText("aplicando…")).not.toBeInTheDocument());
   });
@@ -550,31 +532,30 @@ describe("VoiceCard optimistic rollback on command failure, rejection, or timeou
     expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.speed).toBe(1.15);
   });
 
-  it("rolls back applyEngine cache & select when POST /api/commands returns 500", async () => {
+  it("rolls back the interrupt-on-direct cache & switch on network error", async () => {
     let configReads = 0;
     server.use(
       http.get(`${API_BASE_URL}/api/tts/config`, () => {
         configReads += 1;
         if (configReads === 1) {
-          return HttpResponse.json({ ...defaultTtsConfig, heavy_available: true, engine: "ligero" });
+          return HttpResponse.json({ ...defaultTtsConfig, interrupt_on_direct: false });
         }
         return HttpResponse.json({ detail: "unavailable" }, { status: 500 });
       }),
-      http.post(`${API_BASE_URL}/api/commands`, () => HttpResponse.json({ detail: "server error" }, { status: 500 }))
+      commandNetworkErrorHandler()
     );
 
     const { queryClient } = renderCard();
-    const select = await screen.findByRole("combobox", { name: "Motor TTS" });
-    await waitFor(() => expect(select).toHaveTextContent("Ligero (Edge-TTS)"));
+    const toggle = await screen.findByRole("switch", { name: "Interrumpir cuando llega un mensaje directo" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
 
-    fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "Pesado (Heavy)" }));
-    expect(select).toHaveTextContent("Pesado (Heavy)");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
 
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/500/));
-    expect(select).toHaveTextContent("Ligero (Edge-TTS)");
-    expect(select).not.toBeDisabled();
-    expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.engine).toBe("ligero");
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(toggle).not.toBeDisabled();
+    expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.interrupt_on_direct).toBe(false);
   });
 
   it("rolls back applyDiscardResidue cache & switch on network error", async () => {
@@ -601,50 +582,6 @@ describe("VoiceCard optimistic rollback on command failure, rejection, or timeou
     expect(toggle).toHaveAttribute("aria-checked", "false");
     expect(toggle).not.toBeDisabled();
     expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.discard_speech_residue).toBe(false);
-  });
-
-  it("rolls back applyEngine immediately when a post-accept failure event arrives", async () => {
-    let configReads = 0;
-    server.use(
-      frozenStatusHandler(1),
-      http.get(`${API_BASE_URL}/api/tts/config`, () => {
-        configReads += 1;
-        if (configReads === 1) {
-          return HttpResponse.json({
-            ...defaultTtsConfig,
-            heavy_available: true,
-            engine: "ligero"
-          });
-        }
-        return HttpResponse.json({ detail: "unavailable" }, { status: 500 });
-      }),
-      defaultCommandHandler()
-    );
-
-    const { queryClient } = renderCard();
-    const select = await screen.findByRole("combobox", { name: "Motor TTS" });
-    await waitFor(() => expect(select).toHaveTextContent("Ligero (Edge-TTS)"));
-
-    fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "Pesado (Heavy)" }));
-    expect(select).toHaveTextContent("Pesado (Heavy)");
-    await waitFor(() => expect(select).toBeDisabled());
-
-    act(() => {
-      useEventStore.getState().append({
-        id: "evt-tts-fail",
-        ts: Date.now(),
-        source: "motor",
-        action: "model_switch_failed",
-        label: "Fallo al cambiar motor",
-        tone: "danger"
-      });
-    });
-
-    await waitFor(() => expect(select).not.toBeDisabled());
-    expect(select).toHaveTextContent("Ligero (Edge-TTS)");
-    expect(queryClient.getQueryData<TtsConfig>(TTS_CONFIG_QUERY_KEY)?.engine).toBe("ligero");
-    expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
   it("keeps the previous voice on a rejected voice command without clobbering an accepted sibling setting", async () => {
@@ -683,7 +620,7 @@ describe("VoiceCard optimistic rollback on command failure, rejection, or timeou
 });
 
 describe("VoiceCard per-control spinner & applying status (S3)", () => {
-  it("shows a spinner in the pending badge, comboboxes, segmented speed pill, and local-only status while applying", async () => {
+  it("shows exactly one applying indicator (dotless header badge) while any control applies", async () => {
     server.use(frozenStatusHandler(1));
     server.use(
       twoVoicesHandler(),
@@ -699,50 +636,33 @@ describe("VoiceCard per-control spinner & applying status (S3)", () => {
     fireEvent.click(voiceSelect);
     fireEvent.click(screen.getByRole("option", { name: "Otra (es_AR)" }));
 
-    expect(voiceSelect).toHaveAttribute("aria-busy", "true");
-    expect(voiceSelect.querySelector("svg.animate-spin")).not.toBeNull();
-    expect(screen.getByText("Aplicando voz…")).toBeInTheDocument();
-    const pendingBadge = screen.getByText("aplicando…").closest("span");
+    // One indicator: the header badge (spinner + text, no dot). No inline line, no select spinner.
+    expect(voiceSelect.querySelector("svg.animate-spin")).toBeNull();
+    expect(screen.queryByText("Aplicando voz…")).toBeNull();
+    const pendingBadge = screen.getByText("aplicando…").closest("[data-tone]");
     expect(pendingBadge?.querySelector("svg.animate-spin")).not.toBeNull();
+    expect(pendingBadge?.querySelector("span[aria-hidden]")).toBeNull();
 
     const slowBtn = screen.getByRole("button", { name: "Lenta" });
     fireEvent.click(slowBtn);
     expect(slowBtn).toHaveAttribute("aria-pressed", "true");
-    expect(slowBtn).toHaveAttribute("aria-busy", "true");
-    expect(slowBtn.querySelector("svg.animate-spin")).not.toBeNull();
-    expect(screen.getByText("Guardando velocidad…")).toBeInTheDocument();
-
-    const engineSelect = screen.getByRole("combobox", { name: "Motor TTS" });
-    fireEvent.click(engineSelect);
-    fireEvent.click(screen.getByRole("option", { name: "Pesado (Heavy)" }));
-    expect(engineSelect).toHaveAttribute("aria-busy", "true");
-    expect(engineSelect.querySelector("svg.animate-spin")).not.toBeNull();
-    expect(screen.getByText("Guardando motor TTS…")).toBeInTheDocument();
+    expect(screen.queryByText("Guardando velocidad…")).toBeNull();
 
     const localSwitch = screen.getByRole("switch", { name: "Solo TTS local (Piper)" });
     fireEvent.click(localSwitch);
-    const localStatus = screen.getByText("Guardando el modo de TTS local…").closest("p");
-    expect(localStatus?.querySelector("svg.animate-spin")).not.toBeNull();
+    expect(screen.queryByText("Guardando el modo de TTS local…")).toBeNull();
+    expect(screen.getAllByText(/aplicando/i)).toHaveLength(1);
 
     // Accepted != applied: the frozen config never shows the new voice, so it stays locked.
     expect(voiceSelect).toBeDisabled();
-    await waitFor(() => expect(engineSelect).not.toBeDisabled());
   });
 
-  it("shows an honest apply-failed alert when a voice engine command fails post-accept", async () => {
-    server.use(
-      frozenStatusHandler(1),
-      http.get(`${API_BASE_URL}/api/tts/config`, () =>
-        HttpResponse.json({ ...defaultTtsConfig, heavy_available: true, engine: "ligero" })
-      ),
-      defaultCommandHandler()
-    );
+  it("shows an honest apply-failed alert when a speed command fails post-accept", async () => {
+    server.use(frozenStatusHandler(1), defaultCommandHandler());
     renderCard();
-    const select = await screen.findByRole("combobox", { name: "Motor TTS" });
-    await waitFor(() => expect(select).toHaveTextContent("Ligero (Edge-TTS)"));
-    fireEvent.click(select);
-    fireEvent.click(screen.getByRole("option", { name: "Pesado (Heavy)" }));
-    await waitFor(() => expect(select).toBeDisabled());
+    const slow = await screen.findByRole("button", { name: "Lenta" });
+    fireEvent.click(slow);
+    await waitFor(() => expect(slow).toBeDisabled());
 
     act(() => {
       useEventStore.getState().append({
@@ -758,5 +678,41 @@ describe("VoiceCard per-control spinner & applying status (S3)", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("El motor no pudo aplicar el cambio de voz.")
     );
+  });
+});
+
+describe("VoiceCard label icons (T2)", () => {
+  it("renders a decorative icon beside the original field labels", async () => {
+    server.use(frozenStatusHandler(1), twoVoicesHandler());
+    renderCard();
+    const label = await screen.findByText(/^Voz \(Piper\)$/i);
+    const icon = label.parentElement?.querySelector("svg[aria-hidden='true']");
+    expect(icon).not.toBeNull();
+  });
+});
+
+describe("VoiceCard layout (T7)", () => {
+  it("renders no TTS engine control", async () => {
+    renderCard();
+    await screen.findByRole("combobox", { name: VOICE_NAME });
+    expect(screen.queryByText("Motor TTS")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Motor TTS" })).toBeNull();
+    expect(screen.queryByText("Ligero (Edge-TTS)")).toBeNull();
+  });
+
+  it("orders Local TTS, Discard residue, Piper folder, voice, then speed", async () => {
+    renderCard();
+    const voice = await screen.findByRole("combobox", { name: VOICE_NAME });
+    const local = screen.getByRole("switch", { name: "Solo TTS local (Piper)" });
+    const discard = screen.getByRole("switch", { name: "Descartar residuos al interrumpir" });
+    const folder = screen.getByText("Carpeta de voces Piper");
+    const speed = screen.getByRole("button", { name: "Media" });
+    const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(local, discard)).toBe(true);
+    const interrupt = screen.getByRole("switch", { name: "Interrumpir cuando llega un mensaje directo" });
+    expect(follows(discard, interrupt)).toBe(true);
+    expect(follows(interrupt, folder)).toBe(true);
+    expect(follows(folder, voice)).toBe(true);
+    expect(follows(voice, speed)).toBe(true);
   });
 });

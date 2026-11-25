@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, SpellCheck } from "lucide-react";
 import { Card } from "../../ui/Card.js";
 import { Button } from "../../ui/Button.js";
 import { Badge } from "../../ui/Badge.js";
+import { CollapsibleBody, CollapsibleHeader, useCollapsible } from "../../ui/Collapsible.js";
 import { useT } from "../../i18n/t.js";
 import { useUiLocale } from "../../i18n/locale.js";
 import { getI18nState } from "../../api/i18n.js";
@@ -155,16 +156,26 @@ export function PronunciationCard() {
   }
 
   const busy = save.isPending;
+  const [isOpen, toggle] = useCollapsible(false);
+  const bodyId = "pronunciation-card-body";
 
   return (
     <Card className="flex flex-col p-4">
-      <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
-        <h2 className="text-sm font-bold text-foreground">{t("controles.pronunciation.title")}</h2>
-        {dirty && <Badge tone="info">{t("controles.pronunciation.dirty")}</Badge>}
-      </div>
+      <CollapsibleHeader isOpen={isOpen} onToggle={toggle} bodyId={bodyId}>
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-3 transition-opacity hover:opacity-80">
+          <div className="flex min-w-0 flex-col gap-1 text-left">
+            <h2 className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
+              <SpellCheck size={14} className="text-muted-foreground" aria-hidden="true" />
+              {t("controles.pronunciation.title")}
+            </h2>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.pronunciation.hint")}</p>
+          </div>
+          {dirty && <Badge tone="info" dot={false}>{t("controles.pronunciation.dirty")}</Badge>}
+        </div>
+      </CollapsibleHeader>
 
-      <div className="flex flex-col gap-3 pt-3.5">
-        <p className="text-xs leading-relaxed text-muted-foreground">{t("controles.pronunciation.hint")}</p>
+      <CollapsibleBody isOpen={isOpen} id={bodyId}>
+      <div className="flex flex-col gap-3">
 
         {(loadError || saveFailed) && (
           <p role="alert" className="text-xs leading-relaxed text-danger">
@@ -229,6 +240,7 @@ export function PronunciationCard() {
           )}
         </div>
       </div>
+      </CollapsibleBody>
     </Card>
   );
 }

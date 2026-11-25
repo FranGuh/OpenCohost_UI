@@ -750,7 +750,10 @@ export const defaultPttState: PttStateResponse = {
   session_id: null,
   buffered_chars: 0,
   last_error: null,
-  stt_ws_url: "ws://127.0.0.1:9090"
+  stt_ws_url: "ws://127.0.0.1:9090",
+  dictation: false,
+  grace_mode: "auto",
+  grace_s: 1.2
 };
 
 function musicTracksForMood(library: MusicLibraryResponse, mood: string): MusicTrackOut[] {
@@ -1064,6 +1067,12 @@ export const handlers = [
       model: "qwen3-vl:4b-instruct",
       port: 11435,
       describe_timeout_s: 8,
+      chat_model_eligible: false,
+      chat_model_reason: "chat_model_requires_cloud_provider",
+      vram_warning: null,
+      vram_needed_gib: null,
+      vram_free_gib: null,
+      vram_total_gib: null,
       status: { daemon_state: "stopped", model_installed: null, capture_available: false, armed: false, looking: false }
     })
   ),
@@ -1321,9 +1330,13 @@ export const handlers = [
       stt_ws_uri?: string;
       dictation_mode?: string;
       companion_dictation?: boolean;
+      grace_mode?: string;
+      grace_s?: number;
     };
     return HttpResponse.json({
       stt_ws_uri: body.stt_ws_uri,
+      ...(body.grace_mode !== undefined ? { grace_mode: body.grace_mode } : {}),
+      ...(body.grace_s !== undefined ? { grace_s: body.grace_s } : {}),
       ...(body.dictation_mode !== undefined ? { dictation_mode: body.dictation_mode } : {}),
       ...(body.companion_dictation !== undefined ? { companion_dictation: body.companion_dictation } : {})
     });

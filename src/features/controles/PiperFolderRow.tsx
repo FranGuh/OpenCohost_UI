@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FolderOpen } from "lucide-react";
 import { Button } from "../../ui/Button.js";
 import {
   PiperFolderError,
@@ -58,7 +59,8 @@ export function PiperFolderRow({ disabled = false }: { disabled?: boolean }) {
 
   return (
     <div className="space-y-1.5">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">
+        <FolderOpen size={14} className="text-muted-foreground" aria-hidden="true" />
         {t("controles.voice.piper.folderLabel")}
       </span>
       {folder ? (

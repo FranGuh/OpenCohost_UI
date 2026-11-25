@@ -82,6 +82,8 @@ export const shellEs = {
   "shell.backendGate.copy.failed": "No se pudo copiar",
   "shell.backendGate.copy.hint": "Los detalles pueden incluir nombres de carpetas de este equipo; revísalos antes de pegarlos.",
   "shell.events.motor.cloudBadKey": "Motor: revisa la API key de cloud",
+  "shell.events.motor.cloudImageRejected": "Motor: el modelo en la nube rechazó la imagen. Desmarca «Este modelo ve imágenes» en los ajustes del proveedor.",
+  "shell.events.motor.cloudQuotaExhausted": "Motor: el proveedor en la nube se quedó sin cuota o saldo. Revisa tu plan con el proveedor.",
   "shell.events.motor.cloudFallbackEngaged": "Motor: cloud caído, usando Ollama local",
   "shell.events.motor.cloudLlmError": "Proveedor cloud falló — sigues en cloud; revisa el proveedor o cambia a Local",
   "shell.events.motor.cloudProbeGaveUp": "Motor: reintento de cloud abandonado — prueba manualmente",

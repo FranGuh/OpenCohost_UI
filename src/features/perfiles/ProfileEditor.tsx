@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
+import {
+  AlignLeft,
+  Cpu,
+  Flame,
+  History,
+  Sparkles,
+  Trash2,
+  UserRound,
+  Users,
+  X
+} from "lucide-react";
 import { Card } from "../../ui/Card.js";
 import { Button } from "../../ui/Button.js";
 import { Alert } from "../../ui/Alert.js";
@@ -49,6 +60,23 @@ const TITLE_KEYS: Record<ProfileEditorMode, TKey> = {
 // PersonalizationCard so the two save buttons stay uniform.
 const SAVE_BUTTON_CLASS =
   "inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-[filter] duration-fast ease-io hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-60";
+
+const FIELD_LABEL_CLASS = "text-[11px] font-semibold uppercase tracking-[0.09em] text-dim";
+
+/** Subtle bordered panel that groups one field (or a few related ones). */
+const PANEL_CLASS = "space-y-3 rounded-lg border border-border-soft bg-surface-2/40 p-3";
+
+/** Field label with a small leading icon (decorative). */
+function IconLabel({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span aria-hidden="true" className="text-muted-foreground">
+        {icon}
+      </span>
+      {children}
+    </span>
+  );
+}
 
 /**
  * Profile create / rename / edit-system-prompt / delete(+memoria-purge)
@@ -270,152 +298,166 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors duration-fast ease-io hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
-            ✕
+            <X aria-hidden="true" size={16} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 pt-3.5">
-          <section className="space-y-2">
-            <label
-              htmlFor="profile-editor-name"
-              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-            >
-              {t("perfiles.editor.name.label")}
-            </label>
-            <input
-              id="profile-editor-name"
-              ref={nameInputRef}
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              onBlur={() => setNameTouched(true)}
-              placeholder={t("perfiles.editor.name.placeholder")}
-              className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            />
-            {nameInvalid && (
-              <p role="alert" className="text-xs text-danger">
-                {t("perfiles.editor.name.error")}
-              </p>
-            )}
-          </section>
-
-          <section className="space-y-2">
-            <label
-              htmlFor="profile-editor-prompt"
-              className="text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-            >
-              {t("perfiles.editor.prompt.label")}
-            </label>
-            <textarea
-              id="profile-editor-prompt"
-              value={systemPrompt}
-              onChange={(event) => setSystemPrompt(event.target.value)}
-              rows={5}
-              placeholder={t("perfiles.editor.prompt.placeholder")}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 max-h-[350px] min-h-[50px] text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            />
-            {mode === "edit" && profileDetail.isError && (
-              <p role="alert" className="text-xs text-danger">
-                {t("perfiles.editor.prompt.error")}
-              </p>
-            )}
-          </section>
-
-          <section
-            aria-labelledby="profile-editor-extended-responses-label"
-            className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
-          >
-            <div className="space-y-1">
-              <span
-                id="profile-editor-extended-responses-label"
-                className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-              >
-                {t("perfiles.editor.extendedResponses.label")}
-              </span>
-              <span className="text-[13px] text-foreground">{t("perfiles.editor.extendedResponses.hint")}</span>
-            </div>
-            <Switch
-              checked={extendedResponses}
-              onChange={setExtendedResponses}
-              aria-label={t("perfiles.editor.extendedResponses.label")}
-            />
-          </section>
-
-          <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
-            <label
-              htmlFor="profile-editor-warmth"
-              className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-            >
-              {t("perfiles.editor.warmth.label")}
-            </label>
-            <p data-testid="warmth-current" className="text-[13px] font-semibold text-foreground">
-              {t(`perfiles.editor.warmth.${warmth}.label` as TKey)} <span aria-hidden="true">›</span>
-            </p>
-            <div className="relative h-5">
-              <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-surface-2" />
-              <div
-                className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary"
-                style={{ width: `${warmthPct}%` }}
-              />
-              {PROFILE_WARMTHS.map((level, i) => (
-                <span
-                  key={level}
-                  aria-hidden="true"
-                  className="absolute top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background/60"
-                  style={{ left: `${(i / (PROFILE_WARMTHS.length - 1)) * 100}%` }}
-                />
-              ))}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 pt-3.5">
+          <div className={PANEL_CLASS}>
+            <div className="space-y-2">
+              <label htmlFor="profile-editor-name" className={FIELD_LABEL_CLASS}>
+                <IconLabel icon={<UserRound size={14} />}>{t("perfiles.editor.name.label")}</IconLabel>
+              </label>
               <input
-                id="profile-editor-warmth"
-                type="range"
-                min={0}
-                max={PROFILE_WARMTHS.length - 1}
-                step={1}
-                value={warmthIndex}
-                onChange={(e) => setWarmth(PROFILE_WARMTHS[Number(e.target.value)] ?? "cold")}
-                aria-valuetext={t(`perfiles.editor.warmth.${warmth}.label` as TKey)}
-                className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                id="profile-editor-name"
+                ref={nameInputRef}
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onBlur={() => setNameTouched(true)}
+                placeholder={t("perfiles.editor.name.placeholder")}
+                className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               />
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow peer-focus-visible:ring-2 peer-focus-visible:ring-ring"
-                style={{ left: `${warmthPct}%` }}
+              {nameInvalid && (
+                <p role="alert" className="text-xs text-danger">
+                  {t("perfiles.editor.name.error")}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className={PANEL_CLASS}>
+            <div className="space-y-2">
+              <label htmlFor="profile-editor-prompt" className={FIELD_LABEL_CLASS}>
+                <IconLabel icon={<Sparkles size={14} />}>{t("perfiles.editor.prompt.label")}</IconLabel>
+              </label>
+              <textarea
+                id="profile-editor-prompt"
+                value={systemPrompt}
+                onChange={(event) => setSystemPrompt(event.target.value)}
+                rows={5}
+                placeholder={t("perfiles.editor.prompt.placeholder")}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 max-h-[350px] min-h-[50px] text-sm text-foreground placeholder:text-dim focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              />
+              {mode === "edit" && profileDetail.isError && (
+                <p role="alert" className="text-xs text-danger">
+                  {t("perfiles.editor.prompt.error")}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-border-soft pt-3">
+              <label htmlFor="profile-editor-warmth" className={`block ${FIELD_LABEL_CLASS}`}>
+                <IconLabel icon={<Flame size={14} />}>{t("perfiles.editor.warmth.label")}</IconLabel>
+              </label>
+              <p data-testid="warmth-current" className="text-[13px] font-semibold text-foreground">
+                {t(`perfiles.editor.warmth.${warmth}.label` as TKey)} <span aria-hidden="true">›</span>
+              </p>
+              <div className="relative h-5">
+                <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-surface-2" />
+                <div
+                  className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-primary"
+                  style={{ width: `${warmthPct}%` }}
+                />
+                {PROFILE_WARMTHS.map((level, i) => (
+                  <span
+                    key={level}
+                    aria-hidden="true"
+                    className="absolute top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background/60"
+                    style={{ left: `${(i / (PROFILE_WARMTHS.length - 1)) * 100}%` }}
+                  />
+                ))}
+                <input
+                  id="profile-editor-warmth"
+                  type="range"
+                  min={0}
+                  max={PROFILE_WARMTHS.length - 1}
+                  step={1}
+                  value={warmthIndex}
+                  onChange={(e) => setWarmth(PROFILE_WARMTHS[Number(e.target.value)] ?? "cold")}
+                  aria-valuetext={t(`perfiles.editor.warmth.${warmth}.label` as TKey)}
+                  className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow peer-focus-visible:ring-2 peer-focus-visible:ring-ring"
+                  style={{ left: `${warmthPct}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">{t(`perfiles.editor.warmth.${warmth}.hint` as TKey)}</p>
+              <p className="text-xs text-dim">{t("perfiles.editor.warmth.note")}</p>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-border-soft pt-3">
+              <span id="profile-editor-owner-gender-label" className={`block ${FIELD_LABEL_CLASS}`}>
+                <IconLabel icon={<Users size={14} />}>{t("perfiles.editor.ownerGender.label")}</IconLabel>
+              </span>
+              <Select
+                aria-labelledby="profile-editor-owner-gender-label"
+                value={ownerGender}
+                onChange={(value) => setOwnerGender(value as ProfileOwnerGender)}
+                options={PROFILE_OWNER_GENDERS.map((value) => ({
+                  value,
+                  label: t(`perfiles.editor.ownerGender.${value || "unspecified"}` as TKey)
+                }))}
+              />
+              <p className="text-xs text-muted-foreground">{t("perfiles.editor.ownerGender.hint")}</p>
+            </div>
+          </div>
+
+          <div className={PANEL_CLASS}>
+            <div
+              role="group"
+              aria-labelledby="profile-editor-extended-responses-label"
+              className="grid grid-cols-[1fr_auto] items-center gap-3"
+            >
+              <div className="space-y-1">
+                <span id="profile-editor-extended-responses-label" className={`block ${FIELD_LABEL_CLASS}`}>
+                  <IconLabel icon={<AlignLeft size={14} />}>{t("perfiles.editor.extendedResponses.label")}</IconLabel>
+                </span>
+                <span className="text-[13px] text-foreground">{t("perfiles.editor.extendedResponses.hint")}</span>
+              </div>
+              <Switch
+                checked={extendedResponses}
+                onChange={setExtendedResponses}
+                aria-label={t("perfiles.editor.extendedResponses.label")}
               />
             </div>
-            <p className="text-xs text-muted-foreground">{t(`perfiles.editor.warmth.${warmth}.hint` as TKey)}</p>
-            <p className="text-xs text-dim">{t("perfiles.editor.warmth.note")}</p>
-          </section>
 
-          <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
-            <span
-              id="profile-editor-owner-gender-label"
-              className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-            >
-              {t("perfiles.editor.ownerGender.label")}
-            </span>
-            <Select
-              aria-labelledby="profile-editor-owner-gender-label"
-              value={ownerGender}
-              onChange={(value) => setOwnerGender(value as ProfileOwnerGender)}
-              options={PROFILE_OWNER_GENDERS.map((value) => ({
-                value,
-                label: t(`perfiles.editor.ownerGender.${value || "unspecified"}` as TKey)
-              }))}
-            />
-            <p className="text-xs text-muted-foreground">{t("perfiles.editor.ownerGender.hint")}</p>
-          </section>
+            <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3">
+              <div className="space-y-1">
+                <span className={`block ${FIELD_LABEL_CLASS}`}>
+                  <IconLabel icon={<History size={14} />}>
+                    {t("perfiles.editor.maxTurns.label", { max: maxTurnsCap })}
+                  </IconLabel>
+                </span>
+                <span className="text-[13px] text-foreground">{t("perfiles.editor.maxTurns.hint", { max: maxTurnsCap })}</span>
+              </div>
+              <div className="w-20">
+                <input
+                  id="profile-editor-max-turns"
+                  type="number"
+                  min={1}
+                  max={maxTurnsCap}
+                  value={maxTurns}
+                  onChange={(event) => {
+                    const val = parseInt(event.target.value, 10);
+                    if (!isNaN(val)) {
+                      setMaxTurns(Math.max(1, Math.min(val, maxTurnsCap)));
+                    }
+                  }}
+                  aria-label={t("perfiles.editor.maxTurns.label", { max: maxTurnsCap })}
+                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-center text-sm font-semibold text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                />
+              </div>
+            </div>
+          </div>
 
-          <section
-            aria-labelledby="profile-editor-use-system-label"
-            className="flex flex-col gap-2.5 border-t border-border-soft pt-3.5"
-          >
+          <div className={PANEL_CLASS}>
             <div className="grid grid-cols-[1fr_auto] items-center gap-3">
               <div className="space-y-1">
-                <span
-                  id="profile-editor-use-system-label"
-                  className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-                >
-                  {t("perfiles.editor.useSystem.label")}
+                <span id="profile-editor-use-system-label" className={`block ${FIELD_LABEL_CLASS}`}>
+                  <IconLabel icon={<Cpu size={14} />}>{t("perfiles.editor.useSystem.label")}</IconLabel>
                 </span>
                 <span className="text-[13px] text-foreground">{t("perfiles.editor.useSystem.hint")}</span>
               </div>
@@ -430,42 +472,12 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                 ? t("perfiles.editor.useSystem.notice.enabled")
                 : t("perfiles.editor.useSystem.notice.disabled")}
             </Alert>
-          </section>
-
-          <section
-            className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
-          >
-            <div className="space-y-1">
-              <span
-                className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-              >
-                {t("perfiles.editor.maxTurns.label", { max: maxTurnsCap })}
-              </span>
-              <span className="text-[13px] text-foreground">{t("perfiles.editor.maxTurns.hint", { max: maxTurnsCap })}</span>
-            </div>
-            <div className="w-20">
-              <input
-                id="profile-editor-max-turns"
-                type="number"
-                min={1}
-                max={maxTurnsCap}
-                value={maxTurns}
-                onChange={(event) => {
-                  const val = parseInt(event.target.value, 10);
-                  if (!isNaN(val)) {
-                    setMaxTurns(Math.max(1, Math.min(val, maxTurnsCap)));
-                  }
-                }}
-                aria-label={t("perfiles.editor.maxTurns.label", { max: maxTurnsCap })}
-                className="h-9 w-full rounded-md border border-border bg-background px-3 text-center text-sm font-semibold text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              />
-            </div>
-          </section>
+          </div>
 
           {mode === "edit" && purgeFailedAfterDelete ? (
-            // The profile itself is already gone at this point — only the
+            // The profile itself is already gone at this point: only the
             // purge can be retried, never the delete again.
-            <section className="flex flex-col gap-2 border-t border-border-soft pt-3.5">
+            <div className="flex flex-col gap-2">
               <Alert tone="danger">
                 {t("perfiles.editor.delete.purgeFailed.notice", { name: initialName })}
               </Alert>
@@ -481,25 +493,7 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
                     : t("perfiles.editor.delete.retryPurge.action")}
                 </Button>
               </div>
-            </section>
-          ) : mode === "edit" && !deleting ? (
-            <section
-              aria-labelledby="profile-editor-delete-label"
-              className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border-soft pt-3.5"
-            >
-              <div className="space-y-1">
-                <span
-                  id="profile-editor-delete-label"
-                  className="block text-[11px] font-semibold uppercase tracking-[0.09em] text-dim"
-                >
-                  {t("perfiles.editor.delete.eyebrow")}
-                </span>
-                <span className="text-[13px] text-foreground">{t("perfiles.editor.delete.hint")}</span>
-              </div>
-              <Button type="button" variant="outline" onClick={() => setDeleting(true)}>
-                {t("perfiles.editor.delete.action")}
-              </Button>
-            </section>
+            </div>
           ) : null}
 
           {saveError && (
@@ -541,8 +535,19 @@ export function ProfileEditor({ open, mode, onClose, initialName = "" }: Profile
               </ConfirmFooter>
             </div>
           ) : (
-            <div className="flex items-center justify-end gap-3 border-t border-border-soft pt-3.5">
-              <Button type="button" variant="ghost" onClick={onClose}>
+            <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-3.5">
+              {mode === "edit" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-danger hover:text-danger"
+                  onClick={() => setDeleting(true)}
+                >
+                  <Trash2 aria-hidden="true" size={14} className="mr-1.5" />
+                  {t("perfiles.editor.delete.action")}
+                </Button>
+              )}
+              <Button type="button" variant="ghost" className="ml-auto" onClick={onClose}>
                 {t("perfiles.editor.cancel.action")}
               </Button>
               <button type="submit" className={SAVE_BUTTON_CLASS} disabled={savePending}>

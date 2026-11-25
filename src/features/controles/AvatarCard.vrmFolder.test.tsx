@@ -69,8 +69,8 @@ describe("AvatarCard VRM models folder (T9)", () => {
       http.get(`${API_BASE_URL}/api/avatar/vrm/list`, () => HttpResponse.json([BUNDLED, OTHER]))
     );
     renderCard();
-    const select = await screen.findByRole("combobox", { name: "Modelo VRM activo" });
-    await waitFor(() => expect(select).toHaveTextContent("incluido"));
+    const group = await screen.findByRole("radiogroup", { name: "Modelo VRM activo" });
+    await waitFor(() => expect(group).toHaveTextContent("incluido"));
   });
 
   it("Change folder opens the picker, PUTs the choice and refreshes the list at once", async () => {
@@ -96,8 +96,7 @@ describe("AvatarCard VRM models folder (T9)", () => {
     expect(await screen.findByText("elegida por ti")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Usar la predeterminada" })).toBeInTheDocument();
     // list refetched without a reload: the new model is in the picker data
-    fireEvent.click(screen.getByRole("combobox", { name: "Modelo VRM activo" }));
-    expect(await screen.findByRole("option", { name: /mine\.vrm/ })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: /mine/ })).toBeInTheDocument();
   });
 
   it("a cancelled picker changes nothing and sends no request", async () => {
@@ -179,7 +178,7 @@ describe("AvatarCard VRM models folder (T9)", () => {
       http.get(`${API_BASE_URL}/api/avatar/vrm/list`, () => HttpResponse.json([BUNDLED, OTHER]))
     );
     renderCard();
-    await screen.findByRole("combobox", { name: "Modelo VRM activo" });
+    await screen.findByRole("radiogroup", { name: "Modelo VRM activo" });
     expect(useAvatarPresentationStore.getState().selectedModel).toBe("mine.vrm");
   });
 

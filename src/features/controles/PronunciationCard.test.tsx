@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,9 +13,14 @@ const LIMITS = { max_entries: 200, match_max: 64, replace_max: 128 };
 const FORBIDDEN_MSG = "Cannot contain . ! ? … < > * or line breaks";
 type Entry = { match: string; replace: string };
 
-function renderCard() {
+function renderCard({ expanded = true }: { expanded?: boolean } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(PronunciationCard)));
+  const view = render(
+    React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(PronunciationCard))
+  );
+  // The card is collapsed by default; behavioral tests expand it first.
+  if (expanded) fireEvent.click(screen.getByRole("button", { name: /Pronunciation/ }));
+  return view;
 }
 
 function serve(initial: Entry[]) {
@@ -40,6 +45,41 @@ describe("PronunciationCard", () => {
   // Test default locale is es; assert on the en copy.
   beforeEach(() => useUiLocaleStore.setState({ locale: "en" }));
   afterEach(() => useUiLocaleStore.setState({ locale: "es" }));
+
+  it("is collapsed by default, keeps title and hint visible, and expands from the toggle", async () => {
+    serve([{ match: "OBS", replace: "o be ese" }]);
+    renderCard({ expanded: false });
+    const toggle = screen.getByRole("button", { name: /Pronunciation/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("heading", { name: "Pronunciation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add entry" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByRole("button", { name: "Add entry" })).toBeInTheDocument();
+  });
+
+  it("expands when the hint text or the header row is clicked, not only the title", async () => {
+    serve([{ match: "OBS", replace: "o be ese" }]);
+    renderCard({ expanded: false });
+    const toggle = screen.getByRole("button", { name: /Pronunciation/ });
+    fireEvent.click(screen.getByText(/Fix how Kira says/));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("heading", { name: "Pronunciation" }).parentElement as HTMLElement);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls");
+  });
+
+  it("toggles with Enter and Space from the keyboard", async () => {
+    serve([]);
+    renderCard({ expanded: false });
+    const toggle = screen.getByRole("button", { name: /Pronunciation/ });
+    fireEvent.keyDown(toggle, { key: "Enter" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(toggle, { key: " " });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
 
   it("shows an empty state with an example when there are no entries", async () => {
     serve([]);

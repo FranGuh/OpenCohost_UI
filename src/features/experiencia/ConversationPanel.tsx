@@ -25,7 +25,6 @@ import { VisionInlineThumbnails } from "./VisionInlineThumbnails.js";
 import { attachVisionBadges, type VisionBadge } from "./visionBadge.js";
 import { VisionSeen } from "./VisionSeen.js";
 import { ImageSendStatus, SentImages, type ImageSendState } from "./SentImage.js";
-import { VisionStateIndicator } from "./VisionStateIndicator.js";
 import { chatImageErrorKey } from "./chatImageError.js";
 import { createPreviewUrl } from "./imagePreview.js";
 import { usePreviewUrlGc } from "./usePreviewUrlGc.js";
@@ -1119,7 +1118,7 @@ export function ConversationPanel() {
   const dictationMode = usePttStateQuery().data?.dictation_mode ?? "send";
   const dictationModeRef = useRef(dictationMode);
   dictationModeRef.current = dictationMode;
-  const [dictationNotice, setDictationNotice] = useState<"dictated" | "lost" | null>(null);
+  const [dictationNotice, setDictationNotice] = useState<"dictated" | "lost" | "incomplete" | null>(null);
   // Last composer selection, captured while it is still valid: on every
   // select/change and at blur (clicking the mic blurs the textarea). Null means
   // the composer never had focus, so a dictation is appended.
@@ -1142,9 +1141,60 @@ export function ConversationPanel() {
     }, 4000);
   }
 
+  // Live dictation (ptt-live-dictation-20261125): for a hold the backend locked
+  // to dictate, the words land in the composer as they arrive. The composer
+  // value at the hold's start plus its selection are the fixed base; every
+  // update recomputes from that base, so the live span is replaced, never
+  // duplicated, and nothing outside the selection/caret is ever overwritten.
+  const [liveDictating, setLiveDictating] = useState(false);
+  const liveDictatingRef = useRef(false);
+  liveDictatingRef.current = liveDictating;
+  const liveBaseRef = useRef<{ value: string; selection: ComposerSelection | null } | null>(null);
+  const messageRef = useRef("");
+  messageRef.current = message;
+
+  function handleLiveStart() {
+    liveBaseRef.current = { value: messageRef.current, selection: composerSelectionRef.current };
+    setVoiceSent(false);
+    setDictationNotice(null);
+    setLiveDictating(true);
+  }
+
+  function handleLive(text: string) {
+    const base = liveBaseRef.current;
+    if (!base) return;
+    setMessage(insertDictation(base.value, text, base.selection).value);
+  }
+
+  function endLive() {
+    liveBaseRef.current = null;
+    setLiveDictating(false);
+  }
+
+  function handleLiveCancel() {
+    const base = liveBaseRef.current;
+    if (base) setMessage(base.value);
+    endLive();
+  }
+
+  function handleDictationTimeout() {
+    // The words are the owner's own: keep them, and say they may be incomplete.
+    endLive();
+    setDictationNotice("incomplete");
+  }
+
   function handleDictated(text: string) {
     setVoiceSent(false);
     setDictationNotice("dictated");
+    const base = liveBaseRef.current;
+    if (base) {
+      const next = insertDictation(base.value, text, base.selection);
+      pendingCaretRef.current = next.caret;
+      composerSelectionRef.current = { start: next.caret, end: next.caret };
+      setMessage(next.value);
+      endLive();
+      return;
+    }
     const selection = composerSelectionRef.current;
     setMessage((prev) => {
       const next = insertDictation(prev, text, selection);
@@ -1155,6 +1205,7 @@ export function ConversationPanel() {
   }
 
   function handleDictationLost() {
+    endLive(); // a live span stays in the composer: those words are the owner's
     setVoiceSent(false);
     setDictationNotice("lost");
     emitAppEvent({ source: "ptt", action: "dictation_lost" });
@@ -1198,7 +1249,14 @@ export function ConversationPanel() {
         { id: VOICE_PENDING_ID, kind: "chat", role: "operator", source: "voice", pending: true, text: pendingText, ts: prior?.ts ?? Date.now() }
       ]);
     });
-  }, { onDictated: handleDictated, onDictationLost: handleDictationLost });
+  }, {
+    onDictated: handleDictated,
+    onDictationLost: handleDictationLost,
+    onLiveStart: handleLiveStart,
+    onLive: handleLive,
+    onLiveCancel: handleLiveCancel,
+    onDictationTimeout: handleDictationTimeout
+  });
 
   // Keep the caret right after freshly dictated words.
   useLayoutEffect(() => {
@@ -1209,13 +1267,13 @@ export function ConversationPanel() {
     if (!el) return;
     el.focus();
     el.setSelectionRange(caret, caret);
-  }, [message]);
+  }, [message, liveDictating]);
 
   // The dictation notices fade like the "sent" confirmation (longer for the
   // lost one, which asks the owner to act).
   useEffect(() => {
     if (dictationNotice === null) return;
-    const timer = setTimeout(() => setDictationNotice(null), dictationNotice === "lost" ? 10_000 : 6000);
+    const timer = setTimeout(() => setDictationNotice(null), dictationNotice === "dictated" ? 6000 : 10_000);
     return () => clearTimeout(timer);
   }, [dictationNotice]);
 
@@ -1460,6 +1518,7 @@ export function ConversationPanel() {
       if (!(target instanceof HTMLTextAreaElement) || target.id !== COMPOSER_INPUT_ID) return;
       if (event.key !== "Enter" || event.shiftKey || event.defaultPrevented) return;
       if (event.isComposing || event.keyCode === 229) return;
+      if (liveDictatingRef.current) return; // read-only while dictating: never send a half dictation
       event.preventDefault(); // no newline: this Enter is a send
       target.form?.requestSubmit();
     }
@@ -1602,6 +1661,7 @@ export function ConversationPanel() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return; // block concurrent submits (e.g. rapid Enter presses)
+    if (liveDictatingRef.current) return; // never send a half dictation
     let text = message.trim();
     if (!text && attachedImages.length === 0) return;
     const images: ChatTurnImage[] = attachedImages.map(({ data, mime_type }) => ({ data, mime_type }));
@@ -2175,6 +2235,18 @@ export function ConversationPanel() {
                     {t("experiencia.conversationPanel.composer.dictated")}
                   </p>
                 )}
+                {liveDictating && (
+                  <p role="status" className="mono flex items-center gap-1.5 text-[11px] text-dim animate-rise-in">
+                    <Mic size={12} aria-hidden="true" />
+                    {t("experiencia.conversationPanel.composer.dictating")}
+                  </p>
+                )}
+                {dictationNotice === "incomplete" && (
+                  <p role="alert" className="flex items-center gap-1.5 text-[11px] text-warn animate-rise-in">
+                    <MicOff size={12} aria-hidden="true" />
+                    {t("experiencia.conversationPanel.composer.dictationIncomplete")}
+                  </p>
+                )}
                 {dictationNotice === "lost" && (
                   <p role="alert" className="flex items-center gap-1.5 text-[11px] text-warn animate-rise-in">
                     <MicOff size={12} aria-hidden="true" />
@@ -2217,7 +2289,6 @@ export function ConversationPanel() {
               )}
 
               <form onSubmit={handleSubmit} className="mt-2">
-                <VisionStateIndicator state={composerVision} />
                 {attachedImages.length > 0 && (
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     {attachedImages.map((attached, index) => {
@@ -2257,7 +2328,12 @@ export function ConversationPanel() {
                   onSelect={captureComposerSelection}
                   onBlur={captureComposerSelection}
                   onPaste={handlePaste}
-                  placeholder={t("experiencia.conversationPanel.composer.input.placeholder")}
+                  readOnly={liveDictating}
+                  placeholder={
+                    liveDictating
+                      ? t("experiencia.conversationPanel.composer.dictating")
+                      : t("experiencia.conversationPanel.composer.input.placeholder")
+                  }
                   aria-label={t("experiencia.conversationPanel.composer.input.aria")}
                   // F3: combobox pattern — the launcher popover is this input's
                   // listbox; aria-activedescendant follows its keyboard highlight.
@@ -2301,7 +2377,7 @@ export function ConversationPanel() {
                       </button>
                       <button
                         type="submit"
-                        disabled={pending}
+                        disabled={pending || liveDictating}
                         className="flex items-center px-4 text-sm font-semibold bg-[image:var(--accent-grad)] text-[var(--accent-contrast)] transition-opacity disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                       >
                         {t("experiencia.conversationPanel.composer.send.action")}

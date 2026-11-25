@@ -150,6 +150,13 @@ export interface VrmModelItem {
   bundled?: boolean;
 }
 
+/** Embedded author thumbnail of a VRM (404 when the file has none). Plain
+ * `<img src>` is enough: /api/avatar/vrm/model and /list are fetched without
+ * an auth header too. */
+export function vrmThumbnailUrl(name: string): string {
+  return `${getApiBaseUrl()}/api/avatar/vrm/thumbnail?name=${encodeURIComponent(name)}`;
+}
+
 export const VRM_MODELS_QUERY_KEY = ["avatar", "vrm", "models"] as const;
 
 export async function getVrmModels(): Promise<VrmModelItem[]> {

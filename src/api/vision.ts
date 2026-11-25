@@ -78,6 +78,32 @@ export interface VisionResponse extends VisionSettings {
   /** How many images one chat message may carry (backend `chat_image.MAX_IMAGES`,
    * runtime-fixes-20261110 T7). Absent on an older backend. */
   max_images?: number;
+  /** Backend verdict on `vision_source: "chat_model"`. Absent on an older backend. */
+  chat_model_eligible?: boolean;
+  chat_model_reason?: ChatModelReason | null;
+  /** Local VLM + local chat only; null otherwise. Absent on an older backend. */
+  vram_warning?: "insufficient" | "unknown" | null;
+  vram_needed_gib?: number | null;
+  vram_free_gib?: number | null;
+  vram_total_gib?: number | null;
+}
+
+export type ChatModelReason = "chat_model_requires_cloud_provider" | "chat_model_not_vision_capable";
+
+export const CHAT_MODEL_REASONS: readonly ChatModelReason[] = [
+  "chat_model_requires_cloud_provider",
+  "chat_model_not_vision_capable"
+];
+
+/** Friendly-copy key for a chat-model eligibility code. */
+export function chatModelReasonKey(code: ChatModelReason): TKey {
+  return code === "chat_model_requires_cloud_provider"
+    ? "controles.vision.cloudDirect.needsCloud"
+    : "controles.vision.chat.reason.notVision";
+}
+
+export function isChatModelReason(code: unknown): code is ChatModelReason {
+  return typeof code === "string" && (CHAT_MODEL_REASONS as readonly string[]).includes(code);
 }
 
 /** What the composer allows when the backend does not report a limit: an older

@@ -169,6 +169,8 @@ export type TtsConfigResponse = GeneratedTtsConfigResponse & {
   piper_unavailable_reason?: "package_missing" | "voice_file_missing" | null;
   edge_tts_offline?: boolean;
   discard_speech_residue?: boolean;
+  /** ADR-069: cut non-owner speech when a direct message arrives; absent on older backends. */
+  interrupt_on_direct?: boolean;
   /** Catalog id (filename) of the effective Piper voice; `piper_voice` may hold the same id. */
   piper_voice_id?: string | null;
   piper_speaker_id?: number | null;
@@ -348,6 +350,7 @@ export type EngineCommand =
   | "set_edge_voice"
   | "set_motor_tts"
   | "set_discard_speech_residue"
+  | "set_interrupt_on_direct"
   | "switch_model"
   | "switch_llm_tier";
 

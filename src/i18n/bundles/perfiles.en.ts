@@ -8,8 +8,6 @@ export const perfilesEn: Record<keyof typeof perfilesEs, string> = {
   "perfiles.editor.delete.confirm.advance.action": "Delete profile",
   "perfiles.editor.delete.confirm.message": "This action deletes the profile “{name}” and cannot be undone.",
   "perfiles.editor.delete.error": "Could not delete the profile.",
-  "perfiles.editor.delete.eyebrow": "Delete profile",
-  "perfiles.editor.delete.hint": "Permanently delete this profile.",
   "perfiles.editor.delete.purgeFailed.notice": "Deleted “{name}”, but could not purge its associated memory.",
   "perfiles.editor.delete.purgeToggle.label": "Purge memory associated with this profile",
   "perfiles.editor.delete.retryPurge.action": "Retry purge",

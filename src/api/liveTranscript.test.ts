@@ -456,6 +456,129 @@ describe("useLiveTranscript: dictation outcome (ptt-dictation-20261111)", () => 
   });
 });
 
+describe("useLiveTranscript: live dictation holds (ptt-live-dictation-20261125)", () => {
+  const dictState = (state: string) => ({ ...pttState(state), dictation: true });
+  function dictatedVerdict(ts: number) {
+    act(() => {
+      useEventStore.getState().append({ id: `srv-dictated-${ts}`, ts, source: "ptt", action: "dictated", label: "d", tone: "ok" });
+    });
+  }
+  function mount() {
+    const cb = {
+      onTranscript: vi.fn(),
+      onPending: vi.fn(),
+      onDictated: vi.fn(),
+      onDictationLost: vi.fn(),
+      onLiveStart: vi.fn(),
+      onLive: vi.fn(),
+      onLiveCancel: vi.fn(),
+      onDictationTimeout: vi.fn()
+    };
+    renderHook(
+      () =>
+        useLiveTranscript(cb.onTranscript, cb.onPending, {
+          onDictated: cb.onDictated,
+          onDictationLost: cb.onDictationLost,
+          onLiveStart: cb.onLiveStart,
+          onLive: cb.onLive,
+          onLiveCancel: cb.onLiveCancel,
+          onDictationTimeout: cb.onDictationTimeout
+        }),
+      { wrapper: createWrapper() }
+    );
+    return cb;
+  }
+
+  it("streams live text to onLive and never to the pending bubble", async () => {
+    const cb = mount();
+    await tick(0);
+    current = dictState("listening");
+    await pollTick();
+    expect(cb.onLiveStart).toHaveBeenCalledTimes(1);
+    const ws = MockWebSocket.instances[0];
+    act(() => ws.emit(JSON.stringify({ text: "hola" })));
+    act(() => ws.emit(JSON.stringify({ text: "mundo cruel" })));
+    expect(cb.onLive).toHaveBeenNthCalledWith(1, "hola");
+    expect(cb.onLive).toHaveBeenNthCalledWith(2, "hola mundo cruel");
+    expect(cb.onPending).not.toHaveBeenCalledWith("hola mundo cruel");
+    expect(cb.onPending.mock.calls.filter(([v]) => v !== null)).toHaveLength(0);
+  });
+
+  it("finalizes with tail segments on dictated, without a second onLiveStart", async () => {
+    const cb = mount();
+    await tick(0);
+    current = dictState("listening");
+    await pollTick();
+    const ws = MockWebSocket.instances[0];
+    act(() => ws.emit(JSON.stringify({ text: "primera parte" })));
+    current = dictState("flushing");
+    await pollTick();
+    act(() => ws.emit(JSON.stringify({ text: "y el final" })));
+    current = dictState("idle");
+    await pollTick();
+    dictatedVerdict(7000);
+    expect(cb.onDictated).toHaveBeenCalledWith("primera parte y el final");
+    expect(cb.onLiveStart).toHaveBeenCalledTimes(1);
+    expect(cb.onLiveCancel).not.toHaveBeenCalled();
+  });
+
+  it("cancels the live span when the backend sent (flushed) after all", async () => {
+    const cb = mount();
+    await tick(0);
+    current = dictState("listening");
+    await pollTick();
+    act(() => MockWebSocket.instances[0].emit(JSON.stringify({ text: "dos palabras" })));
+    current = dictState("idle");
+    await pollTick();
+    appendVerdict("flushed", 7000);
+    expect(cb.onLiveCancel).toHaveBeenCalledTimes(1);
+    expect(cb.onTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the live span on an empty verdict", async () => {
+    const cb = mount();
+    await tick(0);
+    current = dictState("listening");
+    await pollTick();
+    act(() => MockWebSocket.instances[0].emit(JSON.stringify({ text: "hola" })));
+    current = dictState("idle");
+    await pollTick();
+    appendVerdict("empty", 7000);
+    expect(cb.onLiveCancel).toHaveBeenCalledTimes(1);
+    expect(cb.onDictated).not.toHaveBeenCalled();
+  });
+
+  it("outcome timeout of a dictation hold keeps the text and reports a timeout", async () => {
+    const cb = mount();
+    await tick(0);
+    current = dictState("listening");
+    await pollTick();
+    act(() => MockWebSocket.instances[0].emit(JSON.stringify({ text: "se queda aquí" })));
+    current = dictState("idle");
+    await pollTick();
+    await tick(16_000);
+    expect(cb.onDictationTimeout).toHaveBeenCalledTimes(1);
+    expect(cb.onLiveCancel).not.toHaveBeenCalled();
+    expect(cb.onDictated).not.toHaveBeenCalled();
+  });
+
+  it("send holds (dictation false) keep the pending bubble and never touch live handlers", async () => {
+    const cb = mount();
+    await tick(0);
+    current = { ...pttState("listening"), dictation: false };
+    await pollTick();
+    act(() => MockWebSocket.instances[0].emit(JSON.stringify({ text: "hola mundo" })));
+    expect(cb.onPending).toHaveBeenLastCalledWith("hola mundo");
+    expect(cb.onLiveStart).not.toHaveBeenCalled();
+    expect(cb.onLive).not.toHaveBeenCalled();
+    current = pttState("idle");
+    await pollTick();
+    appendVerdict("flushed", 7000);
+    expect(cb.onTranscript).toHaveBeenCalledWith("hola mundo", expect.any(Number));
+    expect(cb.onLiveCancel).not.toHaveBeenCalled();
+  });
+});
+
 describe("appendSegment / finalizeTranscript: LiveAudio frame parsing", () => {
   it("joins utterances with a space and ignores hello/theme/malformed frames", () => {
     let buf = "";

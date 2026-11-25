@@ -41,6 +41,9 @@ export function testErrorToResponse(error: unknown, t: Translate): LlmProviderTe
   const timeout = isTimeoutError(error);
   if (error instanceof ApiError) {
     const httpStatus = error.status > 0 ? error.status : null;
+    if (httpStatus === 422 && error.message === "insecure_base_url") {
+      return { ok: false, error_code: "insecure_base_url", http_status: null, provider_message: null, models: [], recommended: [] };
+    }
     const errorCode: LlmProviderTestErrorCode =
       httpStatus === 401 || httpStatus === 403
         ? "invalid_key"

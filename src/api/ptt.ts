@@ -30,6 +30,10 @@ export type PttDictationMode = "send" | "foreground" | "always";
  * count as background for the `foreground` dictation mode. */
 export type PttHoldOrigin = "companion";
 
+/** Grace window preset (ptt-live-dictation-20261125): `fast` suits fast STT,
+ * `custom` uses `grace_s`. */
+export type PttGraceMode = "auto" | "fast" | "custom";
+
 export interface PttStartResponse {
   session_id: string;
   state: PttLifecycleState;
@@ -61,6 +65,12 @@ export interface PttStateResponse {
   /** Whether a desktop-companion hold dictates (in `always` mode) instead of
    * always sending. Optional: older backends omit it (= false). */
   companion_dictation?: boolean;
+  /** True only while the current hold (or its grace flush) is locked to
+   * dictate. Optional: older backends omit it (= false). */
+  dictation?: boolean;
+  grace_mode?: PttGraceMode;
+  /** Custom grace window in seconds (0.3-3.0). */
+  grace_s?: number;
 }
 
 export interface PttConfigRequest {
@@ -68,6 +78,8 @@ export interface PttConfigRequest {
   hotkey?: string;
   dictation_mode?: PttDictationMode;
   companion_dictation?: boolean;
+  grace_mode?: PttGraceMode;
+  grace_s?: number;
 }
 
 /** PUT /api/ptt/config body/response (liveaudio_url_config track). Field is
@@ -78,6 +90,8 @@ export interface PttConfigResponse {
   hotkey?: string;
   dictation_mode?: PttDictationMode;
   companion_dictation?: boolean;
+  grace_mode?: PttGraceMode;
+  grace_s?: number;
 }
 
 export interface PttTestResponse {
@@ -243,7 +257,9 @@ export function useUpdatePttConfigMutation() {
               stt_ws_url: data.stt_ws_uri ?? old.stt_ws_url,
               hotkey: data.hotkey ?? old.hotkey,
               dictation_mode: data.dictation_mode ?? old.dictation_mode,
-              companion_dictation: data.companion_dictation ?? old.companion_dictation
+              companion_dictation: data.companion_dictation ?? old.companion_dictation,
+              grace_mode: data.grace_mode ?? old.grace_mode,
+              grace_s: data.grace_s ?? old.grace_s
             }
           : old
       );

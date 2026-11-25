@@ -49,7 +49,7 @@ describe("AvatarCard Presentation Mode (2D / 3D)", () => {
 
     // VRM model selector is displayed
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "Modelo VRM activo" })).toBeInTheDocument();
+      expect(screen.getByRole("radiogroup", { name: "Modelo VRM activo" })).toBeInTheDocument();
     });
 
     // 2D mode select is hidden

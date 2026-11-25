@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useUiLocaleStore } from "../../i18n/locale.js";
@@ -90,6 +91,8 @@ describe("VisionModelPicker", () => {
       job("qwen3-vl:2b-instruct", { state: "failed" })
     ]);
     renderPicker();
+    // Downloads live under the collapsed Advanced section.
+    await userEvent.click(await screen.findByRole("button", { name: /Advanced|Avanzado/ }));
     expect((await screen.findAllByText("qwen3-vl:2b-instruct")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Qwen3\.8-9B-Distill/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Use this model/ })).not.toBeInTheDocument();
@@ -98,6 +101,8 @@ describe("VisionModelPicker", () => {
   it("renders the suggested desc localized by tag", async () => {
     serve([]);
     renderPicker();
+    // Downloads live under the collapsed Advanced section.
+    await userEvent.click(await screen.findByRole("button", { name: /Advanced|Avanzado/ }));
     expect(
       await screen.findByText("Light, for gaming. Described in English when measured, before the Spanish prompt.")
     ).toBeInTheDocument();
