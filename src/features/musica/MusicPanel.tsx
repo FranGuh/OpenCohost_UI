@@ -235,13 +235,13 @@ function LibraryCard({
       <div className="flex items-center justify-between gap-3 border-b border-border-soft pb-3">
         <h2 className="text-sm font-bold text-foreground">{t("musica.library.title")}</h2>
         <div className="flex items-center gap-2">
-          <Badge tone="info">
+          <Badge tone="neutral">
             {tracks.length === 1
               ? t("musica.library.trackCount.one")
               : t("musica.library.trackCount.many", { n: tracks.length })}
           </Badge>
           {(deletePending || cleanupPending || importPending) && (
-            <Badge tone="info">{t("musica.library.status.applying")}</Badge>
+            <Badge tone="info" dot={false}>{t("musica.library.status.applying")}</Badge>
           )}
         </div>
       </div>
@@ -276,7 +276,7 @@ function LibraryCard({
               )}
             </section>
 
-            {!isLoading && tracks.length > 0 && (
+            {!isLoading && moodCounts.length > 1 && (
               <section aria-labelledby="music-mood-counts-label" className="space-y-2">
                 {sectionLabel("music-mood-counts-label", t("musica.library.moodCounts.eyebrow"))}
                 <div data-testid="music-mood-counts" className="flex flex-wrap gap-2">
@@ -309,7 +309,7 @@ function LibraryCard({
                         <div className="flex flex-wrap items-center gap-2 md:justify-between">
                           <span className="text-[13px] font-semibold text-foreground">{track.label}</span>
                             <Badge tone="neutral" className="ml-auto">{moodLabel(track.mood)}</Badge>
-                            <Badge tone={badge.tone}>{t(badge.labelKey)}</Badge>
+                            {track.status !== "ok" && <Badge tone={badge.tone}>{t(badge.labelKey)}</Badge>}
                         </div>
                         <Button
                           type="button"

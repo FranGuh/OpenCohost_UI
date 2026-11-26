@@ -105,11 +105,7 @@
     rgba(255, 95, 176, 0.16)
   );
   --kira-cyan: #5ad7e6;
-  --kira-violet: #9b7cff;
-  --kira-pink: #ff5fb0;
-  --kira-amber: #f6c15a;
   --bg-deep: #060911;
-  --spectrum-gloss: rgba(255, 255, 255, 0.06);
 
   /* scale — shared across themes, not re-declared below */
   --radius: 16px;
@@ -185,13 +181,9 @@
     rgba(255, 122, 200, 0.18)
   );
   --kira-cyan: #7bf4ff;
-  --kira-violet: #b48cff;
-  --kira-pink: #ff7ac8;
-  --kira-amber: #f6c768;
   --bg-deep: #050310;
   /* aurora is already glassy (--surface-blur) — a touch brighter than
      cockpit's gloss reads correctly against its translucent surfaces. */
-  --spectrum-gloss: rgba(255, 255, 255, 0.1);
 }
 
 [data-theme="kira-aurora"],
@@ -254,12 +246,7 @@
   --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
 
   /* Kira Signature palette */
-  --kira-gold: #f6c35b;
-  --kira-amber: #f6c35b;
   --kira-cyan: #66d9ff;
-  --kira-mint: #65e6c8;
-  --kira-violet: #a58bff;
-  --kira-pink: #ff6fae;
   --bg-deep: #060810;
 
   /* Signature gradients */
@@ -272,11 +259,8 @@
     rgba(165, 139, 255, 0.14),
     rgba(255, 111, 174, 0.16)
   );
-  --spectrum-gloss: rgba(255, 255, 255, 0.08);
 
-  --kira-signature: linear-gradient(135deg, #4da8ff 0%, #65e6c8 35%, #a58bff 70%, #ff6fae 100%);
   --kira-topbar: linear-gradient(90deg, #4da8ff 0%, #65e6c8 28%, #f6c35b 52%, #a58bff 76%, #ff6fae 100%);
-  --kira-glow: radial-gradient(circle, rgba(77, 168, 255, 0.18) 0%, rgba(165, 139, 255, 0.08) 45%, transparent 70%);
   --topbar-line: var(--kira-topbar);
 }
 
@@ -349,11 +333,7 @@
     rgba(192, 70, 143, 0.1)
   );
   --kira-cyan: #0b8188;
-  --kira-violet: #5566e6;
-  --kira-pink: #c0468f;
-  --kira-amber: #95620f;
   --bg-deep: #e3e7ef;
   /* studio's near-white surfaces need a stronger stop for the highlight to
      still register, unlike the two dark themes. */
-  --spectrum-gloss: rgba(255, 255, 255, 0.5);
 }

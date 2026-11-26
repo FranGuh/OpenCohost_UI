@@ -94,11 +94,11 @@ function renderPanelWithTrackProbe() {
 }
 
 describe("MusicPanel library hydrates from GET /api/music/library", () => {
-  it("renders a track list item with a status badge, from the GET, per track", async () => {
+  it("renders a track list item and flags only non-ok track statuses", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getAllByRole("listitem", { name: /^Track:/ })).toHaveLength(4));
     expect(screen.getByText("ambient_drift.mp3")).toBeInTheDocument();
-    expect(screen.getAllByText("OK")).toHaveLength(2);
+    expect(screen.queryByText("OK")).not.toBeInTheDocument();
     expect(screen.getByText("faltante")).toBeInTheDocument();
     expect(screen.getByText("inválido")).toBeInTheDocument();
   });

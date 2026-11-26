@@ -233,7 +233,7 @@ function ProfileSessionCard() {
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">{t("agenda.profile.title")}</h2>
-        {pending && <Badge tone="info">{t("agenda.profile.pending")}</Badge>}
+        {pending && <Badge tone="info" dot={false}>{t("agenda.profile.pending")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
@@ -285,7 +285,7 @@ function ProfileSessionCard() {
                 options={RHYTHM_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                 value={rhythm}
                 disabled={updateSession.isPending}
-                className="mb-1s"
+                className="mb-1"
                 onChange={(value) => {
                   updateSession.mutate({ rhythm: value });
                 }}
@@ -429,8 +429,8 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground w-full justify-between items-center">{t("agenda.queue.title")}</h2>
         <div className="flex gap-2 w-full justify-end">
-          <Badge tone="info">{t("agenda.queue.count", { n: queue.length })}</Badge>
-          {action.isPending && <Badge tone="info">{t("agenda.queue.pending")}</Badge>}
+          <Badge tone="neutral">{t("agenda.queue.count", { n: queue.length })}</Badge>
+          {action.isPending && <Badge tone="info" dot={false}>{t("agenda.queue.pending")}</Badge>}
         </div>
       </CollapsibleHeader>
 
@@ -457,7 +457,7 @@ function QueueCard({ queue }: { queue: AgendaTopicOut[] }) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-semibold text-foreground">{topic.title}</span>
-                      <Badge tone={badge.tone}>{badge.label}</Badge>
+                      <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>
                     </div>
                     {topic.angle && <span className="text-xs text-muted-foreground">{topic.angle}</span>}
                   </div>
@@ -531,7 +531,7 @@ function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">{t("agenda.suggestions.title")}</h2>
-        {action.isPending && <Badge tone="info">{t("agenda.suggestions.pending")}</Badge>}
+        {action.isPending && <Badge tone="info" dot={false}>{t("agenda.suggestions.pending")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
@@ -557,7 +557,7 @@ function SuggestionsCard({ suggestions }: SuggestionsCardProps) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-semibold text-foreground">{topic.title}</span>
-                      <Badge tone={badge.tone}>{badge.label}</Badge>
+                      <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>
                     </div>
                     <span className="text-xs text-muted-foreground">{topic.angle || t("agenda.suggestions.angle.empty")}</span>
                   </div>
@@ -772,7 +772,7 @@ function AddTopicCard() {
     <Card className="flex flex-col p-4">
       <CollapsibleHeader isOpen={isOpen} onToggle={toggle}>
         <h2 className="text-sm font-bold text-foreground">{t("agenda.topic.heading")}</h2>
-        {addTopic.isPending && <Badge tone="info">{t("agenda.topic.pending")}</Badge>}
+        {addTopic.isPending && <Badge tone="info" dot={false}>{t("agenda.topic.pending")}</Badge>}
       </CollapsibleHeader>
 
       <CollapsibleBody isOpen={isOpen}>
@@ -952,7 +952,7 @@ function SessionControlCard({ state, queueLength }: { state: string; queueLength
         <h2 className="text-sm font-bold text-foreground w-full">{t("agenda.sessionControl.title")}</h2>
         <div className="flex items-center gap-2">
           <Badge tone={badge.tone}>{badge.label}</Badge>
-          {action.isPending && <Badge tone="info">{t("agenda.sessionControl.pending")}</Badge>}
+          {action.isPending && <Badge tone="info" dot={false}>{t("agenda.sessionControl.pending")}</Badge>}
         </div>
       </CollapsibleHeader>
 

@@ -989,22 +989,21 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
     expect(screen.queryByText("Modelo → qwen3:8b")).not.toBeInTheDocument();
   });
 
-  it("renders an app event line as a full-width Alert carrying its tone, with role=status (never interrupts)", () => {
+  it("renders an app event line as a compact source-aware status row carrying its tone (never interrupts)", () => {
     act(() => {
       useEventStore.getState().append({ id: "e-al", ts: Date.now(), source: "model", label: "Modelo → qwen3:8b", tone: "ok" });
     });
     renderPanel();
 
-    const alert = screen.getByText("Modelo → qwen3:8b").closest(".oc-alert");
-    expect(alert).not.toBeNull();
-    // It follows the settings-driven alert style (oc-alert) and keeps its tone…
-    expect(alert).toHaveAttribute("data-tone", "ok");
-    // …but as a NON-interrupting status role — only live send-errors are role=alert.
-    expect(alert).toHaveAttribute("role", "status");
+    const row = screen.getByText("Modelo → qwen3:8b").closest('[role="status"]');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute("data-tone", "ok");
+    expect(row).toHaveAttribute("data-event-source", "model");
+    expect(row).toHaveAttribute("role", "status");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("defaults an agenda event line (no tone) to a neutral status Alert", async () => {
+  it("defaults an agenda event line (no tone) to a neutral agenda status row", async () => {
     const before: typeof defaultAgenda = { ...defaultAgenda, active_topic: null };
     const after: typeof defaultAgenda = {
       ...defaultAgenda,
@@ -1014,9 +1013,10 @@ describe("ConversationPanel — operator-action events (Item A event engine)", (
     renderPanel();
 
     const line = await screen.findByText(/intento 1 · tema:/, undefined, { timeout: 4000 });
-    const alert = line.closest(".oc-alert");
-    expect(alert).toHaveAttribute("data-tone", "neutral");
-    expect(alert).toHaveAttribute("role", "status");
+    const row = line.closest('[role="status"]');
+    expect(row).toHaveAttribute("data-tone", "neutral");
+    expect(row).toHaveAttribute("data-event-source", "agenda");
+    expect(row).toHaveAttribute("role", "status");
   });
 
   it("interleaves an app event between transcript turns by ts, in document order", async () => {
@@ -2216,5 +2216,20 @@ describe("ConversationPanel private mode read-back", () => {
     renderPanel();
     const toggle = screen.getByRole("switch", { name: "Modo privado" });
     await waitFor(() => expect(toggle).toBeDisabled());
+  });
+
+  it("shows a styled detail tooltip on hover/focus explaining what private mode disables", async () => {
+    renderPanel();
+    const toggle = screen.getByRole("switch", { name: "Modo privado" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.focus(toggle);
+    const tip = await screen.findByRole("tooltip");
+    expect(tip).toHaveTextContent(/Qué desactiva/i);
+    expect(tip).toHaveTextContent(/nuevas memorias/i);
+    expect(tip).toHaveTextContent(/memoria episódica/i);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
   });
 });

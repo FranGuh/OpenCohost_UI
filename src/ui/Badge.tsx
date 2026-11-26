@@ -31,7 +31,8 @@ export interface BadgeProps {
   dot?: boolean;
 }
 
-export function Badge({ tone = "neutral", children, className, mono = false, dot = true }: BadgeProps) {
+export function Badge({ tone = "neutral", children, className, mono = false, dot }: BadgeProps) {
+  const showDot = dot ?? tone !== "neutral";
   return (
     <span
       data-tone={tone}
@@ -42,7 +43,7 @@ export function Badge({ tone = "neutral", children, className, mono = false, dot
         className
       )}
     >
-      {dot && <span aria-hidden="true" className={cn("h-[10px] w-[5px] rounded-full", dotClasses[tone])} />}
+      {showDot && <span aria-hidden="true" className={cn("h-[10px] w-[5px] rounded-full", dotClasses[tone])} />}
       {children}
     </span>
   );

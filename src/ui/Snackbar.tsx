@@ -108,11 +108,13 @@ export function Snackbar({
         className,
       )}
     >
-      {/* status dot */}
-      <span
-        aria-hidden="true"
-        className={cn("h-[6px] w-[6px] shrink-0 rounded-full", dotClasses[tone])}
-      />
+      {/* status dot (semantic tones only) */}
+      {tone !== "neutral" && (
+        <span
+          aria-hidden="true"
+          className={cn("h-[6px] w-[6px] shrink-0 rounded-full", dotClasses[tone])}
+        />
+      )}
 
       {/* message */}
       <span className="text-sm font-medium leading-snug">{children}</span>

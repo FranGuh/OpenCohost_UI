@@ -28,13 +28,6 @@ button:hover {
   filter: brightness(1.08);
 }
 
-/* app root background — composite of the theme's glow image + solid base,
-   ported from the mockup's #app background rule */
-.app-shell {
-  background: var(--app-bg-glow), var(--background);
-  background-attachment: fixed;
-}
-
 /* technical/numeric values (model names, versions, profile ids) render in
    mono with tabular figures — cockpit character, per design decision #2827 */
 .mono {
@@ -128,9 +121,6 @@ select:focus-visible,
 .oc-reply-segment-enter {
   animation: oc-reply-segment-in 180ms ease-out both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .oc-reply-segment-enter { animation: none; }
-}
 
 /* Alert style variants — data-alert-style on <html>, default "sereno" */
 .oc-alert { display: flex; gap: 10px; align-items: flex-start; border-radius: var(--r-md);
@@ -138,13 +128,12 @@ select:focus-visible,
   animation: rise-in var(--dur-slow) var(--ease-out) both; }
 .oc-alert-title { font-weight: 700; margin: 0 0 2px; }
 .oc-alert-body { margin: 0; color: var(--muted-foreground); }
-.oc-alert-icon { flex-shrink: 0; margin-top: 1px; }
+.oc-alert-icon { flex-shrink: 0; margin-top: 1px; color: var(--alert-tone); }
 .oc-alert[data-tone="ok"]      { --alert-tone: var(--ok);      --alert-bd: var(--ok-bd); }
 .oc-alert[data-tone="warn"]    { --alert-tone: var(--warn);    --alert-bd: var(--warn-bd); }
 .oc-alert[data-tone="danger"]  { --alert-tone: var(--danger);  --alert-bd: var(--danger-bd); }
 .oc-alert[data-tone="info"]    { --alert-tone: var(--info);    --alert-bd: var(--info-bd); }
 .oc-alert[data-tone="neutral"] { --alert-tone: var(--muted-foreground); --alert-bd: var(--border); }
-.oc-alert-icon { color: var(--alert-tone); }
 /* Single-row alert (icon, message, action, time): centered, wraps without overlap. */
 .oc-alert.oc-alert-row { align-items: center; flex-wrap: wrap; gap: 6px 10px; }
 .oc-alert-row .oc-alert-icon { margin-top: 0; }
@@ -258,6 +247,7 @@ header[data-tauri-drag-region] a,
   overflow: hidden;
 }
 .oc-app-body {
+  position: relative;
   height: calc(100vh - var(--oc-titlebar-h));
   overflow: hidden;
 }
@@ -307,10 +297,6 @@ header[data-tauri-drag-region] a,
    whole splash as an absolute overlay that fades out on ready. The overlay
    anchors to .oc-app-body, so that container needs a positioning context — it
    stays overflow:hidden and its single flow child is unaffected. */
-.oc-app-body {
-  position: relative;
-}
-
 /* Even rows regardless of tile count (4–6): every row is an equal fraction of
    the splash height, so tiles always fill 100% with no auto-row gaps. The
    whole wall is desaturated a touch to keep the cockpit calm. */

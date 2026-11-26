@@ -8,7 +8,32 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent
 } from "react";
-import { Check, ChevronDown, Copy, ExternalLink, Eye, Mic, MicOff, Smartphone, TriangleAlert, Volume2, X } from "lucide-react";
+import {
+  Calendar,
+  Check,
+  ChevronDown,
+  CircleCheck,
+  CircleDashed,
+  Copy,
+  Cpu,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Info,
+  Mic,
+  MicOff,
+  Monitor,
+  Music,
+  OctagonAlert,
+  Radio,
+  SlidersHorizontal,
+  Smartphone,
+  TriangleAlert,
+  UserRound,
+  Volume2,
+  X,
+  type LucideIcon
+} from "lucide-react";
 import { Alert } from "../../ui/Alert.js";
 import { COMMAND_PALETTE_LISTBOX_ID, CommandPalettePopover, ComposerCommandPanel } from "../commands/ComposerCommandPanel.js";
 import { Textarea } from "../../ui/Textarea.js";
@@ -55,7 +80,7 @@ import { Button } from "../../ui/Button.js";
 import { errorCopy } from "./pttCopy.js";
 import { cn } from "../../lib/cn.js";
 import { useT } from "../../i18n/t.js";
-import { selectEvents, useEventStore, type AppEventTone } from "../../store/eventStore.js";
+import { selectEvents, useEventStore, type AppEventSource, type AppEventTone } from "../../store/eventStore.js";
 import { selectStreamChatLatestSeq, useStreamChatStore } from "../../store/streamChatStore.js";
 import { useSpeechProgressStore } from "../../store/speechProgressStore.js";
 import { useChatStatsStore } from "../../store/chatStatsStore.js";
@@ -193,11 +218,13 @@ interface Turn {
    * transient thinking row while the engine is busy with other work — direct
    * chat never interrupts (D3), so this is honest about WHEN she'll answer. */
   pendingNote?: string;
-  /** Agenda lifecycle / app-event copy (kind:"alert"). Rendered as a full-width
-   * Alert (following the operator's chosen alert style), not a chat bubble. */
+  /** Agenda lifecycle / app-event copy (kind:"alert"). Rendered as a compact,
+   * source-aware timeline row rather than a chat bubble. */
   event?: string;
-  /** Tone the app-event carries (agenda events have none → neutral). Drives the
-   * event line's Alert tone. */
+  /** Event domain source (music, model, profile, agenda, etc.) driving the
+   * row's icon and subtle accent. */
+  eventSource?: AppEventSource;
+  /** Tone the app-event carries (agenda events have none → neutral). */
   tone?: AppEventTone;
   /** Owner asked Kira to look while vision was off (`vision_off_request`):
    * rendered as an inline action row instead of an Alert line. */
@@ -608,6 +635,264 @@ function VisionTurnBadge({ badge }: { badge: VisionBadge }) {
   );
 }
 
+const EVENT_SOURCE_STYLE: Record<AppEventSource, { icon: LucideIcon; iconClass: string }> = {
+  music: { icon: Music, iconClass: "text-violet-400/80" },
+  model: { icon: Cpu, iconClass: "text-sky-400/80" },
+  "llm-provider": { icon: Cpu, iconClass: "text-sky-400/80" },
+  profile: { icon: UserRound, iconClass: "text-emerald-400/80" },
+  agenda: { icon: Calendar, iconClass: "text-amber-400/80" },
+  "kira-agenda": { icon: Calendar, iconClass: "text-amber-400/80" },
+  stream: { icon: Radio, iconClass: "text-pink-400/80" },
+  ptt: { icon: Mic, iconClass: "text-cyan-400/80" },
+  vision: { icon: Eye, iconClass: "text-sky-400/80" },
+  obs: { icon: Monitor, iconClass: "text-muted-foreground" },
+  settings: { icon: SlidersHorizontal, iconClass: "text-muted-foreground" },
+  motor: { icon: Info, iconClass: "text-info/80" }
+};
+
+const PRIVATE_TOOLTIP_DWELL_MS = 350;
+const PRIVATE_TOOLTIP_FADE_MS = 200;
+
+/**
+ * Private mode toggle with a styled hover/focus explanation card matching
+ * Sidebar's profile preview card (dwell on hover, immediate on keyboard focus,
+ * smooth fade-out, Escape to dismiss, no unstyled native `title`).
+ */
+function PrivateModeControl({
+  checked,
+  available,
+  error,
+  onToggle
+}: {
+  checked: boolean;
+  available: boolean;
+  error: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  const t = useT();
+  const tooltipId = useId();
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tip, setTip] = useState<{ left: number; top: number; closing: boolean } | null>(null);
+
+  const clearTimers = useCallback(() => {
+    if (dwellRef.current !== null) {
+      clearTimeout(dwellRef.current);
+      dwellRef.current = null;
+    }
+    if (fadeRef.current !== null) {
+      clearTimeout(fadeRef.current);
+      fadeRef.current = null;
+    }
+  }, []);
+
+  const computePos = useCallback(() => {
+    const rect = anchorRef.current?.getBoundingClientRect();
+    const cardWidth = 288;
+    const rawLeft = rect ? rect.right - cardWidth : 12;
+    const maxLeft = Math.max(8, window.innerWidth - cardWidth - 8);
+    const left = Math.min(maxLeft, Math.max(8, rawLeft));
+    const top = rect ? rect.bottom + 8 : 48;
+    return { left, top };
+  }, []);
+
+  const openNow = useCallback(() => {
+    clearTimers();
+    const { left, top } = computePos();
+    setTip({ left, top, closing: false });
+  }, [clearTimers, computePos]);
+
+  const openAfterDwell = useCallback(() => {
+    clearTimers();
+    dwellRef.current = setTimeout(() => {
+      dwellRef.current = null;
+      const { left, top } = computePos();
+      setTip({ left, top, closing: false });
+    }, PRIVATE_TOOLTIP_DWELL_MS);
+  }, [clearTimers, computePos]);
+
+  const hide = useCallback(() => {
+    if (dwellRef.current !== null) {
+      clearTimeout(dwellRef.current);
+      dwellRef.current = null;
+    }
+    setTip((prev) => (prev ? { ...prev, closing: true } : null));
+    if (fadeRef.current !== null) clearTimeout(fadeRef.current);
+    fadeRef.current = setTimeout(() => {
+      fadeRef.current = null;
+      setTip(null);
+    }, PRIVATE_TOOLTIP_FADE_MS);
+  }, []);
+
+  useEffect(() => {
+    if (!tip) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") hide();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tip, hide]);
+
+  useEffect(() => clearTimers, [clearTimers]);
+
+  const stateLabel = !available
+    ? t("experiencia.conversationPanel.privateMode.tooltip.state.unavailable")
+    : checked
+      ? t("experiencia.conversationPanel.privateMode.tooltip.state.on")
+      : t("experiencia.conversationPanel.privateMode.tooltip.state.off");
+
+  return (
+    <div
+      ref={anchorRef}
+      className="relative inline-flex items-center gap-2"
+      onMouseEnter={openAfterDwell}
+      onMouseLeave={hide}
+      onFocus={openNow}
+      onBlur={(event) => {
+        if (!anchorRef.current?.contains(event.relatedTarget as Node | null)) hide();
+      }}
+      aria-describedby={tip ? tooltipId : undefined}
+    >
+      <span
+        onClick={() => available && onToggle(!checked)}
+        className={cn(
+          "select-none text-[11.5px] transition-colors",
+          available ? "cursor-pointer hover:text-foreground" : "cursor-not-allowed opacity-60",
+          checked ? "font-semibold text-warn" : "font-medium text-muted-foreground"
+        )}
+      >
+        {t("experiencia.conversationPanel.privateMode")}
+      </span>
+      {error && (
+        <span role="alert" className="text-[11px] font-semibold text-warn">
+          {t("experiencia.conversationPanel.privateMode.error")}
+        </span>
+      )}
+      <Switch
+        checked={checked}
+        disabled={!available}
+        onChange={onToggle}
+        aria-label={t("experiencia.conversationPanel.privateMode")}
+      />
+      {tip && (
+        <div
+          id={tooltipId}
+          ref={cardRef}
+          role="tooltip"
+          style={{
+            position: "fixed",
+            left: tip.left,
+            top: tip.top,
+            backgroundColor: "var(--surface-2)",
+            backdropFilter: "var(--surface-blur)",
+            WebkitBackdropFilter: "var(--surface-blur)"
+          }}
+          className={cn(
+            "pointer-events-none z-50 w-72 rounded-md border border-border-soft bg-surface-2 p-3 text-left shadow-panel backdrop-blur-md transition-opacity duration-base ease-io",
+            tip.closing ? "opacity-0" : "animate-rise-in opacity-100"
+          )}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              <EyeOff size={13} aria-hidden="true" className={checked ? "text-warn" : "text-muted-foreground"} />
+              {t("experiencia.conversationPanel.privateMode")}
+            </span>
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                !available
+                  ? "bg-surface-2 text-dim border border-border-soft"
+                  : checked
+                    ? "bg-warn-bg text-warn border border-warn-bd"
+                    : "bg-background/60 text-muted-foreground border border-border-soft"
+              )}
+            >
+              {stateLabel}
+            </span>
+          </div>
+
+          {!available ? (
+            <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
+              {t("experiencia.conversationPanel.privateMode.unavailable")}
+            </p>
+          ) : (
+            <>
+              <p className="mt-1.5 text-[11.5px] leading-snug text-muted-foreground">
+                {t("experiencia.conversationPanel.privateMode.tooltip.lead")}
+              </p>
+              <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-dim">
+                {t("experiencia.conversationPanel.privateMode.tooltip.disablesHeading")}
+              </p>
+              <ul className="mt-1 space-y-1 pl-3.5 text-[11px] leading-snug text-muted-foreground list-disc">
+                <li>{t("experiencia.conversationPanel.privateMode.tooltip.disables.memories")}</li>
+                <li>{t("experiencia.conversationPanel.privateMode.tooltip.disables.episodes")}</li>
+                <li>{t("experiencia.conversationPanel.privateMode.tooltip.disables.session")}</li>
+              </ul>
+              <p className="mt-2.5 border-t border-border-soft/70 pt-2 text-[10.5px] leading-snug text-dim">
+                {t("experiencia.conversationPanel.privateMode.tooltip.keepsNote")}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FeedEventRow({
+  label,
+  tone,
+  source,
+  ts
+}: {
+  label: string;
+  tone: AppEventTone;
+  source?: AppEventSource;
+  ts?: number;
+}) {
+  let Icon: LucideIcon = CircleDashed;
+  let iconClass = "text-muted-foreground/75";
+
+  if (tone === "danger") {
+    Icon = OctagonAlert;
+    iconClass = "text-danger";
+  } else if (tone === "warn") {
+    Icon = TriangleAlert;
+    iconClass = "text-warn";
+  } else if (source === "motor") {
+    Icon = tone === "ok" ? CircleCheck : Info;
+    iconClass = tone === "ok" ? "text-ok/80" : "text-info/80";
+  } else if (source) {
+    Icon = EVENT_SOURCE_STYLE[source].icon;
+    iconClass = EVENT_SOURCE_STYLE[source].iconClass;
+  }
+
+  const surfaceClass =
+    tone === "danger"
+      ? "border-danger-bd/60 border-l-2 border-l-danger bg-danger-bg/35 text-foreground"
+      : tone === "warn"
+        ? "border-warn-bd/60 border-l-2 border-l-warn bg-warn-bg/30 text-foreground"
+        : "border-border-soft/50 bg-surface-2/35 text-muted-foreground";
+
+  return (
+    <div
+      role="status"
+      data-tone={tone}
+      data-event-source={source}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs leading-snug animate-rise-in",
+        surfaceClass
+      )}
+    >
+      <Icon className={cn("shrink-0", iconClass)} size={13} aria-hidden="true" />
+      <span className="min-w-0 flex-1">{label}</span>
+      <TurnTime ts={ts} className="ml-auto shrink-0 tabular-nums text-right opacity-70" />
+    </div>
+  );
+}
+
 function ConversationTurnImpl({
   turn,
   operatorName,
@@ -776,13 +1061,12 @@ function ConversationTurnImpl({
 
   if (turn.event !== undefined) {
     return (
-      <div className="flex flex-row items-center justify-between gap-2">
-        <Alert tone={turn.tone ?? "neutral"} role="status" className="min-w-0 flex-1 gap-1">
-          {turn.event}
-          {/* Necesita separarse use ml-auto y solo pl-3 funciona pero no es el resultado esperado debe estar la hora un efecto similar a justify-end*/}
-          <TurnTime ts={turn.ts} className="ml-auto pl-3"/>
-        </Alert>
-      </div>
+      <FeedEventRow
+        label={turn.event}
+        tone={turn.tone ?? "neutral"}
+        source={turn.eventSource}
+        ts={turn.ts}
+      />
     );
   }
 
@@ -1859,6 +2143,7 @@ export function ConversationPanel() {
       id: event.id,
       kind: "alert",
       event: event.label,
+      eventSource: "agenda",
       ts: event.ts
     }));
     const visionOffTurns: Turn[] = visionOffRequests.map((request) => ({
@@ -1871,6 +2156,7 @@ export function ConversationPanel() {
       id: event.id,
       kind: "alert",
       event: event.label,
+      eventSource: event.source,
       tone: event.tone,
       ts: event.ts
     }));
@@ -2031,28 +2317,12 @@ export function ConversationPanel() {
           <div className="flex items-center justify-between px-3 py-1.5">
             <span className="mono text-[11px] font-semibold uppercase tracking-[0.09em] text-dim">{t("experiencia.conversationPanel.feed.eyebrow")}</span>
             <div className="inline-flex items-center gap-3">
-              <div className="inline-flex items-center gap-2" title={t(privateAvailable ? "experiencia.conversationPanel.privateMode.hint" : "experiencia.conversationPanel.privateMode.unavailable")}>
-                <span
-                  onClick={() => handleTogglePrivateMode(!privateMode)}
-                  className={cn(
-                    "cursor-pointer select-none text-[11.5px] transition-colors hover:text-foreground",
-                    privateMode ? "font-semibold text-warn" : "font-medium text-muted-foreground"
-                  )}
-                >
-                  {t("experiencia.conversationPanel.privateMode")}
-                </span>
-                {privateError && (
-                  <span role="alert" className="text-[11px] font-semibold text-warn">
-                    {t("experiencia.conversationPanel.privateMode.error")}
-                  </span>
-                )}
-                <Switch
-                  checked={privateMode}
-                  disabled={!privateAvailable}
-                  onChange={handleTogglePrivateMode}
-                  aria-label={t("experiencia.conversationPanel.privateMode")}
-                />
-              </div>
+              <PrivateModeControl
+                checked={privateMode}
+                available={privateAvailable}
+                error={privateError}
+                onToggle={handleTogglePrivateMode}
+              />
               <div className="inline-flex items-center gap-2">
                 <span
                   onClick={() => handleToggleAutoFollow(!autoFollow)}

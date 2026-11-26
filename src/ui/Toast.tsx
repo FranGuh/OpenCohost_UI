@@ -239,14 +239,16 @@ function ToastItem({
         translateClass,
       )}
     >
-      {/* status dot */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "mt-1 h-[6px] w-[6px] shrink-0 rounded-full",
-          dotClasses[entry.tone],
-        )}
-      />
+      {/* status dot (semantic tones only) */}
+      {entry.tone !== "neutral" && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-1 h-[6px] w-[6px] shrink-0 rounded-full",
+            dotClasses[entry.tone],
+          )}
+        />
+      )}
 
       {/* content */}
       <div className="flex-1 min-w-0">
